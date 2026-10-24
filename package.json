@@ -1,0 +1,79 @@
+{
+  "name": "@holon/apps",
+  "version": "0.1.0",
+  "description": "Typed MCP clients, browser helpers, and static contract extraction.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "holon": {
+    "slot": "generated",
+    "contractVersion": 1
+  },
+  "exports": {
+    ".": {
+      "types": "./generated/index.d.ts",
+      "import": "./generated/index.js"
+    },
+    "./browser": {
+      "types": "./generated/browser.d.ts",
+      "import": "./generated/browser.js"
+    },
+    "./runtime": {
+      "types": "./runtime.d.ts",
+      "import": "./runtime.mjs"
+    },
+    "./browser-runtime": {
+      "types": "./browser-runtime.d.ts",
+      "import": "./browser-runtime.mjs"
+    },
+    "./view": {
+      "types": "./view.d.ts",
+      "import": "./view.js"
+    },
+    "./protocol": {
+      "types": "./protocol.d.ts"
+    },
+    "./extract": {
+      "types": "./extract/extract.d.ts",
+      "import": "./extract/extract.mjs"
+    }
+  },
+  "files": [
+    "runtime.mjs",
+    "runtime.d.ts",
+    "browser-runtime.mjs",
+    "browser-runtime.d.ts",
+    "browser-validate.mjs",
+    "protocol.d.ts",
+    "view.js",
+    "view.d.ts",
+    "extract/",
+    "generated/",
+    "postinstall.mjs",
+    "THIRD-PARTY-NOTICES.txt",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "postinstall": "node postinstall.mjs",
+    "prepack": "npm run build",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/node": "2.1.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "@types/node": "^22.0.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "esbuild": "0.28.2",
+    "fflate": "0.8.3",
+    "mcptype": "file:vendor/mcptype-0.0.6.tgz",
+    "typescript": "~5.9.3",
+    "zod": "4.6.5"
+  }
+}
