@@ -24,6 +24,6 @@ jobs:
         with:
           name: apps-and-cli-tooling
           path: |
-            holon-apps-*.tgz
+            holon-sh-apps-*.tgz
             dist/cli-tooling-ts-*.zip
             dist/SHA256SUMS

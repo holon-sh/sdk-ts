@@ -1,7 +1,8 @@
 {
-  "name": "@holon/apps",
+  "name": "@holon-sh/apps",
   "version": "0.1.0",
   "description": "Typed MCP clients, browser helpers, and static contract extraction.",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22"

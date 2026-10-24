@@ -28,7 +28,7 @@ test("the packed public package installs without dependencies and its placeholde
   writeFileSync(join(consumer, "package.json"), '{"type":"module","private":true}');
   const installed = spawnSync("npm", ["install", "--offline", "--no-audit", "--no-fund", join(root, info.filename)], { cwd: consumer, encoding: "utf8", env: { ...process.env, npm_config_cache: join(root, "npm-cache"), HOLON_SKIP_POSTINSTALL: "1" } });
   assert.equal(installed.status, 0, installed.stderr);
-  const directory = join(consumer, "node_modules/@holon/apps");
+  const directory = join(consumer, "node_modules/@holon-sh/apps");
   const metadata = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
   assert.deepEqual(metadata.holon, { slot: "generated", contractVersion: 1 });
   assert.deepEqual(metadata.dependencies ?? {}, {});
@@ -39,11 +39,11 @@ test("the packed public package installs without dependencies and its placeholde
   const { extract } = await import(pathToFileURL(join(directory, "extract/extract.mjs")));
   assert.match(extract(consumer).diagnostic, /entrypoint/);
   const source = join(consumer, "consumer.ts");
-  writeFileSync(source, `import { apps, type Apps, type Inputs, type Outputs } from "@holon/apps";
-import { createApps, registerPageTools } from "@holon/apps/browser";
-import { setDefaultBinding, ToolCallError, type Binding } from "@holon/apps/runtime";
-import { appView } from "@holon/apps/view";
-import { extract } from "@holon/apps/extract";
+  writeFileSync(source, `import { apps, type Apps, type Inputs, type Outputs } from "@holon-sh/apps";
+import { createApps, registerPageTools } from "@holon-sh/apps/browser";
+import { setDefaultBinding, ToolCallError, type Binding } from "@holon-sh/apps/runtime";
+import { appView } from "@holon-sh/apps/view";
+import { extract } from "@holon-sh/apps/extract";
 const empty: Apps = createApps({});
 const binding: Binding = { endpoint: "https://example.com/mcp", fetch };
 setDefaultBinding(() => binding);
