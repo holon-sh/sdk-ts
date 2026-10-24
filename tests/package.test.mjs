@@ -3,9 +3,6 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname } from "node:path";
-import { spawnSync } from "node:child_process";
-import { unzipSync } from "fflate";
-import { createHash } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { z } from "zod";
@@ -166,22 +163,6 @@ unknown.total;
     const diagnostics = ts.getPreEmitDiagnostics(program);
     assert.equal(diagnostics.length, 0, ts.formatDiagnostics(diagnostics, { getCurrentDirectory: () => root, getCanonicalFileName: p => p, getNewLine: () => "\n" }));
   }
-  const tooling = join(root, "tooling");
-  for (const [name, bytes] of Object.entries(unzipSync(readFileSync(join("dist", "cli-tooling-ts-0.1.0.zip"))))) {
-    mkdirSync(dirname(join(tooling, name)), { recursive: true });
-    writeFileSync(join(tooling, name), bytes);
-  }
-  writeFileSync(join(root, "check.json"), JSON.stringify({ root, entry: "check.ts", sources: {"check.ts":createHash("sha256").update(source).digest("hex")} }));
-  const checked = spawnSync(process.execPath, [join(tooling, "runner.mjs"), "check", join(root, "check.json")], { encoding: "utf8" });
-  assert.equal(checked.status, 0, checked.stderr);
-  symlinkSync(resolve("node_modules/typescript"), join(root, "node_modules/typescript"));
-  writeFileSync(join(root, "tsconfig.json"), JSON.stringify({compilerOptions:{target:"ES2023",module:"ESNext",moduleResolution:"Bundler",strict:true},files:["check.ts"]}));
-  const configured = spawnSync(process.execPath, [join(tooling, "runner.mjs"), "check", join(root, "check.json")], { encoding: "utf8" });
-  assert.equal(configured.status, 0, configured.stderr + configured.stdout);
-  writeFileSync(join(root, "check.ts"), source + "\nexport const changedAfterExtraction = true;\n");
-  const changed = spawnSync(process.execPath, [join(tooling, "runner.mjs"), "verify", join(root, "check.json")], {encoding:"utf8"});
-  assert.notEqual(changed.status, 0);
-  assert.match(changed.stderr, /refusing to publish stale types/);
   const isolated = join(root, "other-app");
   const isolatedPackage = join(isolated, "node_modules/@holon-sh/apps");
   mkdirSync(isolatedPackage, {recursive:true});

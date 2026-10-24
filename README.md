@@ -1,7 +1,7 @@
 # @holon-sh/apps
 
-Typed MCP clients, browser helpers, view resources, and static contract extraction.
-The runtime is bundled and has no runtime package dependencies. Node.js 22 or newer is required for the Node and extraction entry points.
+Typed MCP clients, browser helpers, and view resources.
+The runtime is bundled and has no runtime package dependencies. Node.js 22 or newer is required for the Node entry points.
 
 This repository prepares `@holon-sh/apps` 0.1.0 for publication. Nothing is published by its CI workflow.
 
@@ -31,13 +31,6 @@ import { appView } from "@holon-sh/apps/view";
 server.registerResource(...appView("Dashboard", "ui://dashboard/index.html", new URL("./dist/index.html", import.meta.url)));
 ```
 
-`extract` from `@holon-sh/apps/extract` statically analyzes an MCP handler without executing application initialization:
-
-```ts
-import { extract } from "@holon-sh/apps/extract";
-const contract = extract(process.cwd(), "server.ts");
-```
-
 Installation runs a best-effort `holon types generate --quiet -p <manifest>` if a `holon.yaml` exists above `INIT_CWD` and `holon` is available on PATH. Missing commands and generation failures never fail installation. Set `HOLON_SKIP_POSTINSTALL=1` to disable it.
 
 ## Development
@@ -51,4 +44,4 @@ npm test
 npm pack
 ```
 
-`npm run build` also produces `dist/cli-tooling-ts-0.1.0.zip`, containing the standalone `runner.mjs`, TypeScript standard declarations under `lib/`, version metadata, and third-party notices. The runner supports `extract`, `check`, and `verify`; it has no dependency on an installed CLI or private host SDK.
+Contract extraction and type checking belong to the `holon` CLI, which carries its own tooling; this package ships only the runtime.

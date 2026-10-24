@@ -22,8 +22,5 @@ jobs:
       - run: npm pack
       - uses: actions/upload-artifact@v4
         with:
-          name: apps-and-cli-tooling
-          path: |
-            holon-sh-apps-*.tgz
-            dist/cli-tooling-ts-*.zip
-            dist/SHA256SUMS
+          name: apps
+          path: holon-sh-apps-*.tgz

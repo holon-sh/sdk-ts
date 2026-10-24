@@ -1,5 +1,4 @@
 node_modules/
-dist/
 vendor/*
 !vendor/.gitkeep
 *.tgz
@@ -11,6 +10,5 @@ vendor/*
 /protocol.d.ts
 /view.js
 /view.d.ts
-/extract/
 /generated/
 /THIRD-PARTY-NOTICES.txt

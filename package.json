@@ -1,7 +1,7 @@
 {
   "name": "@holon-sh/apps",
   "version": "0.1.0",
-  "description": "Typed MCP clients, browser helpers, and static contract extraction.",
+  "description": "Typed MCP clients, browser helpers, and app view resources.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -37,10 +37,6 @@
     },
     "./protocol": {
       "types": "./protocol.d.ts"
-    },
-    "./extract": {
-      "types": "./extract/extract.d.ts",
-      "import": "./extract/extract.mjs"
     }
   },
   "files": [
@@ -52,7 +48,6 @@
     "protocol.d.ts",
     "view.js",
     "view.d.ts",
-    "extract/",
     "generated/",
     "postinstall.mjs",
     "THIRD-PARTY-NOTICES.txt",
@@ -72,7 +67,6 @@
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
     "esbuild": "0.28.2",
-    "fflate": "0.8.3",
     "mcptype": "file:vendor/mcptype-0.0.6.tgz",
     "typescript": "~5.9.3",
     "zod": "4.6.5"

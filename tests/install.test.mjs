@@ -6,7 +6,6 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { unzipSync } from "fflate";
 
 function temporary(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "holon-apps-install-")));
@@ -21,8 +20,7 @@ test("the packed public package installs without dependencies and its placeholde
   const info = JSON.parse(packed.stdout)[0];
   const paths = info.files.map(file => file.path);
   assert.ok(paths.includes("generated/holon-generated.json"));
-  assert.ok(paths.includes("extract/extract.mjs"));
-  for (const path of paths) assert.doesNotMatch(path, /(?:^|\/)(?:context|identity|typecheck|runner)\.|(?:^|\/)(?:src|tests|vendor|node_modules|schema|schemas)\//);
+  for (const path of paths) assert.doesNotMatch(path, /(?:^|\/)(?:context|identity|typecheck|runner|extract)\.|(?:^|\/)(?:src|tests|vendor|node_modules|schema|schemas)\//);
   const consumer = join(root, "consumer");
   mkdirSync(consumer);
   writeFileSync(join(consumer, "package.json"), '{"type":"module","private":true}');
@@ -36,19 +34,15 @@ test("the packed public package installs without dependencies and its placeholde
   const browser = await import(pathToFileURL(join(directory, "generated/browser.js")));
   assert.deepEqual(Object.keys(browser.createApps({})), []);
   assert.throws(() => browser.createApps({ unknown: { endpoint: "https://example.com/mcp" } }), /Unknown app binding/);
-  const { extract } = await import(pathToFileURL(join(directory, "extract/extract.mjs")));
-  assert.match(extract(consumer).diagnostic, /entrypoint/);
   const source = join(consumer, "consumer.ts");
   writeFileSync(source, `import { apps, type Apps, type Inputs, type Outputs } from "@holon-sh/apps";
 import { createApps, registerPageTools } from "@holon-sh/apps/browser";
 import { setDefaultBinding, ToolCallError, type Binding } from "@holon-sh/apps/runtime";
 import { appView } from "@holon-sh/apps/view";
-import { extract } from "@holon-sh/apps/extract";
 const empty: Apps = createApps({});
 const binding: Binding = { endpoint: "https://example.com/mcp", fetch };
 setDefaultBinding(() => binding);
 appView("view", "ui://view", "index.html");
-extract(".", "server.ts");
 // @ts-expect-error types generation has not run
 apps.orders;
 // @ts-expect-error the placeholder has no bindings
@@ -83,24 +77,4 @@ test("postinstall finds the ancestor manifest and never makes package installati
   rmSync(manifest);
   assert.equal(run({}).status, 0);
   assert.equal(existsSync(log), false);
-});
-
-test("CLI tooling is standalone and carries only the extractor and compiler assets", t => {
-  const root = temporary(t);
-  const files = unzipSync(readFileSync("dist/cli-tooling-ts-0.1.0.zip"));
-  for (const [name, bytes] of Object.entries(files)) {
-    assert.match(name, /^(runner\.mjs|version\.json|THIRD-PARTY-NOTICES\.txt|lib\/lib.*\.d\.ts)$/);
-    const path = join(root, name);
-    mkdirSync(join(path, ".."), { recursive: true });
-    writeFileSync(path, bytes);
-  }
-  const app = join(root, "application");
-  mkdirSync(app);
-  writeFileSync(join(app, "server.ts"), 'import {McpServer,createMcpHandler} from "@modelcontextprotocol/server"; export default createMcpHandler(()=>new McpServer({name:"test",version:"1"}));');
-  const config = join(root, "extract.json");
-  const output = join(root, "output.json");
-  writeFileSync(config, JSON.stringify({ apps: [{ name: "test", path: app, entry: "server.ts" }] }));
-  const result = spawnSync(process.execPath, [join(root, "runner.mjs"), "extract", config, output], { encoding: "utf8" });
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).test.tools, []);
 });
