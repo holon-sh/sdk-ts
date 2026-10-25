@@ -12,8 +12,9 @@ export function setDefaultBinding(resolve) {
 
 export class ToolCallError extends Error {
   constructor(app, tool, result) {
-    const code = result.resultType === "input_required" ? "input_required" : "tool_error";
-    super(`${app}.${tool}: ${code === "input_required" ? "additional input required" : "tool failed"}.`);
+    const [code, message] = result.resultType === "input_required"
+      ? ["input_required", "additional input required"] : ["tool_error", "tool failed"];
+    super(`${app}.${tool}: ${message}.`);
     this.name = "ToolCallError";
     this.code = code;
     this.app = app;
@@ -115,7 +116,7 @@ export function createApps(identity, contracts, bindings, options) {
       return { ...result, resultType: "complete" };
     };
     const listTools = options => session(options, client => client.listTools(undefined, options));
-    for (const tool of contract?.tools ?? []) if (!["then", "toJSON", "toString", "valueOf", "toLocaleString"].includes(tool.name)) {
+    for (const { definition: tool } of definitions.values()) if (!["then", "toJSON", "toString", "valueOf", "toLocaleString"].includes(tool.name)) {
       tools[tool.name] = async (input, options) => {
         const result = await callTool({ name: tool.name, arguments: input }, options);
         if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, tool.name, result);

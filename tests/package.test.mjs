@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { z } from "zod";
 import { generate as generateTarget } from "mcptype/compiler";
-import { temporary, writeFiles } from "./helpers.mjs";
+import { temporary, typecheck, writeFiles } from "./helpers.mjs";
 
 // Install the package layout, then fill only its generated slot.
 async function generate(directory, identity, contracts, browser = contracts) {
@@ -133,17 +133,12 @@ const unknown = await apps.orders.tools.unknown_output({});
 unknown.total;
 `;
   writeFileSync(join(root, "check.ts"), source);
-  for (const moduleResolution of [ts.ModuleResolutionKind.NodeNext, ts.ModuleResolutionKind.Bundler]) {
-    const program = ts.createProgram([join(root, "check.ts")], { noEmit: true, strict: true, target: ts.ScriptTarget.ES2023, moduleResolution, module: moduleResolution === ts.ModuleResolutionKind.NodeNext ? ts.ModuleKind.NodeNext : ts.ModuleKind.ESNext });
-    const diagnostics = ts.getPreEmitDiagnostics(program);
-    assert.equal(diagnostics.length, 0, ts.formatDiagnostics(diagnostics, { getCurrentDirectory: () => root, getCanonicalFileName: p => p, getNewLine: () => "\n" }));
-  }
+  typecheck(join(root, "check.ts"));
   const isolated = join(root, "other-app");
   const isolatedPackage = join(isolated, "node_modules/holon-sh");
   await generate(isolatedPackage, {name:"other",version:"1",requires:{}}, {});
   writeFileSync(join(isolated, "check.ts"), `import {apps} from "holon-sh";\n// @ts-expect-error\napps.orders;`);
-  const isolatedProgram = ts.createProgram([join(isolated, "check.ts")], {noEmit:true,strict:true,target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.NodeNext,moduleResolution:ts.ModuleResolutionKind.NodeNext});
-  assert.equal(ts.getPreEmitDiagnostics(isolatedProgram).length, 0, "app-specific imports leaked another application's bindings");
+  typecheck(join(isolated, "check.ts"), [ts.ModuleResolutionKind.NodeNext]);
   const { apps } = await import(pathToFileURL(join(directory, "generated/index.js")));
   assert.equal(await apps.orders.tools, apps.orders.tools);
 });

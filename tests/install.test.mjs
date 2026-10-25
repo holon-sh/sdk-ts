@@ -4,8 +4,7 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import ts from "typescript";
-import { temporary } from "./helpers.mjs";
+import { temporary, typecheck } from "./helpers.mjs";
 
 test("the packed public package installs without dependencies and its placeholder types resolve", async t => {
   const root = temporary(t);
@@ -42,11 +41,7 @@ apps.orders;
 // @ts-expect-error the placeholder has no bindings
 createApps({orders: binding});
 `);
-  for (const moduleResolution of [ts.ModuleResolutionKind.NodeNext, ts.ModuleResolutionKind.Bundler]) {
-    const program = ts.createProgram([source], { noEmit: true, strict: true, target: ts.ScriptTarget.ES2023, moduleResolution, module: moduleResolution === ts.ModuleResolutionKind.NodeNext ? ts.ModuleKind.NodeNext : ts.ModuleKind.ESNext });
-    const diagnostics = ts.getPreEmitDiagnostics(program);
-    assert.equal(diagnostics.length, 0, ts.formatDiagnostics(diagnostics, { getCurrentDirectory: () => consumer, getCanonicalFileName: p => p, getNewLine: () => "\n" }));
-  }
+  typecheck(source);
 });
 
 test("postinstall finds the ancestor manifest and never makes package installation fail", t => {

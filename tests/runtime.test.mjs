@@ -48,7 +48,9 @@ test("tools return output or throw while callTool preserves MCP results and iden
   const incomplete = await first.orders.callTool({ name: "get_order", arguments: { id: "input" } });
   assert.equal(incomplete.resultType, "input_required");
   assert.equal(incomplete.requestState, "opaque-state");
+  const dynamic = createApps({ name: "dynamic", version: "1", requires: { orders: {} } }, {});
   for (const [id, code, result] of [["error", "tool_error", error], ["input", "input_required", incomplete]]) {
+    assert.deepEqual(await dynamic.orders.callTool({ name: "get_order", arguments: { id } }), result);
     await assert.rejects(first.orders.tools.get_order({ id }), thrown => {
       assert.ok(thrown instanceof ToolCallError);
       assert.equal(thrown.code, code);
@@ -59,6 +61,7 @@ test("tools return output or throw while callTool preserves MCP results and iden
       return true;
     });
   }
+  await assert.rejects(first.orders.callTool({ name: "absent", arguments: {} }), /Unknown tool orders\.absent/);
   await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }), /Invalid structured output/);
   await assert.rejects(first.orders.tools.get_order({ id: "text" }), /Invalid structured output/);
   const untyped = createApps({ name: "untyped", version: "1", requires: { orders: {} } }, { orders: { tools: [{ name: "get_order", inputSchema: contract.tools[0].inputSchema }] } });
