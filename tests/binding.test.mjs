@@ -1,4 +1,4 @@
-import { afterEach, test } from "node:test";
+import { test } from "node:test";
 import assert from "node:assert/strict";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -11,37 +11,42 @@ function orders() {
   return server;
 }
 
-afterEach(() => setDefaultBinding(() => undefined));
-
 const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }] };
 const identity = { name: "checkout", version: "1", requires: { orders: {}, payments: {} } };
 
-test("an app without a resolver or environment variable is unavailable", async () => {
-  delete process.env.ORDERS_MCP_URL;
+test("Node bindings resolve lazily, prefer the resolver, and fall back to scoped environment calls", { timeout: 10000 }, async t => {
+  const environment = process.env;
+  process.env = { ...environment, ORDERS_MCP_URL: "", PAYMENTS_MCP_URL: "" };
+  t.after(() => { process.env = environment; setDefaultBinding(() => undefined); });
   setDefaultBinding(() => undefined);
   const apps = createApps(identity, { orders: contract });
   await assert.rejects(apps.orders.tools.get_order({ id: "a" }), /Dependency orders is unavailable \(ORDERS_MCP_URL\)\. Provide a binding or set the environment variable\./);
   assert.throws(() => setDefaultBinding("not a function"), TypeError);
-  const undeclared = createApps({name: "checkout", version: "1"}, {orders: contract});
-  await assert.rejects(undeclared.orders.tools.get_order({id: "a"}), /Dependency orders is not declared/);
-});
-
-test("the default binding supplies the endpoint and fetch, and scoped bindings reconnect per call", { timeout: 10000 }, async t => {
+  await assert.rejects(createApps({ name: "checkout", version: "1" }, { orders: contract }).orders.tools.get_order({ id: "a" }), /Dependency orders is not declared/);
   const { endpoint } = await serve(t, orders);
   // Each new connection starts by discovering the server.
   const connections = { orders: 0, payments: 0 };
+  const originalFetch = globalThis.fetch;
   const counting = app => async (input, init) => {
     if (typeof init?.body === "string" && JSON.parse(init.body).method === "server/discover") connections[app] += 1;
-    return fetch(input, init);
+    return originalFetch(input, init);
   };
-  // Created before the resolver is set: bindings resolve per call, not when the package is imported.
-  const apps = createApps(identity, { orders: contract });
-  setDefaultBinding(app => app === "orders" ? { endpoint, fetch: counting("orders") } : { endpoint, fetch: counting("payments"), scoped: true });
+  process.env.ORDERS_MCP_URL = "http://unavailable.invalid/mcp";
+  // Clients created before the resolver was set use it at call time.
+  setDefaultBinding(() => ({ endpoint, fetch: counting("orders") }));
   assert.deepEqual(await apps.orders.tools.get_order({ id: "a" }), { id: "a" });
   assert.deepEqual(await apps.orders.tools.get_order({ id: "b" }), { id: "b" });
   assert.equal(connections.orders, 1);
   await apps.orders.close();
 
+  // Existing hosts can also replace the shared symbol directly.
+  setDefaultBinding(() => undefined);
+  globalThis[Symbol.for("@holon-sh/sdk/default-binding")] = app => app === "orders" ? { endpoint } : undefined;
+  assert.deepEqual(await apps.orders.tools.get_order({ id: "host" }), { id: "host" });
+  await apps.orders.close();
+  process.env.PAYMENTS_MCP_URL = endpoint;
+  // The Node environment fallback is scoped and consulted on every call.
+  t.mock.method(globalThis, "fetch", counting("payments"));
   // payments has no contract: an untyped client that calls any tool without validation.
   assert.deepEqual(Object.keys(apps.payments.tools), []);
   assert.deepEqual(Object.keys(apps.payments.resources), []);
@@ -53,12 +58,4 @@ test("the default binding supplies the endpoint and fetch, and scoped bindings r
   assert.equal(connections.payments, 2);
   const { tools } = await apps.payments.listTools();
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
-});
-
-test("existing hosts set the established binding symbol directly", async t => {
-  const { endpoint } = await serve(t, orders);
-  const hosted = createApps(identity, {orders: contract});
-  globalThis[Symbol.for("@holon-sh/sdk/default-binding")] = () => ({endpoint});
-  assert.deepEqual(await hosted.orders.tools.get_order({id:"host"}), {id:"host"});
-  await hosted.orders.close();
 });

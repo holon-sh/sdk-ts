@@ -48,9 +48,9 @@ export function createApps(identity, contracts, bindings, options) {
     // Without explicit bindings, the resolve hook supplies the binding on every call.
     const current = () => binding ?? (bindings ? undefined : resolve?.(name));
     let connection;
-    const connect = (endpoint, resolved) => {
+    const connect = resolved => {
       const client = new Client({ name: identity.name, version: identity.version }, { versionNegotiation: { mode: "auto" } });
-      const transport = new StreamableHTTPClientTransport(new URL(endpoint), resolved ? { authProvider: resolved.authProvider, fetch: resolved.fetch, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } } : undefined);
+      const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: resolved.fetch, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
       const current = { client, close: async () => {
         await transport.close();
         await current.ready.catch(() => {});
@@ -74,7 +74,7 @@ export function createApps(identity, contracts, bindings, options) {
       if (!resolved.endpoint) throw new Error(`Dependency ${name} binding has no endpoint.`);
       // Bindings marked scoped connect for one call at a time.
       const scoped = resolved.scoped === true;
-      const active = scoped ? connect(resolved.endpoint, resolved) : (connection ??= connect(resolved.endpoint, resolved));
+      const active = scoped ? connect(resolved) : (connection ??= connect(resolved));
       try {
         await untilAborted(active.ready, options?.signal);
         return await run(active.client);
@@ -126,7 +126,7 @@ export function createApps(identity, contracts, bindings, options) {
         const resolved = current();
         if (!resolved?.endpoint) throw new Error(`Watching ${name} ${resource.uri} requires an endpoint binding.`);
         for (let established = false; !signal?.aborted; await delay(1000, signal)) {
-          const current = connect(resolved.endpoint, resolved);
+          const current = connect(resolved);
           let failure;
           try {
             await untilAborted(current.ready, signal);
