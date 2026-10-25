@@ -5,10 +5,10 @@ import { once } from "node:events";
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { z } from "zod";
-import { setDefaultBinding } from "@holon-sh/apps/runtime";
+import { setDefaultBinding } from "holon-sh/runtime";
 // Independently bundled runtimes share the same default binding resolver.
-import { createApps } from "@holon-sh/apps/runtime";
-import { createApps as createBrowserApps } from "@holon-sh/apps/browser-runtime";
+import { createApps } from "holon-sh/runtime";
+import { createApps as createBrowserApps } from "holon-sh/browser-runtime";
 
 async function serve(t) {
   const handler = createMcpHandler(() => {
