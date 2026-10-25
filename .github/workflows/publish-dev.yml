@@ -53,10 +53,10 @@ jobs:
       - name: Summarize
         run: |
           {
-            echo "## @holon-sh/apps $VERSION (dev)"
+            echo "## holon-sh $VERSION (dev)"
             echo
             echo '```sh'
-            echo "npm install @holon-sh/apps@$VERSION"
-            echo "npm install @holon-sh/apps@dev"
+            echo "npm install holon-sh@$VERSION"
+            echo "npm install holon-sh@dev"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

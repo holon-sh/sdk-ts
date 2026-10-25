@@ -38,7 +38,7 @@ const contract = { tools: [
 test("ordinary NodeNext and Bundler compilation enforces declared app, tool, wire input and result contracts", async t => {
   const root = mkdtempSync(join(tmpdir(), "holon-apps-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const directory = join(root, "node_modules/@holon-sh/apps");
+  const directory = join(root, "node_modules/holon-sh");
   mkdirSync(directory, { recursive: true });
   symlinkSync(resolve("node_modules/zod"), join(root, "node_modules/zod"));
   const nested = JSON.parse(readFileSync("testdata/nested-types.json", "utf8"));
@@ -46,15 +46,15 @@ test("ordinary NodeNext and Bundler compilation enforces declared app, tool, wir
   const files = await generate({ name: "checkout", version: "1", requires: { orders: { name: "orders", version: "1" }, mysql: { name: "mysql", version: "1" } } }, dependencies, { ...dependencies, checkout: contract });
   writePackage(directory, files);
   writeFileSync(join(root, "package.json"), '{"type":"module"}');
-  const source = `import { apps, ToolCallError, type Inputs, type Outputs, type InputTypes, type OutputTypes, type Resources } from "@holon-sh/apps";
-import {createApps, exposeTools, registerPageTools, type Resources as BrowserResources} from "@holon-sh/apps/browser";
+  const source = `import { apps, ToolCallError, type Inputs, type Outputs, type InputTypes, type OutputTypes, type Resources } from "holon-sh";
+import {createApps, exposeTools, registerPageTools, type Resources as BrowserResources} from "holon-sh/browser";
 import {z} from "zod";
 await registerPageTools({
   move: {description: "Move", inputSchema: z.object({x: z.number()}), execute: ({x}) => x.toFixed()},
   // @ts-expect-error
   wrong: {description: "Wrong", inputSchema: z.object({x: z.number()}), execute: ({y}) => y},
 }, {view: {registerTool: () => ({remove() {}})}, signal: new AbortController().signal});
-import {createApps as createNodeApps, type EndpointBinding} from "@holon-sh/apps";
+import {createApps as createNodeApps, type EndpointBinding} from "holon-sh";
 const scripted = createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{token: async () => "token"}}});
 (await scripted.orders.tools.get_order({orderId:"script"})).total.toFixed();
 await scripted.orders.resources["orders://summary"].watch(async (value) => { value.total.toFixed(); }, {signal: new AbortController().signal});
@@ -164,10 +164,10 @@ unknown.total;
     assert.equal(diagnostics.length, 0, ts.formatDiagnostics(diagnostics, { getCurrentDirectory: () => root, getCanonicalFileName: p => p, getNewLine: () => "\n" }));
   }
   const isolated = join(root, "other-app");
-  const isolatedPackage = join(isolated, "node_modules/@holon-sh/apps");
+  const isolatedPackage = join(isolated, "node_modules/holon-sh");
   mkdirSync(isolatedPackage, {recursive:true});
   writePackage(isolatedPackage, await generate({name:"other",version:"1",requires:{}}, {}));
-  writeFileSync(join(isolated, "check.ts"), `import {apps} from "@holon-sh/apps";\n// @ts-expect-error\napps.orders;`);
+  writeFileSync(join(isolated, "check.ts"), `import {apps} from "holon-sh";\n// @ts-expect-error\napps.orders;`);
   const isolatedProgram = ts.createProgram([join(isolated, "check.ts")], {noEmit:true,strict:true,target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.NodeNext,moduleResolution:ts.ModuleResolutionKind.NodeNext});
   assert.equal(ts.getPreEmitDiagnostics(isolatedProgram).length, 0, "app-specific imports leaked another application's bindings");
   const { apps } = await import(pathToFileURL(join(directory, "generated/index.js")));

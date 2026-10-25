@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { McpServer, createMcpHandler, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { z } from "zod";
-import { createApps, bindApps, ToolCallError, exposeTools, registerPageTools } from "@holon-sh/apps/runtime";
+import { createApps, bindApps, ToolCallError, exposeTools, registerPageTools } from "holon-sh/runtime";
 
 test("tools return output or throw while callTool preserves MCP results and identity", {timeout: 10000}, async t => {
   const input = z.strictObject({ id: z.string(), limit: z.number().default(5) });

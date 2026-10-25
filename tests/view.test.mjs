@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { appView, VIEW_MIME_TYPE } from "@holon-sh/apps/view";
+import { appView, VIEW_MIME_TYPE } from "holon-sh/view";
 import { McpServer } from "@modelcontextprotocol/server";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 
