@@ -1,40 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, readFileSync, symlinkSync } from "node:fs";
+import { writeFileSync, copyFileSync, symlinkSync, cpSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { z } from "zod";
-import { generate as generateTarget } from "mcptype/compiler";
-import { temporary, typecheck, writeFiles } from "./helpers.mjs";
+import { temporary, typecheck } from "./helpers.mjs";
 
-// Install the package layout, then fill only its generated slot.
-async function generate(directory, identity, contracts, browser = contracts) {
-  const request = {
-    identity: { name: identity.name, version: identity.version }, requires: identity.requires,
-    runtime_specifier: "../runtime.mjs", browser_runtime_specifier: "../browser-runtime.mjs",
-    protocol_specifier: "../protocol.js", banner: "holon-generated-apps-v1 app=" + identity.name,
-  };
-  const generated = { ...(await generateTarget({ ...request, target: "node", contracts })).files, ...(await generateTarget({ ...request, target: "browser", contracts: browser })).files };
-  writeFiles(join(directory, "generated"), generated);
-  for (const name of ["runtime.mjs", "browser-runtime.mjs", "browser-validate.mjs", "runtime.d.ts", "browser-runtime.d.ts", "protocol.d.ts", "package.json"]) writeFileSync(join(directory, name), readFileSync(name));
+// Install the package layout with either the CLI-compiled fixture or the built empty slot.
+function install(directory, generated) {
+  cpSync(generated, join(directory, "generated"), { recursive: true });
+  for (const name of ["runtime.mjs", "browser-runtime.mjs", "browser-validate.mjs", "runtime.d.ts", "browser-runtime.d.ts", "protocol.d.ts", "package.json"]) copyFileSync(name, join(directory, name));
 }
-
-const contract = { tools: [
-  { name: "get_order",
-    inputSchema: { type: "object", properties: { orderId: { $ref: "#/$defs/OrderId" }, count: { type: "number", default: 5 } }, required: ["orderId"], $defs: { OrderId: { type: "string" } } },
-    outputSchema: { type: "object", properties: { total: { $ref: "#/$defs/Total" } }, required: ["total"], additionalProperties: false, $defs: { Total: { type: "number" } } },
-  },
-  { name: "then", inputSchema: { type: "object", additionalProperties: false } },
-  { name: "toJSON", inputSchema: { type: "object", additionalProperties: false } },
-  { name: "unknown_output", inputSchema: { type: "object", additionalProperties: false } },
-], resources: [{ uri: "orders://summary", outputSchema: z.toJSONSchema(z.object({ total: z.number() })) }] };
 
 test("ordinary NodeNext and Bundler compilation enforces declared app, tool, wire input and result contracts", async t => {
   const root = temporary(t);
   const directory = join(root, "node_modules/holon-sh");
-  const dependencies = { orders: contract, "with-hyphen": contract };
-  await generate(directory, { name: "checkout", version: "1", requires: { orders: { name: "orders", version: "1" } } }, dependencies, { ...dependencies, checkout: contract });
+  install(directory, "tests/fixtures/checkout");
   symlinkSync(resolve("node_modules/zod"), join(root, "node_modules/zod"));
   writeFileSync(join(root, "package.json"), '{"type":"module"}');
   const source = `import { apps, ToolCallError, type Inputs, type Outputs, type InputTypes, type OutputTypes, type Resources } from "holon-sh";
@@ -136,7 +117,7 @@ unknown.total;
   typecheck(join(root, "check.ts"));
   const isolated = join(root, "other-app");
   const isolatedPackage = join(isolated, "node_modules/holon-sh");
-  await generate(isolatedPackage, {name:"other",version:"1",requires:{}}, {});
+  install(isolatedPackage, "generated");
   writeFileSync(join(isolated, "check.ts"), `import {apps} from "holon-sh";\n// @ts-expect-error\napps.orders;`);
   typecheck(join(isolated, "check.ts"), [ts.ModuleResolutionKind.NodeNext]);
   const { apps } = await import(pathToFileURL(join(directory, "generated/index.js")));
