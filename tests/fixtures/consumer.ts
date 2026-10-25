@@ -1,21 +1,4 @@
-import { test } from "node:test";
-import assert from "node:assert/strict";
-import { writeFileSync, copyFileSync, symlinkSync, cpSync, realpathSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { temporary, typecheck } from "./helpers.mjs";
-
-const repository = dirname(dirname(fileURLToPath(import.meta.url)));
-const node = join(repository, "packages/node");
-
-test("ordinary NodeNext and Bundler compilation enforces declared app, tool, wire input and result contracts", async t => {
-  const root = temporary(t);
-  const directory = join(root, "node_modules/holon-sh");
-  cpSync(fileURLToPath(new URL("./fixtures/checkout", import.meta.url)), join(directory, "generated"), { recursive: true });
-  for (const name of ["runtime.mjs", "runtime.d.ts", "protocol.d.ts", "package.json"]) copyFileSync(join(node, name), join(directory, name));
-  symlinkSync(realpathSync(join(repository, "node_modules/holon-core")), join(root, "node_modules/holon-core"));
-  writeFileSync(join(root, "package.json"), '{"type":"module"}');
-  const source = `import { apps, ToolCallError, type Inputs, type Outputs, type Resources } from "holon-sh";
+import { apps, ToolCallError, type Inputs, type Outputs, type Resources } from "holon-sh";
 import type { ToolClient } from "holon-sh/protocol";
 import {createApps as createNodeApps, type EndpointBinding} from "holon-sh";
 const scripted = createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{token: async () => "token"}}});
@@ -78,9 +61,3 @@ if (raw.resultType === "complete" && !raw.isError) {
 const unknown = await apps.orders.tools.unknown_output({});
 // @ts-expect-error
 unknown.total;
-`;
-  writeFileSync(join(root, "check.ts"), source);
-  typecheck(join(root, "check.ts"));
-  const { apps } = await import(pathToFileURL(join(directory, "generated/index.js")));
-  assert.equal(await apps.orders.tools, apps.orders.tools);
-});
