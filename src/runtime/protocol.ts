@@ -57,7 +57,7 @@ export declare class ToolCallError extends Error {
 export interface ToolClient<I, O, R> {
   /** Close the cached endpoint session. Scoped calls close their own session; a host binding is owned by the host. */
   readonly close: () => Promise<void>;
-  /** Fetch the live server tool catalog. Not available through an MCP App host binding. */
+  /** Fetch the live tool catalog through an endpoint binding. */
   readonly listTools: (options?: CallOptions) => Promise<ListToolsResult>;
   /** Contracted JSON resources. read validates the first text content as JSON. watch requires an endpoint supporting subscriptions, reads the initial value, then listens for updates; abort to stop. */
   readonly resources: {

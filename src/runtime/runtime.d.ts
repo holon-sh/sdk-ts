@@ -8,7 +8,7 @@ export type {
   ToolClient,
 } from "./protocol.js";
 
-/** Endpoint used when a generated client has no explicit binding. */
+/** Connection settings for an MCP endpoint. */
 export interface Binding {
   /** Streamable HTTP MCP endpoint. */
   endpoint: URL | string;
@@ -18,7 +18,7 @@ export interface Binding {
   fetch?: typeof fetch;
   /** Optional X-Holon-Installation-UID routing header. */
   installationUID?: string;
-  /** Close the session after every call instead of keeping one connection open. */
+  /** Close the session after every call. */
   scoped?: boolean;
 }
 /** Alias for an endpoint binding. */
@@ -65,7 +65,7 @@ export type RuntimeClient = ToolClient<
 export declare function setDefaultBinding(
   resolve: (app: string) => Binding | undefined,
 ): void;
-/** Construct runtime clients from identity and contracts. Connections are opened lazily. Explicit/resolved endpoint bindings reuse sessions unless scoped is true; environment-only bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated package root instead. */
+/** Construct runtime clients from identity and contracts. Connections are opened lazily. Explicit/resolved endpoint bindings reuse sessions unless scoped is true; environment-only bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated package root. */
 export declare function createApps(
   identity: Identity,
   contracts: Record<string, Contract | null>,
@@ -84,7 +84,7 @@ export interface ExposeOptions {
   signal?: AbortSignal;
   execute?: (name: string, args: Record<string, unknown>) => Promise<unknown>;
 }
-/** Expose a client tool catalog to browser WebMCP. Returns false when WebMCP is unavailable. Requires tool listing, so a host binding cannot supply the catalog. Pass signal to remove registrations when the page closes. */
+/** Expose an endpoint client's tool catalog to browser WebMCP. Returns whether WebMCP is available. Pass signal for registration cleanup. */
 export declare function exposeTools(
   app: Pick<RuntimeClient, "callTool" | "listTools">,
   options?: ExposeOptions,
@@ -109,7 +109,7 @@ export interface PageSchema<I = unknown> {
 }
 /** Infer the validated input type from a page tool schema. */
 export type PageInput<S> = S extends PageSchema<infer I> ? I : never;
-/** Optional MCP hints describing a page tool. Hints do not enforce authorization. */
+/** Optional MCP hints describing a page tool. */
 export interface PageAnnotations {
   title?: string;
   readOnlyHint?: boolean;
