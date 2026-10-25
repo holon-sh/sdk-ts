@@ -3,15 +3,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { fileURLToPath } from "node:url";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import assert from "node:assert/strict";
 import ts from "typescript";
-
-export function fixture(name) {
-  return fileURLToPath(new URL(`fixtures/${name}`, import.meta.url));
-}
 
 export function temporary(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "holon-sdk-")));
@@ -19,8 +14,8 @@ export function temporary(t) {
   return root;
 }
 
-export function typecheck(source, resolutions = [ts.ModuleResolutionKind.NodeNext, ts.ModuleResolutionKind.Bundler]) {
-  for (const moduleResolution of resolutions) {
+export function typecheck(source) {
+  for (const moduleResolution of [ts.ModuleResolutionKind.NodeNext, ts.ModuleResolutionKind.Bundler]) {
     const program = ts.createProgram([source], { noEmit: true, strict: true, target: ts.ScriptTarget.ES2023, moduleResolution, module: moduleResolution === ts.ModuleResolutionKind.NodeNext ? ts.ModuleKind.NodeNext : ts.ModuleKind.ESNext });
     const diagnostics = ts.getPreEmitDiagnostics(program);
     assert.equal(diagnostics.length, 0, ts.formatDiagnostics(diagnostics, { getCurrentDirectory: () => dirname(source), getCanonicalFileName: p => p, getNewLine: () => "\n" }));

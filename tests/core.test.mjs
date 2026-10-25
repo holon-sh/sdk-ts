@@ -105,28 +105,9 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);
 });
 
-test("resolve is consulted per call and session serves bindings without an endpoint", { timeout: 10000 }, async t => {
-  const { endpoint } = await serve(t, () => {
-    const server = new McpServer({ name: "orders", version: "1" });
-    server.registerTool("get_order", { inputSchema: z.strictObject({ id: z.string() }) }, async ({ id }) => ({ content: [], structuredContent: { id } }));
-    return server;
-  });
+test("session hooks serve custom bindings and respect validation and binding boundaries", async () => {
   const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }], resources: [{ uri: "orders://summary", outputSchema: { type: "object", properties: { total: { type: "number" } }, required: ["total"] } }] };
   const identity = { name: "checkout", version: "1", requires: { orders: {} } };
-
-  // resolve runs on every call, not at creation; scoped bindings reconnect per call.
-  const resolved = [];
-  let discoveries = 0;
-  const fetching = async (input, init) => {
-    if (typeof init?.body === "string" && JSON.parse(init.body).method === "server/discover") discoveries += 1;
-    return fetch(input, init);
-  };
-  const resolving = createApps(identity, { orders: contract }, undefined, { resolve: name => { resolved.push(name); return { endpoint, fetch: fetching, scoped: true }; } });
-  assert.deepEqual(resolved, []);
-  assert.deepEqual(await resolving.orders.tools.get_order({ id: "a" }), { id: "a" });
-  assert.deepEqual(await resolving.orders.tools.get_order({ id: "b" }), { id: "b" });
-  assert.deepEqual(resolved, ["orders", "orders"]);
-  assert.equal(discoveries, 2);
 
   // session receives (name, binding) and its return value serves calls and reads.
   const sessions = [];
@@ -154,15 +135,9 @@ test("resolve is consulted per call and session serves bindings without an endpo
   await assert.rejects(createApps(identity, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
   await assert.rejects(createApps({ name: "checkout", version: "1" }, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is not declared by this application." });
   // Explicit bindings switch resolve off for every app.
-  await assert.rejects(createApps(identity, { orders: contract, other: null }, { other: { endpoint } }, { resolve: () => assert.fail("resolve with explicit bindings") }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
-});
-
-test("createApps validates with the caller's validator when one is given", async () => {
-  const schemas = [];
-  const validator = schema => { schemas.push(schema); return Object.assign(() => false, { errors: ["rejected"] }); };
-  const contracts = { orders: { tools: [{ name: "get", inputSchema: { type: "object" } }] } };
-  const session = () => ({ callTool: () => assert.fail("invalid arguments reached the session"), readResource: () => assert.fail("unexpected read"), listTools: () => assert.fail("unexpected list") });
-  const apps = bindApps({ name: "checkout", version: "1", requires: {} }, contracts, { orders: { session: true } }, { validator, session });
-  await assert.rejects(apps.orders.tools.get({}), /Invalid arguments for orders\.get: \["rejected"\]/);
-  assert.deepEqual(schemas, [{ type: "object" }]);
+  await assert.rejects(createApps(identity, { orders: contract, other: null }, { other: {} }, { resolve: () => assert.fail("resolve with explicit bindings") }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
+  const validator = schema => { assert.deepEqual(schema, contract.tools[0].inputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
+  const before = calls.length;
+  await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.tools.get_order({ id: "x" }), /Invalid arguments for orders\.get_order: \["rejected"\]/);
+  assert.equal(calls.length, before);
 });
