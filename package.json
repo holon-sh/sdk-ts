@@ -1,6 +1,6 @@
 {
   "name": "@holon-sh/apps",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Typed MCP clients, browser helpers, and app view resources.",
   "repository": {
     "type": "git",
