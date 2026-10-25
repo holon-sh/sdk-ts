@@ -1,0 +1,56 @@
+{
+  "name": "holon-sh",
+  "version": "0.0.1",
+  "description": "Typed MCP clients and app view resources for Node.js.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/holon-sh/sdk-ts.git",
+    "directory": "packages/node"
+  },
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "holon": {
+    "slot": "generated",
+    "contractVersion": 1
+  },
+  "exports": {
+    ".": {
+      "types": "./generated/index.d.ts",
+      "import": "./generated/index.js"
+    },
+    "./runtime": {
+      "types": "./runtime.d.ts",
+      "import": "./runtime.mjs"
+    },
+    "./view": {
+      "types": "./view.d.ts",
+      "import": "./view.js"
+    },
+    "./protocol": {
+      "types": "./protocol.d.ts"
+    }
+  },
+  "files": [
+    "runtime.mjs",
+    "runtime.d.ts",
+    "protocol.d.ts",
+    "view.js",
+    "view.d.ts",
+    "generated/",
+    "postinstall.mjs"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "postinstall": "node postinstall.mjs",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "holon-core": "^0.0.1-dev.0"
+  }
+}

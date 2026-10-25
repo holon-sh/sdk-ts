@@ -1,12 +1,2 @@
 node_modules/
 *.tgz
-/runtime.mjs
-/runtime.d.ts
-/browser-runtime.mjs
-/browser-runtime.d.ts
-/browser-validate.mjs
-/protocol.d.ts
-/view.js
-/view.d.ts
-/generated/
-/THIRD-PARTY-NOTICES.txt

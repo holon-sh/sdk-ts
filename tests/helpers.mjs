@@ -3,10 +3,15 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { fileURLToPath } from "node:url";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import assert from "node:assert/strict";
 import ts from "typescript";
+
+export function fixture(name) {
+  return fileURLToPath(new URL(`fixtures/${name}`, import.meta.url));
+}
 
 export function temporary(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "holon-sdk-")));

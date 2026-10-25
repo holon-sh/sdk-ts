@@ -2,9 +2,7 @@ import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-// Independently bundled runtimes share the same default binding resolver.
 import { createApps, setDefaultBinding } from "holon-sh/runtime";
-import { createApps as createBrowserApps } from "holon-sh/browser-runtime";
 import { serve } from "./helpers.mjs";
 
 function orders() {
@@ -57,13 +55,8 @@ test("the default binding supplies the endpoint and fetch, and scoped bindings r
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
 });
 
-
-test("browser runtimes and existing hosts share the established binding symbol", async t => {
+test("existing hosts set the established binding symbol directly", async t => {
   const { endpoint } = await serve(t, orders);
-  const apps = createBrowserApps(identity, {orders: contract});
-  setDefaultBinding(() => ({endpoint}));
-  assert.deepEqual(await apps.orders.tools.get_order({id:"public"}), {id:"public"});
-  await apps.orders.close();
   const hosted = createApps(identity, {orders: contract});
   globalThis[Symbol.for("@holon-sh/sdk/default-binding")] = () => ({endpoint});
   assert.deepEqual(await hosted.orders.tools.get_order({id:"host"}), {id:"host"});
