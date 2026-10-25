@@ -14,6 +14,10 @@ export class ToolCallError extends Error {
   }
 }
 
+function validate(check, value, label) {
+  if (!check(value)) throw new Error(`Invalid ${label}: ${JSON.stringify(check.errors)}`);
+}
+
 function untilAborted(promise, signal) {
   if (!signal) return promise;
   return new Promise((resolve, reject) => {
@@ -92,15 +96,15 @@ export function createApps(identity, contracts, bindings, options) {
           input: validator(definition.inputSchema),
           output: definition.outputSchema ? validator(definition.outputSchema) : undefined,
         };
-        if (!validation.input(request.arguments)) throw new Error(`Invalid arguments for ${name}.${request.name}: ${JSON.stringify(validation.input.errors)}`);
+        validate(validation.input, request.arguments, `arguments for ${name}.${request.name}`);
       }
       const result = await session(options, client => client.callTool(request, {
         ...options, allowInputRequired: true,
         ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } }),
       }));
       if (result.resultType === "input_required") return result;
-      if (!result.isError && validation?.output && !validation.output(result.structuredContent)) {
-        throw new Error(`Invalid structured output from ${name}.${request.name}: ${JSON.stringify(validation.output.errors)}`);
+      if (!result.isError && validation?.output) {
+        validate(validation.output, result.structuredContent, `structured output from ${name}.${request.name}`);
       }
       return { ...result, resultType: "complete" };
     };
@@ -118,7 +122,7 @@ export function createApps(identity, contracts, bindings, options) {
       const parse = result => {
         const value = JSON.parse(result.contents[0].text);
         valid ??= validator(resource.outputSchema);
-        if (!valid(value)) throw new Error(`Invalid contents from ${name} ${resource.uri}: ${JSON.stringify(valid.errors)}`);
+        validate(valid, value, `contents from ${name} ${resource.uri}`);
         return value;
       };
       const read = async options => parse(await session(options, client => client.readResource({ uri: resource.uri }, options)));
