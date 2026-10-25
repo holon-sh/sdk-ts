@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createServer } from "node:http";
@@ -12,14 +12,6 @@ export function temporary(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "holon-sdk-")));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
-}
-
-export function writeFiles(directory, files) {
-  for (const [name, content] of Object.entries(files)) {
-    const path = join(directory, name);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, content);
-  }
 }
 
 export function typecheck(source, resolutions = [ts.ModuleResolutionKind.NodeNext, ts.ModuleResolutionKind.Bundler]) {

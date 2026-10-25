@@ -1,26 +1,21 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { writeFileSync, readFileSync, symlinkSync, cpSync, existsSync } from "node:fs";
+import { writeFileSync, copyFileSync, symlinkSync, cpSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { z } from "zod";
 import { temporary, typecheck } from "./helpers.mjs";
 
-// Install the package layout, then fill only its generated slot from tests/fixtures/<app>,
-// which scripts/fixtures.mjs produces with `holon types compile` (the same compiler the CLI uses).
-async function generate(directory, identity) {
-  const fixture = resolve("tests/fixtures", identity.name);
-  if (!existsSync(fixture)) throw new Error(`no fixture for ${identity.name}; run node scripts/fixtures.mjs`);
-  cpSync(fixture, join(directory, "generated"), { recursive: true, filter: source => !source.endsWith(".request.json") });
-  for (const name of ["runtime.mjs", "browser-runtime.mjs", "browser-validate.mjs", "runtime.d.ts", "browser-runtime.d.ts", "protocol.d.ts", "package.json"]) writeFileSync(join(directory, name), readFileSync(name));
+// Install the package layout with either the CLI-compiled fixture or the built empty slot.
+function install(directory, generated) {
+  cpSync(generated, join(directory, "generated"), { recursive: true });
+  for (const name of ["runtime.mjs", "browser-runtime.mjs", "browser-validate.mjs", "runtime.d.ts", "browser-runtime.d.ts", "protocol.d.ts", "package.json"]) copyFileSync(name, join(directory, name));
 }
-
 
 test("ordinary NodeNext and Bundler compilation enforces declared app, tool, wire input and result contracts", async t => {
   const root = temporary(t);
   const directory = join(root, "node_modules/holon-sh");
-  await generate(directory, { name: "checkout", version: "1" });
+  install(directory, "tests/fixtures/checkout");
   symlinkSync(resolve("node_modules/zod"), join(root, "node_modules/zod"));
   writeFileSync(join(root, "package.json"), '{"type":"module"}');
   const source = `import { apps, ToolCallError, type Inputs, type Outputs, type InputTypes, type OutputTypes, type Resources } from "holon-sh";
@@ -122,7 +117,7 @@ unknown.total;
   typecheck(join(root, "check.ts"));
   const isolated = join(root, "other-app");
   const isolatedPackage = join(isolated, "node_modules/holon-sh");
-  await generate(isolatedPackage, { name: "other", version: "1" });
+  install(isolatedPackage, "generated");
   writeFileSync(join(isolated, "check.ts"), `import {apps} from "holon-sh";\n// @ts-expect-error\napps.orders;`);
   typecheck(join(isolated, "check.ts"), [ts.ModuleResolutionKind.NodeNext]);
   const { apps } = await import(pathToFileURL(join(directory, "generated/index.js")));

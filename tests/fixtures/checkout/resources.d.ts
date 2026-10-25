@@ -4,7 +4,6 @@ export interface Inputs {
     "orders://summary": {  };
   };
   "with-hyphen": {
-    "orders://summary": {  };
   };
 }
 export interface Outputs {
@@ -12,7 +11,6 @@ export interface Outputs {
     "orders://summary": { "total": number; };
   };
   "with-hyphen": {
-    "orders://summary": { "total": number; };
   };
 }
 export interface InputTypes {
@@ -20,7 +18,6 @@ export interface InputTypes {
     "orders://summary": {  };
   };
   "with-hyphen": {
-    "orders://summary": {  };
   };
 }
 export interface OutputTypes {
@@ -28,6 +25,5 @@ export interface OutputTypes {
     "orders://summary": {  };
   };
   "with-hyphen": {
-    "orders://summary": {  };
   };
 }

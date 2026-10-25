@@ -6,81 +6,45 @@ export type { Resources };
 export interface Inputs {
   "checkout": {
     "get_order": { "count"?: number; "orderId": string; [key: string]: unknown; };
-    "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
   "orders": {
     "get_order": { "count"?: number; "orderId": string; [key: string]: unknown; };
-    "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
   "with-hyphen": {
-    "get_order": { "count"?: number; "orderId": string; [key: string]: unknown; };
     "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
 }
 export interface Outputs {
   "checkout": {
     "get_order": { "total": number; };
-    "then": unknown;
-    "toJSON": unknown;
-    "unknown_output": unknown;
   };
   "orders": {
     "get_order": { "total": number; };
-    "then": unknown;
-    "toJSON": unknown;
-    "unknown_output": unknown;
   };
   "with-hyphen": {
-    "get_order": { "total": number; };
     "then": unknown;
-    "toJSON": unknown;
-    "unknown_output": unknown;
   };
 }
 export interface InputTypes {
   "checkout": {
     "get_order": { "OrderId": string; };
-    "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
   "orders": {
     "get_order": { "OrderId": string; };
-    "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
   "with-hyphen": {
-    "get_order": { "OrderId": string; };
     "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
 }
 export interface OutputTypes {
   "checkout": {
     "get_order": { "Total": number; };
-    "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
   "orders": {
     "get_order": { "Total": number; };
-    "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
   "with-hyphen": {
-    "get_order": { "Total": number; };
     "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
 }
 
