@@ -54,8 +54,7 @@
     "view.d.ts",
     "generated/",
     "postinstall.mjs",
-    "THIRD-PARTY-NOTICES.txt",
-    "README.md"
+    "THIRD-PARTY-NOTICES.txt"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
