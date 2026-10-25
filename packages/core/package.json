@@ -1,0 +1,36 @@
+{
+  "name": "holon-core",
+  "version": "0.0.1",
+  "description": "Transport-agnostic typed MCP client core shared by the holon-sh and holon-ui runtimes.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/holon-sh/sdk-ts.git",
+    "directory": "packages/core"
+  },
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./runtime.d.ts",
+      "import": "./runtime.mjs"
+    },
+    "./protocol": {
+      "types": "./protocol.d.ts"
+    }
+  },
+  "files": [
+    "runtime.mjs",
+    "runtime.d.ts",
+    "validate.mjs",
+    "protocol.d.ts"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.3.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
+  }
+}

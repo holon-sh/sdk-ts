@@ -1,75 +1,24 @@
 {
-  "name": "holon-sh",
-  "version": "0.0.1",
-  "description": "Typed MCP clients, browser helpers, and app view resources.",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/holon-sh/sdk-ts.git"
-  },
-  "license": "MIT",
+  "name": "sdk-ts",
+  "private": true,
   "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/node"
+  ],
   "engines": {
     "node": ">=22"
   },
-  "publishConfig": {
-    "access": "public"
-  },
-  "holon": {
-    "slot": "generated",
-    "contractVersion": 1
-  },
-  "exports": {
-    ".": {
-      "types": "./generated/index.d.ts",
-      "import": "./generated/index.js"
-    },
-    "./browser": {
-      "types": "./generated/browser.d.ts",
-      "import": "./generated/browser.js"
-    },
-    "./runtime": {
-      "types": "./runtime.d.ts",
-      "import": "./runtime.mjs"
-    },
-    "./browser-runtime": {
-      "types": "./browser-runtime.d.ts",
-      "import": "./browser-runtime.mjs"
-    },
-    "./view": {
-      "types": "./view.d.ts",
-      "import": "./view.js"
-    },
-    "./protocol": {
-      "types": "./protocol.d.ts"
-    }
-  },
-  "files": [
-    "runtime.mjs",
-    "runtime.d.ts",
-    "browser-runtime.mjs",
-    "browser-runtime.d.ts",
-    "browser-validate.mjs",
-    "protocol.d.ts",
-    "view.js",
-    "view.d.ts",
-    "generated/",
-    "postinstall.mjs",
-    "THIRD-PARTY-NOTICES.txt"
-  ],
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "postinstall": "node postinstall.mjs",
-    "prepack": "npm run build",
-    "test": "npm run build && node --test tests/*.test.mjs"
+    "build": "npm run build -w packages/node",
+    "typecheck": "tsc -p packages/core/tsconfig.json",
+    "test": "npm run typecheck && npm run build && node --test tests/*.test.mjs",
+    "fixtures": "node packages/node/scripts/fixtures.mjs"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "2.3.1",
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1",
     "@types/node": "^22.0.0",
-    "ajv": "8.20.0",
-    "ajv-formats": "3.0.1",
-    "esbuild": "0.28.2",
     "typescript": "~5.9.3",
     "zod": "4.6.5"
   }

@@ -1,15 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { validator as defaultValidator } from "./validate.mjs";
 
-// Shared across runtime instances and existing hosts.
-const DEFAULT_BINDING = Symbol.for("@holon-sh/sdk/default-binding");
-
-// Unbound clients fall back to <NAME>_MCP_URL when the resolver returns undefined.
-export function setDefaultBinding(resolve) {
-  if (typeof resolve !== "function") throw new TypeError("Binding resolver must be a function.");
-  globalThis[DEFAULT_BINDING] = resolve;
-}
-
 export class ToolCallError extends Error {
   constructor(app, tool, result) {
     const [code, message] = result.resultType === "input_required"
@@ -48,13 +39,14 @@ export function bindApps(identity, contracts, bindings, options) {
 }
 
 export function createApps(identity, contracts, bindings, options) {
-  const validator = options?.validator ?? defaultValidator;
+  const { validator = defaultValidator, resolve, session: hosted } = options ?? {};
   const apps = Object.create(null);
   // Without explicit bindings, every declared dependency gets a client; those without a contract are untyped.
   const members = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
     const binding = bindings?.[name];
-    const resolve = () => binding ?? (bindings ? undefined : globalThis[DEFAULT_BINDING]?.(name));
+    // Without explicit bindings, the resolve hook supplies the binding on every call.
+    const current = () => binding ?? (bindings ? undefined : resolve?.(name));
     let connection;
     const connect = (endpoint, resolved) => {
       const client = new Client({ name: identity.name, version: identity.version }, { versionNegotiation: { mode: "auto" } });
@@ -70,26 +62,23 @@ export function createApps(identity, contracts, bindings, options) {
       });
       return current;
     };
-    const hosted = binding?.host && {
-      callTool: (request, { signal, timeout } = {}) => binding.host.callServerTool(request, { signal, timeout }),
-      readResource: (request, { signal, timeout } = {}) => binding.host.readServerResource(request, { signal, timeout }),
-      listTools: () => { throw new Error(`${name} is bound to its host; the host owns the tool catalog.`); },
-    };
+    // The session hook serves bindings the runtime does not connect to itself.
+    const host = binding && hosted?.(name, binding);
     const session = async (options, run) => {
       options?.signal?.throwIfAborted();
-      if (hosted) return run(hosted);
-      const resolved = resolve();
-      if (!resolved && !Object.hasOwn(identity.requires ?? {}, name)) throw new Error(`Dependency ${name} is not declared by this application.`);
-      const variable = `${name.toUpperCase().replaceAll("-", "_")}_MCP_URL`;
-      const endpoint = resolved?.endpoint ?? (bindings ? undefined : globalThis.process?.env?.[variable]);
-      if (!endpoint) throw new Error(`Dependency ${name} is unavailable (${variable}). Provide a binding or set the environment variable.`);
-      // Environment-bound dependencies, and bindings marked scoped, connect for one call at a time.
-      const scoped = !resolved || resolved.scoped === true;
-      const current = scoped ? connect(endpoint, resolved) : (connection ??= connect(endpoint, resolved));
+      if (host) return run(host);
+      const resolved = current();
+      if (!resolved) throw new Error(Object.hasOwn(identity.requires ?? {}, name)
+        ? `Dependency ${name} is unavailable. Provide a binding.`
+        : `Dependency ${name} is not declared by this application.`);
+      if (!resolved.endpoint) throw new Error(`Dependency ${name} binding has no endpoint.`);
+      // Bindings marked scoped connect for one call at a time.
+      const scoped = resolved.scoped === true;
+      const active = scoped ? connect(resolved.endpoint, resolved) : (connection ??= connect(resolved.endpoint, resolved));
       try {
-        await untilAborted(current.ready, options?.signal);
-        return await run(current.client);
-      } finally { if (scoped) await current.close(); }
+        await untilAborted(active.ready, options?.signal);
+        return await run(active.client);
+      } finally { if (scoped) await active.close(); }
     };
     const tools = Object.create(null);
     const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition }]));
@@ -134,7 +123,7 @@ export function createApps(identity, contracts, bindings, options) {
       };
       const read = async options => parse(await session(options, client => client.readResource({ uri: resource.uri }, options)));
       const watch = async (onChange, { signal } = {}) => {
-        const resolved = resolve();
+        const resolved = current();
         if (!resolved?.endpoint) throw new Error(`Watching ${name} ${resource.uri} requires an endpoint binding.`);
         for (let established = false; !signal?.aborted; await delay(1000, signal)) {
           const current = connect(resolved.endpoint, resolved);
@@ -166,41 +155,4 @@ export function createApps(identity, contracts, bindings, options) {
     apps[name] = Object.freeze({ callTool, listTools, resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
   }
   return Object.freeze(apps);
-}
-
-export async function exposeTools(app, options = {}) {
-  const context = globalThis.document?.modelContext ?? globalThis.navigator?.modelContext;
-  if (!context) return false;
-  const { signal } = options;
-  const execute = options.execute ?? ((name, args) => app.callTool({ name, arguments: args }, { signal }));
-  const { tools } = await app.listTools({ signal });
-  for (const tool of tools) {
-    await context.registerTool({
-      name: tool.name, title: tool.title, description: tool.description ?? "", inputSchema: tool.inputSchema, annotations: tool.annotations,
-      execute: args => execute(tool.name, args ?? {}),
-    }, { signal });
-  }
-  return true;
-}
-
-export async function registerPageTools(tools, { view, signal } = {}) {
-  const context = globalThis.document?.modelContext ?? globalThis.navigator?.modelContext;
-  const removals = [];
-  for (const [name, { description, inputSchema, annotations, execute }] of Object.entries(tools)) {
-    if (view) {
-      removals.push(view.registerTool(name, { description, inputSchema, annotations }, args => execute(args)).remove);
-    } else if (context) {
-      const standard = inputSchema["~standard"];
-      await context.registerTool({
-        name, description, annotations, inputSchema: standard.jsonSchema.input({ target: "draft-2020-12" }),
-        execute: async args => {
-          const parsed = await standard.validate(args ?? {});
-          if (parsed.issues) throw new Error(`Invalid arguments for ${name}: ${JSON.stringify(parsed.issues)}`);
-          return execute(parsed.value);
-        },
-      }, { signal });
-    }
-  }
-  signal?.addEventListener("abort", () => { for (const remove of removals) remove(); }, { once: true });
-  return Boolean(view || context);
 }

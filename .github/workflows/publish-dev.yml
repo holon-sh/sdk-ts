@@ -38,8 +38,10 @@ jobs:
           HOLON_SKIP_POSTINSTALL: "1"
       - run: npm test
       - name: Set the dev version (not committed)
-        run: npm version "$VERSION" --no-git-tag-version
-      - run: npm pack --dry-run
+        run: |
+          npm version "$VERSION" --workspaces --no-git-tag-version
+          npm pkg set "dependencies.holon-core=$VERSION" -w packages/node
+      - run: npm pack --dry-run -w packages/core -w packages/node
       - name: Publish to npm under the dev tag
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -48,14 +50,16 @@ jobs:
             echo "//registry.npmjs.org/:_authToken=\${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
             export NODE_AUTH_TOKEN="$NPM_TOKEN"
           fi
-          npm publish --tag dev --access public --provenance
+          npm publish -w packages/core --tag dev --access public --provenance
+          npm publish -w packages/node --tag dev --access public --provenance
       - name: Summarize
         run: |
           {
-            echo "## holon-sh $VERSION (dev)"
+            echo "## holon-core and holon-sh $VERSION (dev)"
             echo
             echo '```sh'
-            echo "npm install holon-sh@$VERSION"
-            echo "npm install holon-sh@dev"
+            echo "npm install holon-sh@$VERSION   # depends on holon-core@$VERSION"
+            echo "npm install holon-core@$VERSION"
+            echo "npm install holon-sh@dev holon-core@dev"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"

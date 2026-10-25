@@ -1,36 +1,41 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { temporary, typecheck } from "./helpers.mjs";
 
-test("the packed public package installs without dependencies and its placeholder types resolve", async t => {
+const repository = dirname(dirname(fileURLToPath(import.meta.url)));
+
+test("the packed packages install together and the placeholder types resolve", async t => {
   const root = temporary(t);
-  const packed = spawnSync("npm", ["pack", "--ignore-scripts", "--json", "--pack-destination", root], { encoding: "utf8", env: { ...process.env, npm_config_cache: join(root, "npm-cache") } });
+  const packed = spawnSync("npm", ["pack", "-w", "packages/core", "-w", "packages/node", "--ignore-scripts", "--json", "--pack-destination", root], { cwd: repository, encoding: "utf8" });
   assert.equal(packed.status, 0, packed.stderr);
-  const info = JSON.parse(packed.stdout)[0];
-  const paths = info.files.map(file => file.path);
-  assert.ok(paths.includes("generated/holon-generated.json"));
-  for (const path of paths) assert.doesNotMatch(path, /(?:^|\/)(?:context|identity|typecheck|runner|extract)\.|(?:^|\/)(?:src|tests|vendor|node_modules|schema|schemas)\//);
+  const tarballs = Object.fromEntries(JSON.parse(packed.stdout).map(info => [info.name, info]));
+  assert.deepEqual(Object.keys(tarballs).sort(), ["holon-core", "holon-sh"]);
+  assert.ok(tarballs["holon-sh"].files.some(file => file.path === "generated/holon-generated.json"));
+  for (const { files } of Object.values(tarballs)) for (const { path } of files) assert.doesNotMatch(path, /(?:^|\/)(?:context|identity|typecheck|runner|extract)\.|(?:^|\/)(?:src|tests|vendor|node_modules|schema|schemas)\//);
   const consumer = join(root, "consumer");
   mkdirSync(consumer);
-  writeFileSync(join(consumer, "package.json"), '{"type":"module","private":true}');
-  const installed = spawnSync("npm", ["install", "--offline", "--no-audit", "--no-fund", join(root, info.filename)], { cwd: consumer, encoding: "utf8", env: { ...process.env, npm_config_cache: join(root, "npm-cache"), HOLON_SKIP_POSTINSTALL: "1" } });
+  const dependencies = { "holon-core": `file:${join(root, tarballs["holon-core"].filename)}`, "holon-sh": `file:${join(root, tarballs["holon-sh"].filename)}` };
+  writeFileSync(join(consumer, "package.json"), JSON.stringify({ type: "module", private: true, dependencies }));
+  // holon-core's own dependencies come from the npm cache or registry.
+  const installed = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: consumer, encoding: "utf8", env: { ...process.env, HOLON_SKIP_POSTINSTALL: "1" } });
   assert.equal(installed.status, 0, installed.stderr);
   const directory = join(consumer, "node_modules/holon-sh");
   const metadata = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
   assert.deepEqual(metadata.holon, { slot: "generated", contractVersion: 1 });
-  assert.deepEqual(metadata.dependencies ?? {}, {});
+  assert.deepEqual(Object.keys(metadata.dependencies), ["holon-core"]);
+  assert.equal(JSON.parse(readFileSync(join(consumer, "node_modules/holon-core/package.json"), "utf8")).holon, undefined);
   assert.deepEqual(JSON.parse(readFileSync(join(directory, "generated/holon-generated.json"), "utf8")), { marker: "holon-generated-apps-v1", placeholder: true });
-  const browser = await import(pathToFileURL(join(directory, "generated/browser.js")));
-  assert.deepEqual(Object.keys(browser.createApps({})), []);
-  assert.throws(() => browser.createApps({ unknown: { endpoint: "https://example.com/mcp" } }), /Unknown app binding/);
+  const placeholder = await import(pathToFileURL(join(directory, "generated/index.js")));
+  assert.deepEqual(Object.keys(placeholder.createApps({})), []);
+  assert.throws(() => placeholder.createApps({ unknown: { endpoint: "https://example.com/mcp" } }), /Run holon types generate/);
   const source = join(consumer, "consumer.ts");
-  writeFileSync(source, `import { apps, type Apps, type Inputs, type Outputs } from "holon-sh";
-import { createApps, registerPageTools } from "holon-sh/browser";
+  writeFileSync(source, `import { apps, createApps, type Apps, type Inputs, type Outputs } from "holon-sh";
 import { setDefaultBinding, ToolCallError, type Binding } from "holon-sh/runtime";
+import type { ToolClient } from "holon-sh/protocol";
 import { appView } from "holon-sh/view";
 const empty: Apps = createApps({});
 const binding: Binding = { endpoint: "https://example.com/mcp", fetch };
@@ -44,26 +49,27 @@ createApps({orders: binding});
   typecheck(source);
 });
 
-test("postinstall finds the ancestor manifest and never makes package installation fail", t => {
+test("postinstall generates types for a server directory and never makes package installation fail", t => {
   const root = temporary(t);
   const nested = join(root, "app/nested");
   const bin = join(root, "bin");
   mkdirSync(nested, { recursive: true });
   mkdirSync(bin);
-  const manifest = join(root, "holon.yaml");
+  const descriptor = join(nested, "server.json");
   const log = join(root, "invocation.json");
-  writeFileSync(manifest, "apps: []\n");
   writeFileSync(join(bin, "holon"), `#!${process.execPath}\nimport {writeFileSync} from 'node:fs'; writeFileSync(${JSON.stringify(log)},JSON.stringify({args:process.argv.slice(2), cwd:process.cwd(), guard:process.env.HOLON_POSTINSTALL_RUNNING})); process.exit(9);\n`, { mode: 0o755 });
   writeFileSync(join(bin, "package.json"), '{"type":"module"}');
-  const run = env => spawnSync(process.execPath, [resolve("postinstall.mjs")], { cwd: nested, env: { ...process.env, INIT_CWD: nested, PATH: bin, HOLON_SKIP_POSTINSTALL: "", HOLON_POSTINSTALL_RUNNING: "", ...env }, encoding: "utf8" });
+  const run = env => spawnSync(process.execPath, [join(repository, "packages/node/postinstall.mjs")], { cwd: nested, env: { ...process.env, INIT_CWD: nested, PATH: bin, HOLON_SKIP_POSTINSTALL: "", HOLON_POSTINSTALL_RUNNING: "", ...env }, encoding: "utf8" });
+  // Without a server.json in INIT_CWD, nothing runs (ancestors are not searched).
+  writeFileSync(join(root, "server.json"), "{}");
   assert.equal(run({}).status, 0);
-  assert.deepEqual(JSON.parse(readFileSync(log, "utf8")), { args: ["types", "generate", "--quiet", "-p", manifest], cwd: root, guard: "1" });
+  assert.equal(existsSync(log), false);
+  writeFileSync(descriptor, "{}");
+  assert.equal(run({}).status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(log, "utf8")), { args: ["types", "generate", "--no-install", "--quiet"], cwd: nested, guard: "1" });
   rmSync(log);
   for (const env of [{ HOLON_SKIP_POSTINSTALL: "1" }, { HOLON_POSTINSTALL_RUNNING: "1" }, { PATH: "" }]) {
     assert.equal(run(env).status, 0);
     assert.equal(existsSync(log), false);
   }
-  rmSync(manifest);
-  assert.equal(run({}).status, 0);
-  assert.equal(existsSync(log), false);
 });
