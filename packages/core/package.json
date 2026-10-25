@@ -26,7 +26,8 @@
     "runtime.mjs",
     "runtime.d.ts",
     "validate.mjs",
-    "protocol.d.ts"
+    "protocol.d.ts",
+    "README.md"
   ],
   "dependencies": {
     "@modelcontextprotocol/client": "^2.3.1",
