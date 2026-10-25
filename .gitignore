@@ -12,3 +12,4 @@ vendor/*
 /view.d.ts
 /generated/
 /THIRD-PARTY-NOTICES.txt
+docs/_build/

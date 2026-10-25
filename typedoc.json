@@ -1,0 +1,25 @@
+{
+  "entryPoints": [
+    "generated/index.d.ts",
+    "generated/browser.d.ts",
+    "src/runtime/runtime.d.ts",
+    "browser-runtime.d.ts",
+    "src/view.ts",
+    "src/runtime/protocol.ts"
+  ],
+  "tsconfig": "docs/tsconfig.json",
+  "plugin": ["typedoc-plugin-markdown"],
+  "out": "docs/_build/markdown",
+  "json": "docs/_build/reflection.json",
+  "name": "Holon TypeScript SDK",
+  "readme": "docs/index.md",
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeExternals": true,
+  "disableSources": true,
+  "validation": { "invalidLink": true, "notExported": false },
+  "treatWarningsAsErrors": true,
+  "useHTMLAnchors": true,
+  "router": "module",
+  "hidePageHeader": true
+}

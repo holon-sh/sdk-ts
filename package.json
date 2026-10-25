@@ -57,6 +57,7 @@
     "THIRD-PARTY-NOTICES.txt"
   ],
   "scripts": {
+    "docs:build": "node scripts/build-reference.mjs",
     "build": "node scripts/build.mjs",
     "postinstall": "node postinstall.mjs",
     "prepack": "npm run build",
@@ -71,6 +72,8 @@
     "ajv-formats": "3.0.1",
     "esbuild": "0.28.2",
     "mcptype": "file:vendor/mcptype-0.0.6.tgz",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.14.1",
     "typescript": "~5.9.3",
     "zod": "4.6.5"
   }
