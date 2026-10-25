@@ -1,33 +1,19 @@
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { once } from "node:events";
-import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
-import { toNodeHandler } from "@modelcontextprotocol/node";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { setDefaultBinding } from "holon-sh/runtime";
 // Independently bundled runtimes share the same default binding resolver.
-import { createApps } from "holon-sh/runtime";
+import { createApps, setDefaultBinding } from "holon-sh/runtime";
 import { createApps as createBrowserApps } from "holon-sh/browser-runtime";
+import { serve } from "./helpers.mjs";
 
-async function serve(t) {
-  const handler = createMcpHandler(() => {
-    const server = new McpServer({ name: "orders", version: "1" });
-    server.registerTool("get_order", { inputSchema: z.strictObject({ id: z.string() }) }, async ({ id }) => ({ content: [], structuredContent: { id } }));
-    return server;
-  }, { legacy: "reject" });
-  const dispatch = toNodeHandler(handler);
-  const http = createServer((req, res) => void dispatch(req, res).catch(() => res.destroy()));
-  http.listen(0, "127.0.0.1");
-  await once(http, "listening");
-  t.after(async () => {
-    setDefaultBinding(() => undefined);
-    await handler.close();
-    http.closeAllConnections();
-    await new Promise(resolve => http.close(resolve));
-  });
-  return `http://127.0.0.1:${http.address().port}/mcp`;
+function orders() {
+  const server = new McpServer({ name: "orders", version: "1" });
+  server.registerTool("get_order", { inputSchema: z.strictObject({ id: z.string() }) }, async ({ id }) => ({ content: [], structuredContent: { id } }));
+  return server;
 }
+
+afterEach(() => setDefaultBinding(() => undefined));
 
 const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }] };
 const identity = { name: "checkout", version: "1", requires: { orders: {}, payments: {} } };
@@ -43,7 +29,7 @@ test("an app without a resolver or environment variable is unavailable", async (
 });
 
 test("the default binding supplies the endpoint and fetch, and scoped bindings reconnect per call", { timeout: 10000 }, async t => {
-  const endpoint = await serve(t);
+  const { endpoint } = await serve(t, orders);
   // Each new connection starts by discovering the server.
   const connections = { orders: 0, payments: 0 };
   const counting = app => async (input, init) => {
@@ -73,7 +59,7 @@ test("the default binding supplies the endpoint and fetch, and scoped bindings r
 
 
 test("browser runtimes and existing hosts share the established binding symbol", async t => {
-  const endpoint = await serve(t);
+  const { endpoint } = await serve(t, orders);
   const apps = createBrowserApps(identity, {orders: contract});
   setDefaultBinding(() => ({endpoint}));
   assert.deepEqual(await apps.orders.tools.get_order({id:"public"}), {id:"public"});

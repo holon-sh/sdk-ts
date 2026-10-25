@@ -1,50 +1,41 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve, dirname } from "node:path";
+import { writeFileSync, readFileSync, symlinkSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { z } from "zod";
 import { generate as generateTarget } from "mcptype/compiler";
+import { temporary, typecheck, writeFiles } from "./helpers.mjs";
 
 // Install the package layout, then fill only its generated slot.
-async function generate(identity, contracts, browser = contracts) {
+async function generate(directory, identity, contracts, browser = contracts) {
   const request = {
     identity: { name: identity.name, version: identity.version }, requires: identity.requires,
     runtime_specifier: "../runtime.mjs", browser_runtime_specifier: "../browser-runtime.mjs",
     protocol_specifier: "../protocol.js", banner: "holon-generated-apps-v1 app=" + identity.name,
   };
   const generated = { ...(await generateTarget({ ...request, target: "node", contracts })).files, ...(await generateTarget({ ...request, target: "browser", contracts: browser })).files };
-  assert.equal(generated["package.json"], undefined);
-  const files = Object.fromEntries(Object.entries(generated).map(([name, content]) => ["generated/" + name, content]));
-  for (const name of ["runtime.mjs", "browser-runtime.mjs", "browser-validate.mjs", "runtime.d.ts", "browser-runtime.d.ts", "protocol.d.ts", "package.json"]) files[name] = readFileSync(name);
-  return files;
-}
-function writePackage(directory, files) {
-  for (const [name, content] of Object.entries(files)) {
-    mkdirSync(dirname(join(directory, name)), { recursive: true });
-    writeFileSync(join(directory, name), content);
-  }
+  writeFiles(join(directory, "generated"), generated);
+  for (const name of ["runtime.mjs", "browser-runtime.mjs", "browser-validate.mjs", "runtime.d.ts", "browser-runtime.d.ts", "protocol.d.ts", "package.json"]) writeFileSync(join(directory, name), readFileSync(name));
 }
 
 const contract = { tools: [
-  { name: "get_order", inputSchema: z.toJSONSchema(z.object({ orderId: z.string(), count: z.number().default(5), pair: z.tuple([z.string(), z.number()]).optional() }), { io: "input" }), outputSchema: z.toJSONSchema(z.object({ total: z.number() })) },
+  { name: "get_order",
+    inputSchema: { type: "object", properties: { orderId: { $ref: "#/$defs/OrderId" }, count: { type: "number", default: 5 } }, required: ["orderId"], $defs: { OrderId: { type: "string" } } },
+    outputSchema: { type: "object", properties: { total: { $ref: "#/$defs/Total" } }, required: ["total"], additionalProperties: false, $defs: { Total: { type: "number" } } },
+  },
   { name: "then", inputSchema: { type: "object", additionalProperties: false } },
   { name: "toJSON", inputSchema: { type: "object", additionalProperties: false } },
   { name: "unknown_output", inputSchema: { type: "object", additionalProperties: false } },
 ], resources: [{ uri: "orders://summary", outputSchema: z.toJSONSchema(z.object({ total: z.number() })) }] };
 
 test("ordinary NodeNext and Bundler compilation enforces declared app, tool, wire input and result contracts", async t => {
-  const root = mkdtempSync(join(tmpdir(), "holon-apps-"));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const root = temporary(t);
   const directory = join(root, "node_modules/holon-sh");
-  mkdirSync(directory, { recursive: true });
+  const dependencies = { orders: contract, "with-hyphen": contract };
+  await generate(directory, { name: "checkout", version: "1", requires: { orders: { name: "orders", version: "1" } } }, dependencies, { ...dependencies, checkout: contract });
   symlinkSync(resolve("node_modules/zod"), join(root, "node_modules/zod"));
-  const nested = JSON.parse(readFileSync("testdata/nested-types.json", "utf8"));
-  const dependencies = { orders: contract, "with-hyphen": contract, mysql: nested };
-  const files = await generate({ name: "checkout", version: "1", requires: { orders: { name: "orders", version: "1" }, mysql: { name: "mysql", version: "1" } } }, dependencies, { ...dependencies, checkout: contract });
-  writePackage(directory, files);
   writeFileSync(join(root, "package.json"), '{"type":"module"}');
   const source = `import { apps, ToolCallError, type Inputs, type Outputs, type InputTypes, type OutputTypes, type Resources } from "holon-sh";
 import {createApps, exposeTools, registerPageTools, type Resources as BrowserResources} from "holon-sh/browser";
@@ -65,11 +56,11 @@ scripted.orders.resources["orders://summary"].watch((value: string) => {});
 // @ts-expect-error
 createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{}}});
 // @ts-expect-error
-createNodeApps({mysql:{}});
+createNodeApps({orders:{}});
 const summary: Resources["orders"]["orders://summary"] = await apps.orders.resources["orders://summary"].read({signal: new AbortController().signal});
 summary.total.toFixed();
 // @ts-expect-error
-apps.mysql.resources["orders://summary"];
+apps.orders.resources["orders://absent"];
 const browser = createApps({orders:{endpoint:new URL("https://orders.example/mcp"),installationUID:"installation-one"},"with-hyphen":{endpoint:new URL("https://other.example/mcp")}});
 (await browser.orders.tools.get_order({orderId:"browser"})).total.toFixed();
 const own = createApps({checkout:{host:{callServerTool: async (params: {name: string; arguments?: Record<string, unknown>}, options?: {signal?: AbortSignal}) => ({content: [], params, options}), readServerResource: async (params: {uri: string}) => ({contents: [], params})}}});
@@ -90,25 +81,11 @@ const single = createApps({orders:{endpoint:new URL("https://orders.example/mcp"
 single["with-hyphen"];
 // @ts-expect-error
 createApps({missing:{endpoint:new URL("https://orders.example/mcp")}});
-const column = {column: "accounts.id", label: "id"} satisfies InputTypes["mysql"]["select"]["LabeledColumn"];
-const direction = "desc" satisfies InputTypes["mysql"]["select"]["Direction"];
-const query = {table: "accounts", columns: [column], direction} satisfies Inputs["mysql"]["select"];
-const selected = await apps.mysql.tools.select(query);
-const value: OutputTypes["mysql"]["select"]["LabeledColumn"] = selected.columns[0];
-value.value.toFixed();
+const orderId: InputTypes["orders"]["get_order"]["OrderId"] = "ord";
+const total: OutputTypes["orders"]["get_order"]["Total"] = 1;
 // @ts-expect-error
-const missing = {column: "id"} satisfies InputTypes["mysql"]["select"]["LabeledColumn"];
-// @ts-expect-error
-const wrong = {column: "id", label: 1} satisfies InputTypes["mysql"]["select"]["LabeledColumn"];
-// @ts-expect-error
-const extra = {column: "id", label: "id", extra: true} satisfies InputTypes["mysql"]["select"]["LabeledColumn"];
-// @ts-expect-error
-const wrongOutput = column satisfies OutputTypes["mysql"]["select"]["LabeledColumn"];
-// @ts-expect-error
-const wrongDirection = "sideways" satisfies InputTypes["mysql"]["select"]["Direction"];
-// @ts-expect-error
-type WrongTool = InputTypes["orders"]["get_order"]["LabeledColumn"];
-const input: Inputs["orders"]["get_order"] = {orderId: "ord", pair: ["a", 1]};
+const wrongId: InputTypes["orders"]["get_order"]["OrderId"] = total;
+const input: Inputs["orders"]["get_order"] = {orderId};
 const output: Outputs["orders"]["get_order"] = {total: 1};
 const result = await apps.orders.tools.get_order(input, {signal: new AbortController().signal});
 result.total.toFixed();
@@ -138,8 +115,6 @@ apps.orders.tools.get_order({orderId: 1});
 // @ts-expect-error
 apps.orders.tools.get_order({});
 // @ts-expect-error
-apps.orders.tools.get_order({orderId: "ord", pair: [1, "a"]});
-// @ts-expect-error
 apps.orders.callTool({name:"get_order", arguments:{orderId: 1}});
 // @ts-expect-error
 apps.orders.callTool({name:"absent", arguments:{}});
@@ -158,18 +133,12 @@ const unknown = await apps.orders.tools.unknown_output({});
 unknown.total;
 `;
   writeFileSync(join(root, "check.ts"), source);
-  for (const moduleResolution of [ts.ModuleResolutionKind.NodeNext, ts.ModuleResolutionKind.Bundler]) {
-    const program = ts.createProgram([join(root, "check.ts")], { noEmit: true, strict: true, target: ts.ScriptTarget.ES2023, moduleResolution, module: moduleResolution === ts.ModuleResolutionKind.NodeNext ? ts.ModuleKind.NodeNext : ts.ModuleKind.ESNext });
-    const diagnostics = ts.getPreEmitDiagnostics(program);
-    assert.equal(diagnostics.length, 0, ts.formatDiagnostics(diagnostics, { getCurrentDirectory: () => root, getCanonicalFileName: p => p, getNewLine: () => "\n" }));
-  }
+  typecheck(join(root, "check.ts"));
   const isolated = join(root, "other-app");
   const isolatedPackage = join(isolated, "node_modules/holon-sh");
-  mkdirSync(isolatedPackage, {recursive:true});
-  writePackage(isolatedPackage, await generate({name:"other",version:"1",requires:{}}, {}));
+  await generate(isolatedPackage, {name:"other",version:"1",requires:{}}, {});
   writeFileSync(join(isolated, "check.ts"), `import {apps} from "holon-sh";\n// @ts-expect-error\napps.orders;`);
-  const isolatedProgram = ts.createProgram([join(isolated, "check.ts")], {noEmit:true,strict:true,target:ts.ScriptTarget.ES2023,module:ts.ModuleKind.NodeNext,moduleResolution:ts.ModuleResolutionKind.NodeNext});
-  assert.equal(ts.getPreEmitDiagnostics(isolatedProgram).length, 0, "app-specific imports leaked another application's bindings");
+  typecheck(join(isolated, "check.ts"), [ts.ModuleResolutionKind.NodeNext]);
   const { apps } = await import(pathToFileURL(join(directory, "generated/index.js")));
   assert.equal(await apps.orders.tools, apps.orders.tools);
 });

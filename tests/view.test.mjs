@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { appView, VIEW_MIME_TYPE } from "holon-sh/view";
 import { McpServer } from "@modelcontextprotocol/server";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { temporary } from "./helpers.mjs";
 
-test("appView serves one build of the page for the life of the process", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "holon-view-"));
+test("appView serves one build of the page for the life of the process", async t => {
+  const directory = temporary(t);
   const file = join(directory, "index.html");
   await writeFile(file, "<html>one</html>");
   const server = new McpServer({ name: "site", version: "1" });
