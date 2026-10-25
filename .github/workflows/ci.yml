@@ -14,7 +14,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: node scripts/fetch-mcptype.mjs
       - run: npm ci
         env:
           HOLON_SKIP_POSTINSTALL: "1"

@@ -1,0 +1,13 @@
+{
+  "target": "node",
+  "identity": {
+    "name": "other",
+    "version": "1"
+  },
+  "requires": {},
+  "contracts": {},
+  "runtime_specifier": "../runtime.mjs",
+  "browser_runtime_specifier": "../browser-runtime.mjs",
+  "protocol_specifier": "../protocol.js",
+  "banner": "holon-generated-apps-v1 app=other"
+}

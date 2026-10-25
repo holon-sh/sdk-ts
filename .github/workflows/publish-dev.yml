@@ -33,7 +33,6 @@ jobs:
           cache: npm
       - name: Update npm for trusted publishing
         run: npm install -g npm@11
-      - run: node scripts/fetch-mcptype.mjs
       - run: npm ci
         env:
           HOLON_SKIP_POSTINSTALL: "1"

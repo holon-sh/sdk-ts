@@ -1,6 +1,4 @@
 node_modules/
-vendor/*
-!vendor/.gitkeep
 *.tgz
 /runtime.mjs
 /runtime.d.ts
