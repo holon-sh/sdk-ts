@@ -1,7 +1,11 @@
 {
   "name": "@holon-sh/apps",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Typed MCP clients, browser helpers, and app view resources.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/holon-sh/sdk-ts.git"
+  },
   "license": "MIT",
   "type": "module",
   "engines": {

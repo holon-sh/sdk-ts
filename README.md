@@ -3,7 +3,7 @@
 Typed MCP clients, browser helpers, and view resources.
 The runtime is bundled and has no runtime package dependencies. Node.js 22 or newer is required for the Node entry points.
 
-This repository prepares `@holon-sh/apps` 0.1.0 for publication. Nothing is published by its CI workflow.
+This repository prepares `@holon-sh/apps` 0.0.1 for publication. Nothing is published by its CI workflow; dev builds are published only by a manually dispatched workflow (see [Dev releases](#dev-releases)).
 
 ```sh
 npm install @holon-sh/apps
@@ -45,3 +45,15 @@ npm pack
 ```
 
 Contract extraction and type checking belong to the `holon` CLI, which carries its own tooling; this package ships only the runtime.
+
+## Dev releases
+
+`.github/workflows/publish-dev.yml` publishes `@holon-sh/apps@0.0.1-dev.<run number>` to npm under the `dev` dist-tag (never `latest`). It runs only when dispatched by hand, rewrites the version inside the job without committing it, and prints the exact install line in the job summary.
+
+One-time setup on npmjs.com: publish the first version with an automation token stored as the `NPM_TOKEN` repository secret, then add a trusted publisher to the package (owner `holon-sh`, repository `sdk-ts`, workflow `publish-dev.yml`, no environment) and remove the secret. The workflow uses OIDC trusted publishing when no `NPM_TOKEN` is set.
+
+```sh
+gh workflow run publish-dev.yml
+```
+
+Consumers install a dev build with `npm install @holon-sh/apps@dev` or the exact version printed in the job summary, e.g. `npm install @holon-sh/apps@0.0.1-dev.12`.
