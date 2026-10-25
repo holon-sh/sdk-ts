@@ -1,10 +1,14 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { validator as defaultValidator } from "./validate.mjs";
 
-export { setDefaultBinding } from "../binding.ts";
-
 // Shared across runtime instances and existing hosts.
 const DEFAULT_BINDING = Symbol.for("@holon-sh/sdk/default-binding");
+
+// Unbound clients fall back to <NAME>_MCP_URL when the resolver returns undefined.
+export function setDefaultBinding(resolve) {
+  if (typeof resolve !== "function") throw new TypeError("Binding resolver must be a function.");
+  globalThis[DEFAULT_BINDING] = resolve;
+}
 
 export class ToolCallError extends Error {
   constructor(app, tool, result) {
@@ -90,20 +94,22 @@ export function createApps(identity, contracts, bindings, options) {
     const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition }]));
     const callTool = async (request, options) => {
       const tool = definitions.get(request.name);
-      if (!tool && !contract) {
-        const result = await session(options, client => client.callTool(request, { ...options, allowInputRequired: true }));
-        return result.resultType === "input_required" ? result : { ...result, resultType: "complete" };
+      if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
+      let validation;
+      if (tool) {
+        const { definition } = tool;
+        validation = tool.validation ??= {
+          input: validator(definition.inputSchema),
+          output: definition.outputSchema ? validator(definition.outputSchema) : undefined,
+        };
+        if (!validation.input(request.arguments)) throw new Error(`Invalid arguments for ${name}.${request.name}: ${JSON.stringify(validation.input.errors)}`);
       }
-      if (!tool) throw new Error(`Unknown tool ${name}.${request.name}.`);
-      const { definition } = tool;
-      const validation = tool.validation ??= {
-        input: validator(definition.inputSchema),
-        output: definition.outputSchema ? validator(definition.outputSchema) : undefined,
-      };
-      if (!validation.input(request.arguments)) throw new Error(`Invalid arguments for ${name}.${request.name}: ${JSON.stringify(validation.input.errors)}`);
-      const result = await session(options, client => client.callTool(request, { ...options, allowInputRequired: true, toolDefinition: { ...definition, outputSchema: undefined } }));
+      const result = await session(options, client => client.callTool(request, {
+        ...options, allowInputRequired: true,
+        ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } }),
+      }));
       if (result.resultType === "input_required") return result;
-      if (!result.isError && validation.output && !validation.output(result.structuredContent)) {
+      if (!result.isError && validation?.output && !validation.output(result.structuredContent)) {
         throw new Error(`Invalid structured output from ${name}.${request.name}: ${JSON.stringify(validation.output.errors)}`);
       }
       return { ...result, resultType: "complete" };

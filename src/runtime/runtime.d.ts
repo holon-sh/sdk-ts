@@ -8,6 +8,7 @@ export interface Binding {
   authProvider?: AuthProvider;
   fetch?: typeof fetch;
   installationUID?: string;
+  /** Close the session after every call instead of keeping one connection open. */
   scoped?: boolean;
 }
 export type EndpointBinding = Binding;

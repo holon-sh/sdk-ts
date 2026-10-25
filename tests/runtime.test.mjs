@@ -1,17 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
-import { once } from "node:events";
-import { McpServer, createMcpHandler, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
-import { toNodeHandler } from "@modelcontextprotocol/node";
+import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps, bindApps, ToolCallError, exposeTools, registerPageTools } from "holon-sh/runtime";
+import { serve } from "./helpers.mjs";
 
 test("tools return output or throw while callTool preserves MCP results and identity", {timeout: 10000}, async t => {
   const input = z.strictObject({ id: z.string(), limit: z.number().default(5) });
   const output = z.object({ total: z.number() });
   const identities = [];
-  const handler = createMcpHandler(() => {
+  const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "orders", version: "1" });
     server.registerTool("get_order", { inputSchema: input }, async (args, ctx) => {
       identities.push(ctx.mcpReq.envelope[CLIENT_INFO_META_KEY].name);
@@ -21,18 +19,11 @@ test("tools return output or throw while callTool preserves MCP results and iden
       return { content: [{ type: "text", text: "Order" }], structuredContent: { total: args.id === "bad" ? "invalid" : args.limit }, _meta: { preserved: true } };
     });
     return server;
-  }, { legacy: "reject" });
-  const dispatch = toNodeHandler(handler);
-  const http = createServer((req, res) => void dispatch(req, res).catch(() => res.destroy()));
-  http.listen(0, "127.0.0.1");
-  await once(http, "listening");
+  });
   const previous = process.env.ORDERS_MCP_URL;
-  process.env.ORDERS_MCP_URL = `http://127.0.0.1:${http.address().port}/mcp`;
-  t.after(async () => {
+  process.env.ORDERS_MCP_URL = endpoint;
+  t.after(() => {
     if (previous === undefined) delete process.env.ORDERS_MCP_URL; else process.env.ORDERS_MCP_URL = previous;
-    await handler.close();
-    http.closeAllConnections();
-    await new Promise(resolve => http.close(resolve));
   });
   const contract = { tools: [{ name: "get_order", inputSchema: z.toJSONSchema(input, { io: "input" }), outputSchema: z.toJSONSchema(output) }] };
   const make = name => createApps({ name, version: "1", requires: { orders: {} } }, { orders: contract });
@@ -78,7 +69,7 @@ test("tools return output or throw while callTool preserves MCP results and iden
 test("browser bindings call the app's own tools directly or through an MCP Apps host and expose them to WebMCP", { timeout: 10000 }, async t => {
   const input = z.strictObject({ id: z.string() });
   const output = z.object({ total: z.number() });
-  const handler = createMcpHandler(() => {
+  const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "chat", version: "1" });
     server.registerTool("get_order", { description: "Read one order", inputSchema: input, annotations: { readOnlyHint: true } }, async ({ id }) =>
       ({ content: [{ type: "text", text: id }], structuredContent: { total: id.length } }));
@@ -86,21 +77,11 @@ test("browser bindings call the app's own tools directly or through an MCP Apps 
       server.registerResource(uri, uri, { mimeType: "application/json" }, () => ({ contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ total }) }] }));
     }
     return server;
-  }, { legacy: "reject" });
-  const dispatch = toNodeHandler(handler);
-  const http = createServer((req, res) => void dispatch(req, res).catch(() => res.destroy()));
-  http.listen(0, "127.0.0.1");
-  await once(http, "listening");
-  t.after(async () => {
-    delete globalThis.document;
-    await handler.close();
-    http.closeAllConnections();
-    await new Promise(resolve => http.close(resolve));
   });
+  t.after(() => { delete globalThis.document; });
   const summary = z.toJSONSchema(output);
   const contract = { tools: [{ name: "get_order", inputSchema: z.toJSONSchema(input, { io: "input" }), outputSchema: summary }], resources: [{ uri: "orders://summary", outputSchema: summary }, { uri: "orders://broken", outputSchema: summary }] };
   const identity = { name: "chat-web", version: "1", requires: {} };
-  const endpoint = `http://127.0.0.1:${http.address().port}/mcp`;
   const direct = createApps(identity, { chat: contract }, { chat: { endpoint } });
   t.after(() => direct.chat.close());
   assert.deepEqual(await direct.chat.tools.get_order({ id: "abc" }), { total: 3 });
@@ -139,21 +120,13 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   const uri = "orders://summary";
   let total = 1;
   const authorizations = [];
-  const serve = subscribe => {
-    const handler = createMcpHandler(() => {
-      const server = new McpServer({ name: "orders", version: "1" }, subscribe ? { capabilities: { resources: { subscribe: true } } } : {});
-      server.registerResource("summary", uri, { mimeType: "application/json" }, () => ({ ttlMs: 0, cacheScope: "private", contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ total }) }] }));
-      return server;
-    }, { legacy: "reject" });
-    const dispatch = toNodeHandler(handler);
-    const http = createServer((req, res) => { authorizations.push(req.headers.authorization); void dispatch(req, res).catch(() => res.destroy()); });
-    http.listen(0, "127.0.0.1");
-    t.after(async () => { await handler.close(); http.closeAllConnections(); await new Promise(resolve => http.close(resolve)); });
-    return { handler, http, ready: once(http, "listening").then(() => `http://127.0.0.1:${http.address().port}/mcp`) };
-  };
-  const live = serve(true);
-  const plain = serve(false);
-  const [endpoint, plainEndpoint] = await Promise.all([live.ready, plain.ready]);
+  const resourceServer = subscribe => serve(t, () => {
+    const server = new McpServer({ name: "orders", version: "1" }, subscribe ? { capabilities: { resources: { subscribe: true } } } : {});
+    server.registerResource("summary", uri, { mimeType: "application/json" }, () => ({ ttlMs: 0, cacheScope: "private", contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ total }) }] }));
+    return server;
+  }, req => authorizations.push(req.headers.authorization));
+  const [live, plain] = await Promise.all([resourceServer(true), resourceServer(false)]);
+  const { endpoint } = live;
   const contract = { tools: [], resources: [{ uri, outputSchema: z.toJSONSchema(summary) }] };
   const identity = { name: "script", version: "1", requires: {} };
   assert.throws(() => bindApps(identity, { orders: contract }, { missing: { endpoint } }), /Unknown app binding/);
@@ -180,7 +153,7 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   await assert.rejects(createApps({ ...identity, requires: { orders: {} } }, { orders: contract }).orders.resources[uri].watch(() => {}), /endpoint binding/);
   const hosted = createApps(identity, { orders: contract }, { orders: { host: { callServerTool: async () => ({}), readServerResource: async () => ({ contents: [{ text: '{"total":3}' }] }) } } });
   await assert.rejects(hosted.orders.resources[uri].watch(() => {}), /endpoint binding/);
-  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plainEndpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);
+  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);
 });
 
 test("page tools register with the MCP Apps host when embedded and with WebMCP when standalone", async t => {
