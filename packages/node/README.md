@@ -133,10 +133,6 @@ The file is read once, when `appView` is called. The page itself uses [`holon-ui
 | `holon-sh/runtime` | What the generated module calls: `createApps(identity, contracts, bindings?, options?)`, `bindApps`, `ToolCallError`, and `setDefaultBinding` for hosts that bind every app at startup. Apps use the generated module instead. |
 | `holon-sh/protocol` | Types only: `ToolClient`, `ToolResult`, `CallOptions`, `CallMetadata`, `AuthProvider`, `ToolCallError`. |
 
-## Regenerate on install
-
-When the directory you run `npm install` in has a `server.json` and `holon` is on `PATH`, the package's `postinstall` runs `holon types generate --no-install --quiet` there. It never fails the install; set `HOLON_SKIP_POSTINSTALL=1` to turn it off. npm 11.19 and newer need `npm install-scripts approve holon-sh` first. It generates for that one directory only, so in a monorepo rerun `holon types generate` with every directory afterwards.
-
 ## License
 
 MIT

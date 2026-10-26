@@ -14,7 +14,7 @@ Browser code (MCP App views, WebMCP) uses [`holon-ui`](https://github.com/holon-
 This repository is an npm workspace. Node.js 22 or newer.
 
 ```sh
-HOLON_SKIP_POSTINSTALL=1 npm ci
+npm ci
 npm test
 npm pack -w packages/core -w packages/node
 ```
