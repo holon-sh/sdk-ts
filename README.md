@@ -154,21 +154,3 @@ The file is read once, when `appView` is called. The page itself uses [`holon-ui
 |---|---|
 | `holon-sh/runtime` | What the generated module calls: `createApps(identity, contracts, bindings?, options?)`, `bindApps`, `ToolCallError`, and `setDefaultBinding` for hosts that bind every app at startup. Apps use the generated module instead. |
 | `holon-sh/protocol` | Types only: `ToolClient`, `ToolResult`, `CallOptions`, `CallMetadata`, `AuthProvider`, `ToolCallError`. |
-
-## Development
-
-This repository is an npm workspace; `packages/node` is the published `holon-sh` package, and this file is copied into it at build time. Node.js 22 or newer.
-
-```sh
-npm ci
-npm test
-npm pack -w packages/node
-```
-
-`npm run fixtures` refreshes the committed `tests/fixtures/checkout` slot: it starts the MCP server in `tests/fixtures/orders/server.mjs`, runs `holon types generate --server` for `orders` and `with-hyphen` in a temporary consumer, and copies the generated slot back. Use the `holon` CLI on `PATH`, or set `HOLON=/path/to/holon`. Tests consume the committed fixture and do not invoke the CLI.
-
-`npm run docs:build` builds the [TypeScript reference](https://github.com/holon-sh/sdk-ts/blob/main/packages/node/docs/README.md), which CI uploads as `sdk-reference-typescript` for the website.
-
-## License
-
-MIT
