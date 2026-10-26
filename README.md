@@ -19,7 +19,9 @@ npm test
 npm pack -w packages/core -w packages/node
 ```
 
-`npm run fixtures` regenerates `tests/fixtures` with the `holon` CLI on `PATH`.
+`npm run fixtures` is the only way to refresh the committed `tests/fixtures/checkout` slot. It starts the literal MCP server in `tests/fixtures/orders/server.mjs`, runs the public `holon types generate` command for `orders` and `with-hyphen` in a temporary consumer, and copies the generated slot back. It needs no package install or external network. Use the `holon` CLI on `PATH`, or set `HOLON=/path/to/holon`.
+
+After `npm ci`, run `npm_config_offline=true npm test` to check the packages without registry access. Tests consume the committed fixture and do not invoke the CLI.
 
 ## License
 

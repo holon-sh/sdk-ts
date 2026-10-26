@@ -11,7 +11,10 @@ export interface Inputs {
     "unknown_output": {  };
   };
   "with-hyphen": {
+    "get_order": { "count"?: number; "orderId": string; [key: string]: unknown; };
     "then": {  };
+    "toJSON": {  };
+    "unknown_output": {  };
   };
 }
 export interface Outputs {
@@ -22,7 +25,10 @@ export interface Outputs {
     "unknown_output": unknown;
   };
   "with-hyphen": {
+    "get_order": { "total": number; };
     "then": unknown;
+    "toJSON": unknown;
+    "unknown_output": unknown;
   };
 }
 export interface InputTypes {
@@ -33,7 +39,10 @@ export interface InputTypes {
     "unknown_output": {  };
   };
   "with-hyphen": {
+    "get_order": { "OrderId": string; };
     "then": {  };
+    "toJSON": {  };
+    "unknown_output": {  };
   };
 }
 export interface OutputTypes {
@@ -44,7 +53,10 @@ export interface OutputTypes {
     "unknown_output": {  };
   };
   "with-hyphen": {
+    "get_order": { "Total": number; };
     "then": {  };
+    "toJSON": {  };
+    "unknown_output": {  };
   };
 }
 
