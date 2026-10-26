@@ -1,0 +1,29 @@
+{
+  "entryPoints": [
+    "docs/_build/entrypoints/root.d.ts",
+    "runtime.d.ts",
+    "src/view.ts",
+    "protocol.d.ts"
+  ],
+  "tsconfig": "docs/tsconfig.json",
+  "plugin": [
+    "typedoc-plugin-markdown"
+  ],
+  "out": "docs/_build/markdown",
+  "json": "docs/_build/reflection.json",
+  "name": "Holon TypeScript SDK",
+  "readme": "docs/index.md",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeProtected": true,
+  "excludeExternals": true,
+  "disableSources": true,
+  "validation": {
+    "invalidLink": true,
+    "notExported": false
+  },
+  "treatWarningsAsErrors": true,
+  "useHTMLAnchors": true,
+  "router": "module",
+  "hidePageHeader": true
+}

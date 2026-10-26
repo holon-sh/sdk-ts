@@ -12,13 +12,16 @@
     "build": "npm run build -w packages/node",
     "typecheck": "tsc -p packages/node/tsconfig.json",
     "test": "npm run typecheck && npm run build && node --test tests/*.test.mjs",
-    "fixtures": "node packages/node/scripts/fixtures.mjs"
+    "fixtures": "node packages/node/scripts/fixtures.mjs",
+    "docs:build": "npm run docs:build -w packages/node"
   },
   "devDependencies": {
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1",
     "@types/node": "^22.0.0",
     "typescript": "~5.9.3",
-    "zod": "4.6.6"
+    "zod": "4.6.6",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.14.1"
   }
 }

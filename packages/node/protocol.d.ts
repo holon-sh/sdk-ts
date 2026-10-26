@@ -9,6 +9,7 @@ export type AuthProvider =
 export type CallOptions = Omit<RequestOptions, "allowInputRequired">;
 /** MCP request metadata and input continuation fields. Pass inputResponses and requestState when continuing an input-required result. */
 export type CallMetadata = Omit<CallToolRequest["params"], "name" | "arguments"> & { inputResponses?: InputResponses; requestState?: string };
+/** @internal */
 type Fields<T> = { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
 /** Full tool result: successful typed output, an application error, or an input-required continuation. */
 export type ToolResult<Output> =
