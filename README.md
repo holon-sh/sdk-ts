@@ -10,19 +10,21 @@ This repository contains the Node.js runtime for [`holon`](https://github.com/ho
 
 ```sh
 npm install holon-sh@dev
+npm install -D holon-types
 ```
 
-Then install the CLI, which generates the typed `apps` export the examples import:
+`holon-types` is the `holon` CLI. `holon types check` brings its own TypeScript compiler and uses the project's `typescript` when one is installed.
 
-```sh
-curl -fsSL https://holon-labs.dev/install.sh | sh
-```
-
-## Type Safety
+## Invoking MCP Servers
 
 The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Example](https://github.com/holon-sh/cli#example) for an explanation, or [Dependencies](https://github.com/holon-sh/cli#dependencies) to understand dependency resolution.
 
-## The generated module
+Generate `node_modules/holon-sh/generated/` from the project's dependencies and type-check the calls to it:
+
+```sh
+npx holon types check
+```
+
 
 ```ts
 import { ToolCallError, apps, createApps, type Inputs, type Outputs, type Resources } from "holon-sh";
