@@ -1,0 +1,12 @@
+{
+  "marker": "holon-generated-apps-v1",
+  "app": "checkout",
+  "identity": {
+    "name": "checkout",
+    "version": "0.0.0"
+  },
+  "digests": {
+    "orders": "sha256:2f7cf2002c141c6b2964a73c6e34dab0af8cde48057380219c37f7dcd74555c5",
+    "with-hyphen": "sha256:2f7cf2002c141c6b2964a73c6e34dab0af8cde48057380219c37f7dcd74555c5"
+  }
+}
