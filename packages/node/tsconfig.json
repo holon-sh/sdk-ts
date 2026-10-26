@@ -5,7 +5,12 @@
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "files": ["runtime.d.ts", "protocol.d.ts", "../node/runtime.d.ts", "../node/protocol.d.ts"]
+  "files": [
+    "runtime.d.ts",
+    "protocol.d.ts"
+  ]
 }

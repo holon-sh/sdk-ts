@@ -39,6 +39,7 @@
   "files": [
     "runtime.mjs",
     "runtime.d.ts",
+    "validate.mjs",
     "protocol.d.ts",
     "view.js",
     "view.d.ts",
@@ -50,6 +51,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "holon-core": "^0.0.1-dev.0"
+    "@modelcontextprotocol/client": "^2.3.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
   }
 }

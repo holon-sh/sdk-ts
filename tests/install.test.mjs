@@ -8,23 +8,21 @@ import { temporary, typecheck } from "./helpers.mjs";
 
 const repository = dirname(dirname(fileURLToPath(import.meta.url)));
 
-test("packed packages support placeholder and generated consumers in NodeNext and Bundler", async t => {
+test("packed package supports placeholder and generated consumers in NodeNext and Bundler", async t => {
   const root = temporary(t);
-  const packed = spawnSync("npm", ["pack", "-w", "packages/core", "-w", "packages/node", "--ignore-scripts", "--json", "--pack-destination", root], { cwd: repository, encoding: "utf8" });
+  const packed = spawnSync("npm", ["pack", "-w", "packages/node", "--ignore-scripts", "--json", "--pack-destination", root], { cwd: repository, encoding: "utf8" });
   assert.equal(packed.status, 0, packed.stderr);
-  const tarballs = Object.fromEntries(JSON.parse(packed.stdout).map(info => [info.name, info]));
+  const [tarball] = JSON.parse(packed.stdout);
   const consumer = join(root, "consumer");
   mkdirSync(consumer);
-  const dependencies = { "holon-core": `file:${join(root, tarballs["holon-core"].filename)}`, "holon-sh": `file:${join(root, tarballs["holon-sh"].filename)}` };
+  const dependencies = { "holon-sh": `file:${join(root, tarball.filename)}` };
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ type: "module", private: true, dependencies }));
-  // holon-core's own dependencies come from the npm cache or registry.
+  // Runtime dependencies come from the npm cache or registry.
   const installed = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: consumer, encoding: "utf8" });
   assert.equal(installed.status, 0, installed.stderr);
   const directory = join(consumer, "node_modules/holon-sh");
   const metadata = JSON.parse(readFileSync(join(directory, "package.json"), "utf8"));
   assert.deepEqual(metadata.holon, { slot: "generated", contractVersion: 1 });
-  assert.deepEqual(Object.keys(metadata.dependencies), ["holon-core"]);
-  assert.equal(JSON.parse(readFileSync(join(consumer, "node_modules/holon-core/package.json"), "utf8")).holon, undefined);
   assert.deepEqual(JSON.parse(readFileSync(join(directory, "generated/holon-generated.json"), "utf8")), { marker: "holon-generated-apps-v1", placeholder: true });
   const placeholder = await import(`${pathToFileURL(join(directory, "generated/index.js"))}?placeholder`);
   assert.deepEqual(Object.keys(placeholder.createApps({})), []);

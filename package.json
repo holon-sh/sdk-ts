@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/core",
     "packages/node"
   ],
   "engines": {
@@ -11,7 +10,7 @@
   },
   "scripts": {
     "build": "npm run build -w packages/node",
-    "typecheck": "tsc -p packages/core/tsconfig.json",
+    "typecheck": "tsc -p packages/node/tsconfig.json",
     "test": "npm run typecheck && npm run build && node --test tests/*.test.mjs",
     "fixtures": "node packages/node/scripts/fixtures.mjs"
   },
