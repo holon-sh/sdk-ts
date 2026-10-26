@@ -19,23 +19,11 @@ npm install -D holon-types
 
 The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Example](https://github.com/holon-sh/cli#example) for an explanation, or [Dependencies](https://github.com/holon-sh/cli#dependencies) to understand dependency resolution.
 
-Generate `node_modules/holon-sh/generated/` from the project's dependencies and type-check the calls to it:
+### Type-checking MCP invocations
 
 ```sh
 npx holon types check
 ```
-
-```ts
-import { ToolCallError, apps, createApps, type Inputs, type Outputs, type Resources } from "holon-sh";
-```
-
-| Export | What it is |
-|---|---|
-| `apps` | One client per dependency (`apps.bar`), bound through `<ALIAS>_MCP_URL`. |
-| `createApps(bindings, options?)` | Clients bound explicitly, for only the dependencies you pass. |
-| `ToolCallError` | Thrown by `tools.<tool>` when a tool reports an error or asks for more input. |
-| `Inputs["dep"]["tool"]`, `Outputs["dep"]["tool"]` | A tool's argument and structured result types. |
-| `Resources["dep"]["uri"]` | The value type of a typed JSON resource. |
 
 <details open>
 <summary><h3>Call a tool</h3></summary>
@@ -49,7 +37,7 @@ export async function greet(name: string): Promise<string> {
 }
 ```
 
-Arguments are validated before sending; the result is validated against the output schema and returned. Options are MCP request options: `timeout` in milliseconds, `signal` an `AbortSignal`.
+Arguments are validated before sending; the result is validated against the output schema and returned.
 
 </details>
 
@@ -68,8 +56,6 @@ try {
 }
 ```
 
-Invalid arguments, a result that does not match the schema, and transport failures reject with an ordinary `Error`.
-
 </details>
 
 <details open>
@@ -87,8 +73,6 @@ if (result.resultType === "input_required") {
   result.structuredContent; // typed as Outputs["bar"]["greet"]
 }
 ```
-
-A dependency the CLI could not obtain a contract for gets an untyped client: `callTool` accepts any tool name, and `tools` is empty.
 
 </details>
 
@@ -110,32 +94,7 @@ await apps.orders.resources["orders://summary"].watch(value => console.log(value
 
 </details>
 
-## Bind a dependency
-
-By default a client reads its endpoint from an environment variable named after the dependency, upper-cased, with `-` as `_`. Each call through it opens and closes its own session.
-
-```sh
-BAR_MCP_URL=http://127.0.0.1:3001/mcp node main.ts
-```
-
-For authentication, bind explicitly:
-
-```ts
-import { createApps } from "holon-sh";
-
-const apps = createApps({
-  bar: {
-    endpoint: "https://bar.example.com/mcp",
-    authProvider: { token: async () => process.env.BAR_TOKEN },
-  },
-});
-
-await apps.bar.close(); // an explicit binding keeps one session open
-```
-
-A binding takes `endpoint`, and optionally `authProvider` (a bearer-token provider or an MCP OAuth client provider), `fetch`, and `scoped: true` to close the session after every call.
-
-## Serve an MCP App view
+## Serve an [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) view
 
 ```ts
 import { appView } from "holon-sh/view";
@@ -147,7 +106,7 @@ server.registerResource(
 );
 ```
 
-The file is read once, when `appView` is called. The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).
+The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).
 
 ## Other entry points
 
