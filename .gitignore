@@ -1,2 +1,17 @@
 node_modules/
 *.tgz
+.DS_Store
+/dist/
+/extract/
+
+# Legacy package-root build output; supported sources live in packages/node.
+/runtime.mjs
+/runtime.d.ts
+/browser-runtime.mjs
+/browser-runtime.d.ts
+/browser-validate.mjs
+/protocol.d.ts
+/view.js
+/view.d.ts
+/generated/
+/THIRD-PARTY-NOTICES.txt

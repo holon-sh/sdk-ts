@@ -12,6 +12,8 @@ scripted.orders.resources["orders://summary"].watch((value: string) => {});
 createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{}}});
 // @ts-expect-error
 createNodeApps({orders:{}});
+// @ts-expect-error generated clients require endpoint bindings; custom sessions use the runtime hook
+createNodeApps({orders:{host:{callServerTool: async () => ({}), readServerResource: async () => ({})}}});
 const summary: Resources["orders"]["orders://summary"] = await apps.orders.resources["orders://summary"].read({signal: new AbortController().signal});
 summary.total.toFixed();
 // @ts-expect-error

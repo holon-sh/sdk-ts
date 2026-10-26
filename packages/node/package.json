@@ -48,7 +48,8 @@
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "docs:build": "node scripts/build-reference.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.3.1",

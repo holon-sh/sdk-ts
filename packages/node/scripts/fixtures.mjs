@@ -21,7 +21,7 @@ try {
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const endpoint = `http://127.0.0.1:${server.address().port}/mcp`;
-  const { stdout, stderr } = await promisify(execFile)(holon, ["types", "generate", `orders=${endpoint}`, `with-hyphen=${endpoint}`], { cwd: consumer, timeout: 30000 });
+  const { stdout, stderr } = await promisify(execFile)(holon, ["types", "generate", "--server", `orders=${endpoint}`, "--server", `with-hyphen=${endpoint}`], { cwd: consumer, timeout: 30000 });
   process.stdout.write(stdout);
   process.stderr.write(stderr);
   rmSync(directory, { recursive: true, force: true });

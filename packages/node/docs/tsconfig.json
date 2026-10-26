@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": [
+    "_build/entrypoints/*.d.ts",
+    "../generated/*.d.ts",
+    "../runtime.d.ts",
+    "../protocol.d.ts",
+    "../src/view.ts"
+  ],
+  "exclude": []
+}
