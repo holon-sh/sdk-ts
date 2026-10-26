@@ -16,7 +16,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npm pack -w packages/core -w packages/node
+      - run: npm pack -w packages/node
       - uses: actions/upload-artifact@v4
         with:
           name: packages

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApps, bindApps, ToolCallError } from "holon-core";
+import { createApps, bindApps, ToolCallError } from "holon-sh/runtime";
 import { serve } from "./helpers.mjs";
 
 test("tools return output or throw while callTool preserves MCP results and identity", {timeout: 10000}, async t => {
@@ -71,20 +71,22 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   const uri = "orders://summary";
   let total = 1;
   const authorizations = [];
+  const installations = [];
   const resourceServer = subscribe => serve(t, () => {
     const server = new McpServer({ name: "orders", version: "1" }, subscribe ? { capabilities: { resources: { subscribe: true } } } : {});
     server.registerResource("summary", uri, { mimeType: "application/json" }, () => ({ ttlMs: 0, cacheScope: "private", contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ total }) }] }));
     return server;
-  }, req => authorizations.push(req.headers.authorization));
+  }, req => { authorizations.push(req.headers.authorization); installations.push(req.headers["x-holon-installation-uid"]); });
   const [live, plain] = await Promise.all([resourceServer(true), resourceServer(false)]);
   const { endpoint } = live;
   const contract = { tools: [], resources: [{ uri, outputSchema: z.toJSONSchema(summary) }] };
   const identity = { name: "script", version: "1", requires: {} };
   assert.throws(() => bindApps(identity, { orders: contract }, { missing: { endpoint } }), /Unknown app binding/);
-  const bound = bindApps(identity, { orders: contract }, { orders: { endpoint, authProvider: { token: async () => "external" } } });
+  const bound = bindApps(identity, { orders: contract }, { orders: { endpoint, authProvider: { token: async () => "external" }, installationUID: "installation-one" } });
   t.after(() => bound.orders.close());
   assert.deepEqual(await bound.orders.resources[uri].read(), { total: 1 });
   assert.ok(authorizations.length > 0 && authorizations.every(value => value === "Bearer external"), JSON.stringify(authorizations));
+  assert.ok(installations.every(value => value === "installation-one"), JSON.stringify(installations));
 
   const seen = [];
   const arrivals = [];
@@ -101,7 +103,7 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   controller.abort();
   await watching;
 
-  await assert.rejects(createApps({ ...identity, requires: { orders: {} } }, { orders: contract }).orders.resources[uri].watch(() => {}), /endpoint binding/);
+  await assert.rejects(createApps({ ...identity, requires: { orders: {} } }, { orders: contract }).orders.resources[uri].watch(() => {}), /ORDERS_MCP_URL/);
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);
 });
 
@@ -132,7 +134,7 @@ test("session hooks serve custom bindings and respect validation and binding bou
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: {} }, { session }).orders.tools.get_order({ id: "x" }), /^Error: Dependency orders binding has no endpoint\.$/);
 
   // Without a binding, a declared dependency is unavailable and an undeclared one is reported as such.
-  await assert.rejects(createApps(identity, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
+  await assert.rejects(createApps(identity, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable (ORDERS_MCP_URL). Provide a binding or set the environment variable." });
   await assert.rejects(createApps({ name: "checkout", version: "1" }, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is not declared by this application." });
   // Explicit bindings switch resolve off for every app.
   await assert.rejects(createApps(identity, { orders: contract, other: null }, { other: {} }, { resolve: () => assert.fail("resolve with explicit bindings") }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
