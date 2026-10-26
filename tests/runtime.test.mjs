@@ -86,7 +86,7 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   t.after(() => bound.orders.close());
   assert.deepEqual(await bound.orders.resources[uri].read(), { total: 1 });
   assert.ok(authorizations.length > 0 && authorizations.every(value => value === "Bearer external"), JSON.stringify(authorizations));
-  assert.ok(installations.every(value => value === "installation-one"), JSON.stringify(installations));
+  assert.ok(installations.length > 0 && installations.every(value => value === "installation-one"), JSON.stringify(installations));
 
   const seen = [];
   const arrivals = [];

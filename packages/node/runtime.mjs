@@ -68,7 +68,7 @@ export function createApps(identity, contracts, bindings, options) {
   for (const [name, contract] of Object.entries(members)) {
     const binding = bindings?.[name];
     // Without explicit bindings, the resolve hook supplies the binding on every call.
-    const current = () => binding ?? (bindings ? undefined : resolve?.(name));
+    const current = () => binding ?? (bindings ? undefined : resolve(name));
     let connection;
     const connect = resolved => {
       const client = new Client({ name: identity.name, version: identity.version }, { versionNegotiation: { mode: "auto" } });
@@ -127,7 +127,7 @@ export function createApps(identity, contracts, bindings, options) {
       return { ...result, resultType: "complete" };
     };
     const listTools = options => session(options, client => client.listTools(undefined, options));
-    for (const { definition: tool } of definitions.values()) if (!["then", "toJSON", "toString", "valueOf", "toLocaleString"].includes(tool.name)) {
+    for (const tool of contract?.tools ?? []) if (!["then", "toJSON", "toString", "valueOf", "toLocaleString"].includes(tool.name)) {
       tools[tool.name] = async (input, options) => {
         const result = await callTool({ name: tool.name, arguments: input }, options);
         if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, tool.name, result);
