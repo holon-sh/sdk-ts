@@ -107,10 +107,3 @@ server.registerResource(
 ```
 
 The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).
-
-## Other entry points
-
-| Import | Exports |
-|---|---|
-| `holon-sh/runtime` | What the generated module calls: `createApps(identity, contracts, bindings?, options?)`, `bindApps`, `ToolCallError`, and `setDefaultBinding` for hosts that bind every app at startup. Apps use the generated module instead. |
-| `holon-sh/protocol` | Types only: `ToolClient`, `ToolResult`, `CallOptions`, `CallMetadata`, `AuthProvider`, `ToolCallError`. |
