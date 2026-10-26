@@ -2,7 +2,7 @@
 // Uses public generation against a local literal MCP server; no package install or network is needed.
 import { execFile } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,11 +11,9 @@ import { server } from "../../../tests/fixtures/orders/server.mjs";
 
 const holon = process.env.HOLON ? resolve(process.env.HOLON) : "holon";
 const directory = fileURLToPath(new URL("../../../tests/fixtures/checkout/", import.meta.url));
-const temporary = mkdtempSync(join(tmpdir(), "holon-sdk-fixtures-"));
+const consumer = mkdtempSync(join(tmpdir(), "holon-checkout-"));
 try {
-  const consumer = join(temporary, "checkout");
   const runtime = join(consumer, "node_modules/holon-sh");
-  mkdirSync(consumer);
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ name: "checkout", version: "1", type: "module", dependencies: { "holon-sh": "*" } }));
   cpSync(new URL("../", import.meta.url), runtime, { recursive: true });
   server.listen(0, "127.0.0.1");
@@ -28,6 +26,6 @@ try {
   cpSync(join(runtime, "generated"), directory, { recursive: true });
 } finally {
   server.closeAllConnections();
-  await new Promise(resolve => server.close(resolve));
-  rmSync(temporary, { recursive: true, force: true });
+  await new Promise(done => server.close(done));
+  rmSync(consumer, { recursive: true, force: true });
 }
