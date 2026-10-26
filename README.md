@@ -1,26 +1,109 @@
 # Holon TypeScript SDK
 
-The Node.js runtime for typed MCP clients in TypeScript and JavaScript. The [`holon` CLI](https://github.com/holon-sh/cli) reads the MCP servers your server calls and generates a typed client into the installed runtime package; the client runs on `holon-sh`.
+[![CI](https://github.com/holon-sh/sdk-ts/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/holon-sh/sdk-ts/actions/workflows/ci.yml)
+[![Node.js](https://img.shields.io/badge/Node.js-22%2B-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
+[![MIT License](https://img.shields.io/badge/license-MIT-green)](https://github.com/holon-sh/sdk-ts/blob/main/LICENSE)
 
-Install [`holon-sh`](packages/node) in every Node.js MCP server that calls other servers. It contains the transport, schema validator, and view-resource helper in one package. `import { apps } from "holon-sh"` gives you the generated, typed clients.
+This repository contains the Node.js runtime for [`holon`](https://github.com/holon-sh/cli).
 
-## Develop
-
-This repository is an npm workspace. Node.js 22 or newer.
+## Install
 
 ```sh
-npm ci
-npm test
-npm pack -w packages/node
+npm install holon-sh@dev
+npm install -D holon-types
 ```
 
-`npm run fixtures` is the only way to refresh the committed `tests/fixtures/checkout` slot. It starts the literal MCP server in `tests/fixtures/orders/server.mjs`, runs the public `holon types generate` command with `--server` for `orders` and `with-hyphen` in a temporary consumer, and copies the generated slot back. It needs no package install or external network. Use the `holon` CLI on `PATH`, or set `HOLON=/path/to/holon`.
+`holon-types` is the `holon` CLI. `holon types check` brings its own TypeScript compiler and uses the project's `typescript` when one is installed.
 
-After `npm ci`, run `npm_config_offline=true npm test` to check the packages without registry access. Tests consume the committed fixture and do not invoke the CLI.
+## Invoking MCP Servers
 
-`npm run docs:build` builds the [TypeScript reference](packages/node/docs/README.md).
-CI uploads its `sdk-reference-typescript` bundle for the website.
+The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Example](https://github.com/holon-sh/cli#example) for an explanation, or [Dependencies](https://github.com/holon-sh/cli#dependencies) to understand dependency resolution.
 
-## License
+### Type-checking MCP invocations
 
-MIT
+```sh
+npx holon types check
+```
+
+<details open>
+<summary><h3>Call a tool</h3></summary>
+
+```ts
+import { apps } from "holon-sh";
+
+export async function greet(name: string): Promise<string> {
+  const greeting = await apps.bar.tools.greet({ name }, { timeout: 5000 });
+  return greeting.result;
+}
+```
+
+Arguments are validated before sending; the result is validated against the output schema and returned.
+
+</details>
+
+<details open>
+<summary><h3>Handle errors</h3></summary>
+
+```ts
+import { ToolCallError, apps } from "holon-sh";
+
+try {
+  await apps.bar.tools.greet({ name: "world" });
+} catch (error) {
+  if (!(error instanceof ToolCallError)) throw error;
+  error.code;   // "tool_error" | "input_required"
+  error.result; // the original MCP result
+}
+```
+
+</details>
+
+<details open>
+<summary><h3>Read the whole result</h3></summary>
+
+`callTool` returns the full MCP result instead of throwing:
+
+```ts
+const result = await apps.bar.callTool({ name: "greet", arguments: { name: "world" } });
+if (result.resultType === "input_required") {
+  // call again with inputResponses and requestState
+} else if (result.isError) {
+  // inspect result.content
+} else {
+  result.structuredContent; // typed as Outputs["bar"]["greet"]
+}
+```
+
+</details>
+
+<details open>
+<summary><h3>Read a resource</h3></summary>
+
+A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`, as the `orders` server in `tests/fixtures` does. The client then offers `read` and `watch`:
+
+```ts
+const summary = await apps.orders.resources["orders://summary"].read();
+
+const controller = new AbortController();
+await apps.orders.resources["orders://summary"].watch(value => console.log(value.total), {
+  signal: controller.signal,
+});
+```
+
+`watch` calls back with the current value, then on every update, until the signal aborts. It needs an endpoint binding and a server that supports resource subscriptions.
+
+</details>
+
+## Serve an [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) view
+
+```ts
+import { appView } from "holon-sh/view";
+
+server.registerResource(
+  ...appView("Foo", "ui://foo/index.html", new URL("./dist/index.html", import.meta.url), {
+    csp: { connectDomains: ["https://bar.example.com"] },
+  }),
+);
+```
+
+The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).
