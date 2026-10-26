@@ -1,12 +1,10 @@
-# holon-sh
+# Holon TypeScript SDK
 
 [![CI](https://github.com/holon-sh/sdk-ts/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/holon-sh/sdk-ts/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
 [![MIT License](https://img.shields.io/badge/license-MIT-green)](https://github.com/holon-sh/sdk-ts/blob/main/LICENSE)
 
-`holon-sh` is the Node.js runtime for the typed MCP clients that the [`holon` CLI](https://github.com/holon-sh/cli) generates: it connects over Streamable HTTP, validates arguments and results against each tool's JSON Schema, and throws on tool errors.
-
-The CLI writes the typed module into this package's slot, `node_modules/holon-sh/generated/`, so `import { apps } from "holon-sh"` resolves to your project's own types, and runs tsc over your calls. The runtime never type-checks by itself.
+This repository contains the Node.js runtime for [`holon`](https://github.com/holon-sh/cli).
 
 ## Install
 
@@ -14,9 +12,7 @@ The CLI writes the typed module into this package's slot, `node_modules/holon-sh
 npm install holon-sh@dev
 ```
 
-Node.js 22 or newer. Each app needs its own copy: the CLI refuses to write two apps' clients into one hoisted `holon-sh`. Until the CLI runs, the package exports an empty placeholder client. Do not edit `node_modules/holon-sh/generated/`: the CLI rewrites it on every run.
-
-Then install the CLI:
+Then install the CLI, which generates the typed `apps` export the examples import:
 
 ```sh
 curl -fsSL https://holon-labs.dev/install.sh | sh
@@ -125,42 +121,7 @@ const text: string = greeting.text;
 
 ## Dependencies
 
-A dependency is an MCP server your project calls. For each one `holon` obtains a contract—the JSON Schemas of the server's tools and resources—and writes a typed client `apps.<alias>` into `node_modules/holon-sh/generated/`. The alias is the key in `requires`, or `alias=` before a `-s` value; it defaults to the last segment of the server's name.
-
-A dependency is written in one of three ways.
-
-<details open>
-<summary><h3>Source code</h3></summary>
-
-An implementation of an MCP server, or its parent directory, with a `server.json` beside the entry file. The server is read, not started.
-
-```sh
-holon types check -s bar/server.py
-```
-
-</details>
-
-<details open>
-<summary><h3>Registry</h3></summary>
-
-A `sh.holon.requires` entry in [`server.json`](https://modelcontextprotocol.io/registry/quickstart#step-4-create-server-json), or `-s` with a registry version URL. The record is fetched for its contract.
-
-```sh
-holon types check -s https://registry.modelcontextprotocol.io/v0.1/servers/io.github.upstash%2Fcontext7/versions/4.4.4
-```
-
-</details>
-
-<details open>
-<summary><h3>Server</h3></summary>
-
-An endpoint URL. The running server is asked for `tools/list` and `resources/list`.
-
-```sh
-holon types check -s https://mcp.context7.com/mcp
-```
-
-</details>
+To understand how dependencies work, see [Dependencies](https://github.com/holon-sh/cli#dependencies) in the CLI README.
 
 ## The generated module
 
