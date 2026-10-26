@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -12,6 +12,9 @@ const diagnostics = ts.getPreEmitDiagnostics(view);
 if (diagnostics.length) throw new Error(ts.formatDiagnostics(diagnostics, { getCurrentDirectory: () => root, getCanonicalFileName: p => p, getNewLine: () => "\n" }));
 const emitted = view.emit();
 if (emitted.emitSkipped) throw new Error("view.ts was not emitted.");
+
+// The repository README is the package README.
+copyFileSync(join(root, "..", "..", "README.md"), join(root, "README.md"));
 
 // npm tarballs always start with an empty slot; generation belongs to the consumer.
 const generated = join(root, "generated");
