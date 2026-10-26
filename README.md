@@ -25,7 +25,6 @@ Generate `node_modules/holon-sh/generated/` from the project's dependencies and 
 npx holon types check
 ```
 
-
 ```ts
 import { ToolCallError, apps, createApps, type Inputs, type Outputs, type Resources } from "holon-sh";
 ```
