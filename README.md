@@ -125,7 +125,7 @@ const add = tool({ changes: [state] }, ({ amount }: { amount: number }) => {
   return { count };
 });
 
-export default createApp({ name: "example.com/counter", version: "1.0.0" }, {
+export default createApp({ name: "example.com/counter", version: "1.0.0", description: "A shared counter" }, {
   tools: { show, add }, resources: { state },
   views: new URL("./dist/views.json", import.meta.url),
 });
