@@ -131,7 +131,6 @@ export function createApps(identity, contracts, bindings, options) {
       tools[tool.name] = async (input, options) => {
         const result = await callTool({ name: tool.name, arguments: input }, options);
         if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, tool.name, result);
-        // Without an output schema there is nothing to project, so the complete result is returned.
         return tool.outputSchema ? result.structuredContent : result;
       };
     }

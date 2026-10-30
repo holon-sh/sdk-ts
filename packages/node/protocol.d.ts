@@ -11,7 +11,7 @@ export type CallOptions = Omit<RequestOptions, "allowInputRequired">;
 export type CallMetadata = Omit<CallToolRequest["params"], "name" | "arguments"> & { inputResponses?: InputResponses; requestState?: string };
 /** @internal */
 type Fields<T> = { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
-/** Successful tool result with contract-typed structured content. A tool without an output schema returns CompleteResult<unknown> from its convenience method. */
+/** Successful tool result with contract-typed structured content. */
 export type CompleteResult<Output> = Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError?: false; structuredContent: Output };
 /** Full tool result: successful typed output, an application error, or an input-required continuation. */
 export type ToolResult<Output> =

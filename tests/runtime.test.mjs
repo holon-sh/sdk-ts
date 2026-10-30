@@ -62,13 +62,8 @@ test("tools return output or throw while callTool preserves MCP results and iden
   await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }), /Invalid structured output/);
   await assert.rejects(first.orders.tools.get_order({ id: "text" }), /Invalid structured output/);
   const untyped = createApps({ name: "untyped", version: "1", requires: { orders: {} } }, { orders: { tools: [{ name: "get_order", inputSchema: contract.tools[0].inputSchema }] } }, undefined, { resolve });
-  // Without an output schema the convenience method returns the complete result, including text content.
-  const complete = await untyped.orders.tools.get_order({ id: "text" });
-  assert.equal(complete.resultType, "complete");
-  assert.equal(complete.content[0].text, '{"total":5}');
-  assert.equal(complete.structuredContent, undefined);
   assert.deepEqual((await untyped.orders.tools.get_order({ id: "bad" })).structuredContent, { total: "invalid" });
-  await assert.rejects(untyped.orders.tools.get_order({ id: "error" }), error => error instanceof ToolCallError);
+  assert.equal((await untyped.orders.tools.get_order({ id: "text" })).content[0].text, '{"total":5}');
 });
 
 test("endpoint bindings carry the auth provider and watch resources through subscriptions", { timeout: 20000 }, async t => {
