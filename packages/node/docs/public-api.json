@@ -1,12 +1,10 @@
 {
   "./app": [
-    "AppContract",
-    "AppOptions",
     "Context",
     "Resource",
     "Tool",
     "ToolOptions",
-    "createApp",
+    "register",
     "resource",
     "tool"
   ],

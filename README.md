@@ -79,7 +79,7 @@ if (result.resultType === "input_required") {
 <details open>
 <summary><h3>Read a resource</h3></summary>
 
-A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`, as the `orders` server in `tests/fixtures` does. The client then offers `read` and `watch`:
+A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`, as the `orders` server in `tests/fixtures` does. A tool's `"sh.holon/changes"` `_meta` lists the resource URIs a successful call invalidates; [`register`](#function-apps) sets it from `changes`. The client then offers `read` and `watch`:
 
 ```ts
 const summary = await apps.orders.resources["orders://summary"].read();
@@ -110,40 +110,37 @@ The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).
 
 ## Function apps
 
-`holon-sh/app` turns typed functions into ordinary MCP tools and JSON resources.
-The CLI extracts schemas without importing your server. Run `holon types generate`
-after installing dependencies and before starting or building the app.
+`holon-sh/app` declares typed functions as MCP tools and JSON resources, and `register` adds them to an `McpServer` you construct. Run `holon types generate` first: the CLI extracts input and output schemas from the function types without importing the module, and `register` reads them from the generated contract. `@modelcontextprotocol/server` is a peer dependency.
 
 ```ts
-import { createApp, resource, tool } from "holon-sh/app";
+import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
+import { register, resource, tool } from "holon-sh/app";
+import { appView } from "holon-sh/view";
 
 let count = 0;
 const state = resource("counter://state", () => ({ count }));
-const show = tool({ annotations: { readOnlyHint: true } }, () => ({ count }));
+const show = tool(
+  { annotations: { readOnlyHint: true }, _meta: { ui: { resourceUri: "ui://counter/index.html" } } },
+  () => ({ count }),
+);
 const add = tool({ changes: [state] }, ({ amount }: { amount: number }) => {
   count += amount;
   return { count };
 });
+const view = appView("Counter", "ui://counter/index.html", new URL("./dist/index.html", import.meta.url));
 
-export default createApp({ name: "example.com/counter", version: "1.0.0", description: "A shared counter" }, {
-  tools: { show, add }, resources: { state },
-  views: new URL("./dist/views.json", import.meta.url),
+const handler = createMcpHandler(() => {
+  const server = new McpServer(
+    { name: "example.com/counter", version: "1.0.0" },
+    { capabilities: { resources: { subscribe: true } } },
+  );
+  register(server, { tools: { show, add }, resources: { state } }, uri => handler.notify.resourceUpdated(uri));
+  server.registerResource(...view);
+  return server;
 });
+export default handler;
 ```
 
-The second callback argument is the native MCP `ServerContext`. `changes` publishes
-resource updates after successful calls; it does not authorize or make a write
-transactional. Other writers must publish their own updates. The returned handler
-has the SDK's `fetch`, `notify`, and `close`, plus `createServer` for stdio hosts.
+The second callback argument is the native MCP `ServerContext`. After a successful call, `register` passes each `changes` URI to its third argument; `createMcpHandler` builds a server per request, so pass `handler.notify.resourceUpdated` for `changes` to reach subscribers. `changes` is a refresh declaration, not authorization or a transaction. A tool opens an MCP App with native `_meta.ui.resourceUri`.
 
-Use `holon-ui/react` to declare the presentation and `holon-ui/build` to emit both
-the static frontend and self-contained MCP App. The resulting `views.json` supplies
-tool/resource associations and native MCP Apps metadata. Server code stays on the
-server. Omit `views` for an app without a UI.
-
-Function inference supports JSON object arguments and results, including nested
-objects, arrays, optional properties and unions. Unsupported types fail extraction.
-For templates, tasks, non-JSON outputs, or dynamically composed catalogs, keep the
-native MCP APIs. Existing generated clients and `appView` remain available. An
-explicit `contract` can supply schemas when another producer owns the contract;
-`configure` adds native registrations in that mode.
+Function inference supports JSON object arguments and results, including nested objects, arrays, optional properties and unions. Unsupported types fail extraction; register those tools with the native MCP APIs.
