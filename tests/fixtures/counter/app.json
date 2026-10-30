@@ -1,0 +1,23 @@
+{
+  "identity": { "name": "counter", "version": "1" },
+  "schema": {
+    "tools": [
+      {
+        "name": "add",
+        "inputSchema": { "type": "object", "properties": { "value": { "type": "number" } }, "required": ["value"], "additionalProperties": false },
+        "outputSchema": { "type": "object", "properties": { "value": { "type": "number" } }, "required": ["value"], "additionalProperties": false }
+      },
+      {
+        "name": "show",
+        "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false },
+        "outputSchema": { "type": "object", "properties": { "value": { "type": "number" } }, "required": ["value"], "additionalProperties": false }
+      }
+    ],
+    "resources": [
+      {
+        "uri": "counter://value",
+        "outputSchema": { "type": "object", "properties": { "value": { "type": "number" } }, "required": ["value"], "additionalProperties": false }
+      }
+    ]
+  }
+}

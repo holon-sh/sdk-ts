@@ -3,3 +3,5 @@
 /generated/
 /docs/_build/
 /README.md
+/app.js
+/app.d.ts

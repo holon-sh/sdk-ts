@@ -11,7 +11,8 @@
     "../generated/*.d.ts",
     "../runtime.d.ts",
     "../protocol.d.ts",
-    "../src/view.ts"
+    "../src/view.ts",
+    "../src/app.ts"
   ],
   "exclude": []
 }

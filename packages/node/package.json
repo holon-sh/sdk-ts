@@ -34,6 +34,10 @@
     },
     "./protocol": {
       "types": "./protocol.d.ts"
+    },
+    "./app": {
+      "types": "./app.d.ts",
+      "import": "./app.js"
     }
   },
   "files": [
@@ -44,7 +48,9 @@
     "view.js",
     "view.d.ts",
     "generated/",
-    "README.md"
+    "README.md",
+    "app.js",
+    "app.d.ts"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -55,5 +61,8 @@
     "@modelcontextprotocol/client": "^2.3.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/server": "^2.3.1"
   }
 }

@@ -1,4 +1,13 @@
 {
+  "./app": [
+    "Context",
+    "Resource",
+    "Tool",
+    "ToolOptions",
+    "register",
+    "resource",
+    "tool"
+  ],
   ".": [
     "Apps",
     "Binding",

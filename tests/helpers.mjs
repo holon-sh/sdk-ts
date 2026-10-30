@@ -1,8 +1,10 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import assert from "node:assert/strict";
@@ -12,6 +14,23 @@ export function temporary(t) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "holon-sdk-")));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   return root;
+}
+
+// Pack the workspace package and install it into a fresh consumer, as an app would.
+export function install(t) {
+  const root = temporary(t);
+  const repository = dirname(dirname(fileURLToPath(import.meta.url)));
+  const packed = spawnSync("npm", ["pack", "-w", "packages/node", "--ignore-scripts", "--json", "--pack-destination", root], { cwd: repository, encoding: "utf8" });
+  assert.equal(packed.status, 0, packed.stderr);
+  const [tarball] = JSON.parse(packed.stdout);
+  const consumer = join(root, "consumer");
+  mkdirSync(consumer);
+  const dependencies = { "holon-sh": `file:${join(root, tarball.filename)}` };
+  writeFileSync(join(consumer, "package.json"), JSON.stringify({ type: "module", private: true, dependencies }));
+  // Runtime dependencies come from the npm cache or registry.
+  const installed = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: consumer, encoding: "utf8" });
+  assert.equal(installed.status, 0, installed.stderr);
+  return { consumer, directory: join(consumer, "node_modules/holon-sh") };
 }
 
 export function typecheck(source) {

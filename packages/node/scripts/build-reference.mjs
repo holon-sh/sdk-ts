@@ -41,6 +41,7 @@ const entries = {
   root: ".",
   runtime: "./runtime",
   view: "./view",
+  app: "./app",
   protocol: "./protocol",
 };
 if (
@@ -99,7 +100,7 @@ for (const module of project.children) {
     title: `holon-sh${entry === "." ? "" : entry.slice(1)}`,
     source: `packages/node/${id === "root"
       ? "scripts/build.mjs"
-      : id === "view" ? "src/view.ts" : `${id}.d.ts`}`,
+      : id === "view" || id === "app" ? `src/${id}.ts` : `${id}.d.ts`}`,
   });
 }
 const sha = execFileSync("git", ["rev-parse", "HEAD"], {
