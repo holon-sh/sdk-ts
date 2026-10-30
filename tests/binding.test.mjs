@@ -34,15 +34,15 @@ test("Node bindings resolve lazily, prefer the resolver, and fall back to scoped
   process.env.ORDERS_MCP_URL = "http://unavailable.invalid/mcp";
   // Clients created before the resolver was set use it at call time.
   setDefaultBinding(() => ({ endpoint, fetch: counting("orders") }));
-  assert.deepEqual(await apps.orders.tools.get_order({ id: "a" }), { id: "a" });
-  assert.deepEqual(await apps.orders.tools.get_order({ id: "b" }), { id: "b" });
+  assert.deepEqual((await apps.orders.tools.get_order({ id: "a" })).structuredContent, { id: "a" });
+  assert.deepEqual((await apps.orders.tools.get_order({ id: "b" })).structuredContent, { id: "b" });
   assert.equal(connections.orders, 1);
   await apps.orders.close();
 
   // Existing hosts can also replace the shared symbol directly.
   setDefaultBinding(() => undefined);
   globalThis[Symbol.for("@holon-sh/sdk/default-binding")] = app => app === "orders" ? { endpoint } : undefined;
-  assert.deepEqual(await apps.orders.tools.get_order({ id: "host" }), { id: "host" });
+  assert.deepEqual((await apps.orders.tools.get_order({ id: "host" })).structuredContent, { id: "host" });
   await apps.orders.close();
   process.env.PAYMENTS_MCP_URL = endpoint;
   // The Node environment fallback is scoped and consulted on every call.

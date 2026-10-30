@@ -37,7 +37,7 @@ export async function greet(name: string): Promise<string> {
 }
 ```
 
-Arguments are validated before sending; the result is validated against the output schema and returned.
+Arguments are validated before sending; the result is validated against the output schema and returned. A tool that declares no output schema returns the complete result instead, so its `content` is available.
 
 </details>
 

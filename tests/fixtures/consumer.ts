@@ -61,5 +61,11 @@ if (raw.resultType === "complete" && !raw.isError) {
   raw.structuredContent.invalid;
 }
 const unknown = await apps.orders.tools.unknown_output({});
+unknown.content[0]?.type.toUpperCase();
+const content: unknown = unknown.structuredContent;
 // @ts-expect-error
 unknown.total;
+// @ts-expect-error
+unknown.structuredContent.total;
+// @ts-expect-error
+unknown.isError === true;
