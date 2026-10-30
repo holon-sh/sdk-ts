@@ -107,3 +107,43 @@ server.registerResource(
 ```
 
 The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).
+
+## Function apps
+
+`holon-sh/app` turns typed functions into ordinary MCP tools and JSON resources.
+The CLI extracts schemas without importing your server. Run `holon types generate`
+after installing dependencies and before starting or building the app.
+
+```ts
+import { createApp, resource, tool } from "holon-sh/app";
+
+let count = 0;
+const state = resource("counter://state", () => ({ count }));
+const show = tool({ annotations: { readOnlyHint: true } }, () => ({ count }));
+const add = tool({ changes: [state] }, ({ amount }: { amount: number }) => {
+  count += amount;
+  return { count };
+});
+
+export default createApp({ name: "counter", version: "1.0.0" }, {
+  tools: { show, add }, resources: { state },
+  views: new URL("./dist/views.json", import.meta.url),
+});
+```
+
+The second callback argument is the native MCP `ServerContext`. `changes` publishes
+resource updates after successful calls; it does not authorize or make a write
+transactional. Other writers must publish their own updates. The returned handler
+has the SDK's `fetch`, `notify`, and `close`, plus `createServer` for stdio hosts.
+
+Use `holon-ui/react` to declare the presentation and `holon-ui/build` to emit both
+the static frontend and self-contained MCP App. The resulting `views.json` supplies
+tool/resource associations and native MCP Apps metadata. Server code stays on the
+server. Omit `views` for an app without a UI.
+
+Function inference supports JSON object arguments and results, including nested
+objects, arrays, optional properties and unions. Unsupported types fail extraction.
+For templates, tasks, non-JSON outputs, or dynamically composed catalogs, keep the
+native MCP APIs. Existing generated clients and `appView` remain available. An
+explicit `contract` can supply schemas when another producer owns the contract;
+`configure` adds native registrations in that mode.

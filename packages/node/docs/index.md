@@ -7,6 +7,7 @@ The `holon-sh` package provides typed MCP clients and server-side HTML views for
 | `holon-sh` | Generated `apps`, `createApps`, and project types |
 | `holon-sh/runtime` | Low-level client construction and binding resolution |
 | `holon-sh/view` | Server registration of built HTML views |
+| `holon-sh/app` | Typed functions, JSON resources, and compiled app views |
 | `holon-sh/protocol` | Shared client/result types; types only |
 
 The root exports named values: `import { apps, createApps } from "holon-sh"`.

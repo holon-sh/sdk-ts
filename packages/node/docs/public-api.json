@@ -1,4 +1,15 @@
 {
+  "./app": [
+    "AppContract",
+    "AppOptions",
+    "Context",
+    "Resource",
+    "Tool",
+    "ToolOptions",
+    "createApp",
+    "resource",
+    "tool"
+  ],
   ".": [
     "Apps",
     "Binding",
