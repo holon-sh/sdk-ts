@@ -11,6 +11,10 @@ import { install } from "./helpers.mjs";
 
 test("register adds typed declarations to a native server", async (t) => {
   const { consumer, directory } = install(t);
+  await assert.rejects(
+    import(`${pathToFileURL(join(directory, "app.js"))}?placeholder`),
+    /Run holon types generate for this app before starting its server\./,
+  );
   // The contract `holon types generate` writes into the slot; generation is tested in holon-sh/cli.
   cpSync(new URL("./fixtures/counter/", import.meta.url), join(directory, "generated"), { recursive: true });
   // Resolve both packages from the app, so the server and holon-sh/app share one SDK.

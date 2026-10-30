@@ -54,6 +54,26 @@ interface Contract {
   resources?: { uri: string; outputSchema: JsonSchemaType }[];
 }
 
+// `holon types generate` writes the app's own contract into this package's slot.
+const contract: Contract = (() => {
+  try {
+    const { schema } = JSON.parse(
+      readFileSync(new URL("./generated/app.json", import.meta.url), "utf8"),
+    );
+    if (!schema) throw new Error("No own server contract");
+    return schema;
+  } catch (cause) {
+    throw new Error(
+      "Run holon types generate for this app before starting its server.",
+      { cause },
+    );
+  }
+})();
+const tools = new Map(contract.tools.map((entry) => [entry.name, entry]));
+const schemas = new Map(
+  (contract.resources ?? []).map((entry) => [entry.uri, entry.outputSchema]),
+);
+
 /**
  * Register declarations on a native server with the schemas `holon types generate` wrote.
  * Fails before registering anything when the generated catalog differs from the declarations.
@@ -70,22 +90,6 @@ export function register(
   },
   changed?: (uri: string) => unknown,
 ): void {
-  let contract: Contract;
-  try {
-    contract = JSON.parse(
-      readFileSync(new URL("./generated/app.json", import.meta.url), "utf8"),
-    ).schema;
-    if (!contract) throw new Error("No own server contract");
-  } catch (cause) {
-    throw new Error(
-      "Run holon types generate for this app before starting its server.",
-      { cause },
-    );
-  }
-  const tools = new Map(contract.tools.map((entry) => [entry.name, entry]));
-  const schemas = new Map(
-    (contract.resources ?? []).map((entry) => [entry.uri, entry.outputSchema]),
-  );
   const names = Object.keys(declarations.tools);
   if (tools.size !== names.length || names.some((name) => !tools.has(name)))
     throw new Error(

@@ -110,7 +110,7 @@ The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).
 
 ## Function apps
 
-`holon-sh/app` declares typed functions as MCP tools and JSON resources, and `register` adds them to an `McpServer` you construct. Run `holon types generate` first: the CLI extracts input and output schemas from the function types without importing the module, and `register` reads them from the generated contract. `@modelcontextprotocol/server` is a peer dependency.
+`holon-sh/app` declares typed functions as MCP tools and JSON resources, and `register` adds them to an `McpServer` you construct. Run `holon types generate` first: the CLI extracts input and output schemas from the function types without importing the module. Importing `holon-sh/app` loads that contract once and fails at startup when it is missing; `register` fails when the declarations differ from it. `@modelcontextprotocol/server` is a peer dependency.
 
 ```ts
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
