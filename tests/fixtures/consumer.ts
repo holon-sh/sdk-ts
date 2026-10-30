@@ -61,5 +61,6 @@ if (raw.resultType === "complete" && !raw.isError) {
   raw.structuredContent.invalid;
 }
 const unknown = await apps.orders.tools.unknown_output({});
+unknown.content;
 // @ts-expect-error
 unknown.total;

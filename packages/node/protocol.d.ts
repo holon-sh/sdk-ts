@@ -11,9 +11,11 @@ export type CallOptions = Omit<RequestOptions, "allowInputRequired">;
 export type CallMetadata = Omit<CallToolRequest["params"], "name" | "arguments"> & { inputResponses?: InputResponses; requestState?: string };
 /** @internal */
 type Fields<T> = { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
+/** Successful tool result with contract-typed structured content. */
+export type CompleteResult<Output> = Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError?: false; structuredContent: Output };
 /** Full tool result: successful typed output, an application error, or an input-required continuation. */
 export type ToolResult<Output> =
-  | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError?: false; structuredContent: Output })
+  | CompleteResult<Output>
   | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError: true; structuredContent?: unknown })
   | InputRequiredResult;
 
@@ -37,8 +39,8 @@ export interface ToolClient<I, O, R> {
     readonly read: (options?: CallOptions) => Promise<R[U]>;
     readonly watch: (onChange: (value: R[U]) => void | Promise<void>, options?: { signal?: AbortSignal }) => Promise<void>;
   } };
-  /** Convenience methods returning structured output. Error or input-required results throw ToolCallError. Reserved object method names remain callable through callTool. */
-  readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: CallOptions) => Promise<K extends keyof O ? O[K] : unknown> };
+  /** Convenience methods returning structured output, or the complete result for a tool without an output schema. Error or input-required results throw ToolCallError. Reserved object method names remain callable through callTool. */
+  readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: CallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
   /** Return the full MCP result, preserving error and input-required results. Arguments and successful output are contract-validated. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: CallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
 }

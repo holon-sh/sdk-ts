@@ -17,6 +17,7 @@
     "AuthProvider",
     "CallMetadata",
     "CallOptions",
+    "CompleteResult",
     "ToolCallError",
     "ToolClient",
     "ToolResult"

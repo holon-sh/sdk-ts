@@ -62,8 +62,8 @@ test("tools return output or throw while callTool preserves MCP results and iden
   await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }), /Invalid structured output/);
   await assert.rejects(first.orders.tools.get_order({ id: "text" }), /Invalid structured output/);
   const untyped = createApps({ name: "untyped", version: "1", requires: { orders: {} } }, { orders: { tools: [{ name: "get_order", inputSchema: contract.tools[0].inputSchema }] } }, undefined, { resolve });
-  assert.deepEqual(await untyped.orders.tools.get_order({ id: "bad" }), { total: "invalid" });
-  assert.equal(await untyped.orders.tools.get_order({ id: "text" }), undefined);
+  assert.deepEqual((await untyped.orders.tools.get_order({ id: "bad" })).structuredContent, { total: "invalid" });
+  assert.equal((await untyped.orders.tools.get_order({ id: "text" })).content[0].text, '{"total":5}');
 });
 
 test("endpoint bindings carry the auth provider and watch resources through subscriptions", { timeout: 20000 }, async t => {
@@ -126,7 +126,7 @@ test("session hooks serve custom bindings and respect validation and binding bou
   const signal = new AbortController().signal;
   const hosted = bindApps(identity, { orders: contract }, { orders: binding }, { session });
   assert.deepEqual(sessions, [["orders", binding]]);
-  assert.deepEqual(await hosted.orders.tools.get_order({ id: "s" }, { signal }), { id: "s" });
+  assert.deepEqual((await hosted.orders.tools.get_order({ id: "s" }, { signal })).structuredContent, { id: "s" });
   assert.deepEqual(await hosted.orders.resources["orders://summary"].read(), { total: 7 });
   assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, signal], ["read", { uri: "orders://summary" }]]);
   await assert.rejects(hosted.orders.resources["orders://summary"].watch(() => {}), /endpoint binding/);

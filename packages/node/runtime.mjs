@@ -131,7 +131,7 @@ export function createApps(identity, contracts, bindings, options) {
       tools[tool.name] = async (input, options) => {
         const result = await callTool({ name: tool.name, arguments: input }, options);
         if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, tool.name, result);
-        return result.structuredContent;
+        return tool.outputSchema ? result.structuredContent : result;
       };
     }
     const resources = Object.create(null);

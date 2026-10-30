@@ -20,15 +20,9 @@ export interface Inputs {
 export interface Outputs {
   "orders": {
     "get_order": { "total": number; };
-    "then": unknown;
-    "toJSON": unknown;
-    "unknown_output": unknown;
   };
   "with-hyphen": {
     "get_order": { "total": number; };
-    "then": unknown;
-    "toJSON": unknown;
-    "unknown_output": unknown;
   };
 }
 export interface InputTypes {
@@ -48,15 +42,9 @@ export interface InputTypes {
 export interface OutputTypes {
   "orders": {
     "get_order": { "Total": number; };
-    "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
   "with-hyphen": {
     "get_order": { "Total": number; };
-    "then": {  };
-    "toJSON": {  };
-    "unknown_output": {  };
   };
 }
 
