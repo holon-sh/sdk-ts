@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { fromJsonSchema } from "@modelcontextprotocol/server";
 import type {
   JsonSchemaType,
@@ -10,9 +9,9 @@ import type {
 /** The SDK request context, including cancellation and authenticated request metadata. */
 export type Context = ServerContext;
 /** A JSON resource declaration. `holon types generate` supplies its JSON Schema. */
-export interface Resource<T> {
+export interface Resource<T, U extends string = string> {
   readonly kind: "resource";
-  readonly uri: string;
+  readonly uri: U;
   readonly read: (context: Context) => T | Promise<T>;
 }
 /** Native MCP tool metadata plus the resources a successful call changes. */
@@ -30,14 +29,14 @@ export interface Tool<I, O> {
   readonly run: (input: I, context: Context) => O | Promise<O>;
 }
 /** Declare typed readable state. No request is executed during declaration. */
-export function resource<T>(
-  uri: string,
+export function resource<T, U extends string = string>(
+  uri: U,
   read: Resource<T>["read"],
-): Resource<T> {
+): Resource<T, U> {
   return { kind: "resource", uri, read };
 }
 /** Declare a typed operation. No request is executed during declaration. */
-export function tool<I, O>(
+export function tool<I = Record<never, never>, O = unknown>(
   options: ToolOptions<O>,
   run: Tool<I, O>["run"],
 ): Tool<I, O> {
@@ -55,20 +54,15 @@ interface Contract {
 }
 
 // `holon types generate` writes the app's own contract into this package's slot.
-const contract: Contract = (() => {
-  try {
-    const { schema } = JSON.parse(
-      readFileSync(new URL("./generated/app.json", import.meta.url), "utf8"),
-    );
-    if (!schema) throw new Error("No own server contract");
-    return schema;
-  } catch (cause) {
-    throw new Error(
-      "Run holon types generate for this app before starting its server.",
-      { cause },
-    );
-  }
-})();
+const contract: Contract | undefined = (
+  await import(new URL("./generated/app.json", import.meta.url).href, {
+    with: { type: "json" },
+  })
+).default.schema;
+if (!contract)
+  throw new Error(
+    "Run holon types generate for this app before starting its server.",
+  );
 const tools = new Map(contract.tools.map((entry) => [entry.name, entry]));
 const schemas = new Map(
   (contract.resources ?? []).map((entry) => [entry.uri, entry.outputSchema]),
@@ -76,7 +70,7 @@ const schemas = new Map(
 
 /**
  * Register declarations on a native server with the schemas `holon types generate` wrote.
- * Fails before registering anything when the generated catalog differs from the declarations.
+ * Fails before registering anything when the generated catalog lacks a declaration.
  * @param server The server to register on; it advertises `resources.subscribe` itself.
  * @param declarations Tools and resources keyed by their MCP names.
  * @param changed Publishes a resource update to subscribers, for example
@@ -90,16 +84,12 @@ export function register(
   },
   changed?: (uri: string) => unknown,
 ): void {
-  const names = Object.keys(declarations.tools);
-  if (tools.size !== names.length || names.some((name) => !tools.has(name)))
+  if (Object.keys(declarations.tools).some((name) => !tools.has(name)))
     throw new Error(
       "Generated tools differ from this app; run holon types generate again.",
     );
   const resources = Object.entries(declarations.resources ?? {});
-  if (
-    schemas.size !== resources.length ||
-    resources.some(([, ref]) => !schemas.has(ref.uri))
-  )
+  if (resources.some(([, ref]) => !schemas.has(ref.uri)))
     throw new Error(
       "Generated resources differ from this app; run holon types generate again.",
     );

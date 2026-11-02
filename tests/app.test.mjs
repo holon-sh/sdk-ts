@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { cpSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { spawnSync } from "node:child_process";
 import {
   Client,
   StreamableHTTPClientTransport,
@@ -11,8 +12,13 @@ import { install } from "./helpers.mjs";
 
 test("register adds typed declarations to a native server", async (t) => {
   const { consumer, directory } = install(t);
-  await assert.rejects(
-    import(`${pathToFileURL(join(directory, "app.js"))}?placeholder`),
+  const placeholder = spawnSync(
+    process.execPath,
+    ["--input-type=module", "--eval", 'import "holon-sh/app";'],
+    { cwd: consumer, encoding: "utf8" },
+  );
+  assert.match(
+    placeholder.stderr,
     /Run holon types generate for this app before starting its server\./,
   );
   // The contract `holon types generate` writes into the slot; generation is tested in holon-sh/cli.
