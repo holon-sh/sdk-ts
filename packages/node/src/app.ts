@@ -95,7 +95,7 @@ export function register(
     );
   for (const definition of Object.values(declarations.tools))
     for (const ref of definition.options.changes ?? [])
-      if (!schemas.has(ref.uri))
+      if (!resources.some(([, registered]) => registered === ref))
         throw new Error(`Unknown changed resource: ${ref.uri}`);
 
   for (const [name, ref] of resources)

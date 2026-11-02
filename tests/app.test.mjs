@@ -51,13 +51,18 @@ test("register adds typed declarations to a native server", async (t) => {
     },
   );
 
-  await t.test("a stale generated catalog fails before any callback executes", () => {
+  await t.test("unsatisfiable declarations fail before any callback executes", () => {
+    const server = () => new McpServer({ name: "counter", version: "1" });
     assert.throws(
       () =>
-        register(new McpServer({ name: "counter", version: "1" }), {
+        register(server(), {
           tools: { missing: tool({}, () => ({})) },
         }),
       /Generated tools differ/,
+    );
+    assert.throws(
+      () => register(server(), { tools: { add } }),
+      /Unknown changed resource/,
     );
   });
 
