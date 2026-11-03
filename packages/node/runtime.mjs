@@ -71,7 +71,8 @@ export function createApps(identity, contracts, bindings, options) {
     const current = () => binding ?? (bindings ? undefined : resolve(name));
     let connection;
     const connect = resolved => {
-      const client = new Client({ name: identity.name, version: identity.version }, { versionNegotiation: { mode: "auto" } });
+      // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
+      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: resolved.capabilities, versionNegotiation: { mode: "auto" } });
       const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: resolved.fetch, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
       const current = { client, close: async () => {
         await transport.close();
