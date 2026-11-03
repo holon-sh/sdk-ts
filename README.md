@@ -77,6 +77,38 @@ if (result.resultType === "input_required") {
 </details>
 
 <details open>
+<summary><h3>Answer an input request</h3></summary>
+
+A server can ask the person for input mid-call by answering with an [`input_required` result](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr). It may only ask for input the client declared, so declare form elicitation on the binding:
+
+```ts
+import { ToolCallError, createApps } from "holon-sh";
+
+const { cloud } = createApps({
+  cloud: { endpoint: "https://cloud.example.com/mcp", capabilities: { elicitation: { form: {} } } },
+});
+
+try {
+  await cloud.tools.delete_account({ accountId });
+} catch (error) {
+  if (!(error instanceof ToolCallError) || error.result.resultType !== "input_required") throw error;
+  // inputRequests.confirm: { method: "elicitation/create", params: { mode: "form", message, requestedSchema } }
+  const { inputRequests, requestState } = error.result;
+  const result = await cloud.callTool({
+    name: "delete_account",
+    arguments: { accountId },
+    // or { action: "decline" } / { action: "cancel" }
+    inputResponses: { confirm: { action: "accept", content: { confirmation: "DELETE" } } },
+    requestState,
+  });
+}
+```
+
+Show each request in `inputRequests` to the person, then call again with the same arguments, their answers keyed the same way, and `requestState` unchanged.
+
+</details>
+
+<details open>
 <summary><h3>Read a resource</h3></summary>
 
 A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`, as the `orders` server in `tests/fixtures` does. The client then offers `read` and `watch`:

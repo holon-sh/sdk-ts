@@ -1,9 +1,11 @@
-import type { CallToolRequest, CallToolResult, InputRequiredResult, InputResponses, ListToolsResult, RequestOptions } from "@modelcontextprotocol/client";
+import type { CallToolRequest, CallToolResult, ClientCapabilities as McpClientCapabilities, InputRequiredResult, InputResponses, ListToolsResult, RequestOptions } from "@modelcontextprotocol/client";
 
 /** Bearer-token or OAuth provider accepted by the MCP transport. */
 export type AuthProvider =
   | { token(): Promise<string | undefined>; onUnauthorized?(context: unknown): Promise<void> }
   | { tokens(): unknown; redirectUrl: unknown; clientMetadata: unknown };
+/** MCP client capabilities, such as `{ elicitation: { form: {} } }`. */
+export type ClientCapabilities = McpClientCapabilities;
 
 /** MCP request options, including AbortSignal and timeout in milliseconds. Input-required responses are enabled by the runtime. */
 export type CallOptions = Omit<RequestOptions, "allowInputRequired">;

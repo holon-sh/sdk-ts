@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, CLIENT_CAPABILITIES_META_KEY, acceptedContent, inputRequired } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApps, setDefaultBinding } from "holon-sh/runtime";
+import { bindApps, createApps, setDefaultBinding, ToolCallError } from "holon-sh/runtime";
 import { serve } from "./helpers.mjs";
 
 function orders() {
@@ -58,4 +58,49 @@ test("Node bindings resolve lazily, prefer the resolver, and fall back to scoped
   assert.equal(connections.payments, 2);
   const { tools } = await apps.payments.listTools();
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
+});
+
+test("endpoint bindings declare client capabilities on every request and continue input-required calls", { timeout: 10000 }, async t => {
+  const confirmation = z.object({ confirmation: z.string() });
+  const { endpoint } = await serve(t, () => {
+    const server = new McpServer({ name: "cloud", version: "1" });
+    server.registerTool("delete_account", { inputSchema: z.strictObject({ id: z.string() }) }, async ({ id }, ctx) => {
+      // Servers MUST NOT request input the client did not declare: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
+      if (!ctx.mcpReq.envelope[CLIENT_CAPABILITIES_META_KEY].elicitation) return { isError: true, content: [{ type: "text", text: "Confirmation unavailable" }] };
+      if (acceptedContent(ctx.mcpReq.inputResponses, "confirm")?.confirmation !== "DELETE") {
+        return inputRequired({ inputRequests: { confirm: inputRequired.elicit({ message: `Type DELETE to delete ${id}.`, requestedSchema: confirmation }) }, requestState: id });
+      }
+      return { content: [], structuredContent: { deleted: ctx.mcpReq.requestState() } };
+    });
+    return server;
+  });
+  const contract = { tools: [{ name: "delete_account", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }] };
+  const bind = binding => {
+    const declared = [];
+    const recording = async (input, init) => {
+      if (typeof init?.body === "string") declared.push(JSON.parse(init.body).params._meta[CLIENT_CAPABILITIES_META_KEY]);
+      return fetch(input, init);
+    };
+    const { cloud } = bindApps({ name: "console", version: "1" }, { cloud: contract }, { cloud: { endpoint, fetch: recording, ...binding } });
+    t.after(() => cloud.close());
+    return { cloud, declared };
+  };
+
+  const form = { elicitation: { form: {} } };
+  const gated = bind({ capabilities: form });
+  const thrown = await gated.cloud.tools.delete_account({ id: "acct" }).catch(error => error);
+  assert.ok(thrown instanceof ToolCallError);
+  assert.equal(thrown.code, "input_required");
+  const { inputRequests, requestState } = thrown.result;
+  assert.equal(inputRequests.confirm.method, "elicitation/create");
+  assert.equal(inputRequests.confirm.params.mode, "form");
+  const continued = await gated.cloud.callTool({ name: "delete_account", arguments: { id: "acct" }, inputResponses: { confirm: { action: "accept", content: { confirmation: "DELETE" } } }, requestState });
+  assert.deepEqual(continued.structuredContent, { deleted: "acct" });
+  // server/discover and both tools/call requests.
+  assert.deepEqual(gated.declared, [form, form, form]);
+
+  const plain = bind({});
+  const refused = await plain.cloud.callTool({ name: "delete_account", arguments: { id: "acct" } });
+  assert.equal(refused.isError, true);
+  assert.deepEqual(plain.declared, [{}, {}]);
 });
