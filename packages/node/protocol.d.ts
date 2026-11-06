@@ -21,11 +21,8 @@ export type ToolResult<Output> =
   | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError: true; structuredContent?: unknown })
   | InputRequiredResult;
 
-/** Error thrown by the tools convenience methods for tool_error or input_required results. Inspect app, tool, code, and the original result; use callTool for continuation workflows. */
+/** Error thrown by the tools convenience methods for error or input_required results. Inspect the original result; use callTool for continuation workflows. */
 export declare class ToolCallError extends Error {
-  readonly code: "tool_error" | "input_required";
-  readonly app: string;
-  readonly tool: string;
   readonly result: Extract<ToolResult<unknown>, { isError: true } | { resultType: "input_required" }>;
   constructor(app: string, tool: string, result: ToolCallError["result"]);
 }

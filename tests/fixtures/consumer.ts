@@ -27,12 +27,7 @@ await apps["with-hyphen"].callTool({name: "then", arguments:{}});
 const raw = await apps.orders.callTool({name:"get_order", arguments: {orderId: "ord"}});
 if (raw.resultType === "complete" && !raw.isError) raw.structuredContent.total.toFixed();
 try { await apps.orders.tools.get_order(input); } catch (error) {
-  if (error instanceof ToolCallError) {
-    error.app.toUpperCase();
-    error.tool.toUpperCase();
-    const code: "tool_error" | "input_required" = error.code;
-    if (error.result.resultType === "input_required") error.result.requestState?.toUpperCase();
-  }
+  if (error instanceof ToolCallError && error.result.resultType === "input_required") error.result.requestState?.toUpperCase();
 }
 // @ts-expect-error
 apps.missing;

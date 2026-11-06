@@ -51,8 +51,7 @@ try {
   await apps.bar.tools.greet({ name: "world" });
 } catch (error) {
   if (!(error instanceof ToolCallError)) throw error;
-  error.code;   // "tool_error" | "input_required"
-  error.result; // the original MCP result
+  error.result; // the original MCP result; resultType is "input_required" when the tool needs more input
 }
 ```
 
