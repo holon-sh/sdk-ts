@@ -1,16 +1,16 @@
-import type { CallToolRequest, CallToolResult, ClientCapabilities as McpClientCapabilities, ClientContext, ElicitRequest, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, RequestOptions } from "@modelcontextprotocol/client";
+import type { CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, RequestOptions } from "@modelcontextprotocol/client";
 
 /** Bearer-token or OAuth provider accepted by the MCP transport. */
 export type AuthProvider =
   | { token(): Promise<string | undefined>; onUnauthorized?(context: unknown): Promise<void> }
   | { tokens(): unknown; redirectUrl: unknown; clientMetadata: unknown };
-/** MCP client capabilities, such as `{ elicitation: { form: {} } }`. */
-export type ClientCapabilities = McpClientCapabilities;
-/** Answers a server's elicitation so the call that asked can complete. */
-export type ElicitHandler = (request: ElicitRequest, context: ClientContext) => ElicitResult | Promise<ElicitResult>;
+/** Answers a server's question so the call that asked can complete. `params.mode` tells a form from a URL to open. */
+export type ElicitHandler = (params: ElicitRequestParams) => ElicitResult | Promise<ElicitResult>;
 
 /** MCP request options, including AbortSignal and timeout in milliseconds. Input-required responses are enabled by the runtime. */
 export type CallOptions = Omit<RequestOptions, "allowInputRequired">;
+/** Call options for a tool. `elicit` answers its questions in place, so the call returns the completed result. */
+export type ToolCallOptions = CallOptions & { elicit?: ElicitHandler };
 /** MCP request metadata and input continuation fields. Pass inputResponses and requestState when continuing an input-required result. */
 export type CallMetadata = Omit<CallToolRequest["params"], "name" | "arguments"> & { inputResponses?: InputResponses; requestState?: string };
 /** @internal */
@@ -23,7 +23,7 @@ export type ToolResult<Output> =
   | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError: true; structuredContent?: unknown })
   | InputRequiredResult;
 
-/** Error thrown by the tools convenience methods for error or input_required results. Inspect the original result; bind elicit to answer questions in place, or use callTool to continue later. */
+/** Error thrown by the tools convenience methods for error or input_required results. Inspect the original result; pass elicit to answer questions in place, or continue later through callTool. */
 export declare class ToolCallError extends Error {
   readonly result: Extract<ToolResult<unknown>, { isError: true } | { resultType: "input_required" }>;
   constructor(app: string, tool: string, result: ToolCallError["result"]);
@@ -40,8 +40,8 @@ export interface ToolClient<I, O, R> {
     readonly read: (options?: CallOptions) => Promise<R[U]>;
     readonly watch: (onChange: (value: R[U]) => void | Promise<void>, options?: { signal?: AbortSignal }) => Promise<void>;
   } };
-  /** Convenience methods returning structured output, or the complete result for a tool without an output schema. Error results throw ToolCallError, as do input-required results when the binding has no elicit. Reserved object method names remain callable through callTool. */
-  readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: CallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
-  /** Return the full MCP result, preserving error results and, when the binding has no elicit, input-required results. Arguments and successful output are contract-validated. */
-  readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: CallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
+  /** Convenience methods returning structured output, or the complete result for a tool without an output schema. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool. */
+  readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
+  /** Return the full MCP result, preserving error results and questions left unanswered. Arguments and successful output are contract-validated. */
+  readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
 }

@@ -14,7 +14,7 @@ function orders() {
 const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }] };
 const identity = { name: "checkout", version: "1", requires: { orders: {}, payments: {} } };
 
-test("Node bindings resolve lazily, prefer the resolver, declare their capabilities, and fall back to scoped environment calls", { timeout: 10000 }, async t => {
+test("Node bindings resolve lazily, prefer the resolver, declare that they can be asked, and fall back to scoped environment calls", { timeout: 10000 }, async t => {
   const environment = process.env;
   process.env = { ...environment, ORDERS_MCP_URL: "", PAYMENTS_MCP_URL: "" };
   t.after(() => { process.env = environment; setDefaultBinding(() => undefined); });
@@ -36,11 +36,11 @@ test("Node bindings resolve lazily, prefer the resolver, declare their capabilit
   };
   process.env.ORDERS_MCP_URL = "http://unavailable.invalid/mcp";
   // Clients created before the resolver was set use it at call time.
-  setDefaultBinding(() => ({ endpoint, fetch: counting("orders"), capabilities: { elicitation: { form: {} } } }));
+  setDefaultBinding(() => ({ endpoint, fetch: counting("orders") }));
   assert.deepEqual((await apps.orders.tools.get_order({ id: "a" })).structuredContent, { id: "a" });
   assert.deepEqual((await apps.orders.tools.get_order({ id: "b" })).structuredContent, { id: "b" });
   assert.equal(connections.orders, 1);
-  assert.deepEqual([...capabilities.orders], ['{"elicitation":{"form":{}}}']);
+  assert.deepEqual([...capabilities.orders], ['{"elicitation":{"form":{},"url":{}}}']);
   await apps.orders.close();
 
   // Existing hosts can also replace the shared symbol directly.
@@ -54,7 +54,7 @@ test("Node bindings resolve lazily, prefer the resolver, declare their capabilit
   // payments has no contract: an untyped client that calls any tool without validation.
   for (const id of ["c", "d"]) assert.deepEqual((await apps.payments.callTool({ name: "get_order", arguments: { id } })).structuredContent, { id });
   assert.equal(connections.payments, 2);
-  assert.deepEqual([...capabilities.payments], ["{}"]);
+  assert.deepEqual([...capabilities.payments], ['{"elicitation":{"form":{},"url":{}}}']);
   const { tools } = await apps.payments.listTools();
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
 });

@@ -1,4 +1,4 @@
-import { Client, MissingRequiredClientCapabilityError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { validator as defaultValidator } from "./validate.mjs";
 
 // Shared with the private @holon-sh/sdk and existing hosts.
@@ -21,10 +21,11 @@ function environment(identity, name) {
 
 export class ToolCallError extends Error {
   constructor(app, tool, result) {
-    const detail = result.content?.find(part => part.type === "text")?.text;
-    const message = result.resultType === "input_required" ? "additional input required"
-      : detail ? `tool failed: ${detail}` : "tool failed";
-    super(`${app}.${tool}: ${message}`);
+    const asking = result.resultType === "input_required";
+    const detail = asking
+      ? Object.values(result.inputRequests ?? {}).flatMap(({ params }) => [params?.message, params?.url]).filter(Boolean).join(" ")
+      : result.content?.find(part => part.type === "text")?.text;
+    super(`${app}.${tool}: ${asking ? "additional input required" : "tool failed"}${detail ? `: ${detail}` : ""}`);
     this.name = "ToolCallError";
     this.result = result;
   }
@@ -69,10 +70,9 @@ export function createApps(identity, contracts, bindings, options) {
     const current = () => binding ?? (bindings ? undefined : resolve(name));
     let connection;
     const connect = resolved => {
+      // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
-      const capabilities = resolved.elicit ? { elicitation: { form: {} }, ...resolved.capabilities } : resolved.capabilities;
-      const client = new Client({ name: identity.name, version: identity.version }, { capabilities, versionNegotiation: { mode: "auto" } });
-      if (resolved.elicit) client.setRequestHandler("elicitation/create", resolved.elicit);
+      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} } }, versionNegotiation: { mode: "auto" } });
       const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: resolved.fetch, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
       const current = { client, close: async () => {
         await transport.close();
@@ -100,12 +100,12 @@ export function createApps(identity, contracts, bindings, options) {
       const active = scoped ? connect(resolved) : (connection ??= connect(resolved));
       try {
         await untilAborted(active.ready, options?.signal);
-        return await run(active.client, resolved);
+        return await run(active.client);
       } finally { if (scoped) await active.close(); }
     };
     const tools = Object.create(null);
     const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition }]));
-    const callTool = async (request, options) => {
+    const callTool = async (request, { elicit, ...options } = {}) => {
       const tool = definitions.get(request.name);
       if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
       let validation;
@@ -117,13 +117,19 @@ export function createApps(identity, contracts, bindings, options) {
         };
         validate(validation.input, request.arguments, `arguments for ${name}.${request.name}`);
       }
-      // With a handler the MCP client answers input requests and retries; without one the caller gets the question.
-      const result = await session(options, (client, resolved) => client.callTool(request, {
-        ...options, allowInputRequired: !resolved?.elicit,
-        ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } }),
-      })).catch(error => {
-        if (error instanceof MissingRequiredClientCapabilityError) error.message = `${name}.${request.name}: ${error.message}. Set elicit or capabilities on the binding.`;
-        throw error;
+      const result = await session(options, async client => {
+        const send = request => client.callTool(request, {
+          ...options, allowInputRequired: true,
+          ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } }),
+        });
+        let result = await send(request);
+        // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
+        for (let round = 0; elicit && result.resultType === "input_required" && round < 10; round++) {
+          const inputResponses = {};
+          for (const [key, { params }] of Object.entries(result.inputRequests ?? {})) inputResponses[key] = await elicit(params);
+          result = await send({ ...request, inputResponses, requestState: result.requestState });
+        }
+        return result;
       });
       if (result.resultType === "input_required") return result;
       if (!result.isError && validation?.output) {
