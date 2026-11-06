@@ -65,7 +65,7 @@ try {
 ```ts
 const result = await apps.bar.callTool({ name: "greet", arguments: { name: "world" } });
 if (result.resultType === "input_required") {
-  // call again with inputResponses and requestState, or bind elicit to answer in place
+  // call again with inputResponses and requestState
 } else if (result.isError) {
   // inspect result.content
 } else {
@@ -78,20 +78,15 @@ if (result.resultType === "input_required") {
 <details open>
 <summary><h3>Answer a server's question</h3></summary>
 
-A tool can stop and ask for input through an [MCP elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation). Bind `elicit` to answer in place, and the call returns its usual typed output:
+A tool can stop and ask for input through an [MCP elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation). Pass `elicit` to answer in place, and the call returns its usual typed output:
 
 ```ts
-const apps = createApps({
-  bar: {
-    endpoint: "https://bar.example.com/mcp",
-    elicit: async ({ params }) => ({ action: "accept", content: await ask(params.message) }),
-  },
+const greeting = await apps.bar.tools.greet({ name: "world" }, {
+  elicit: async ({ message }) => ({ action: "accept", content: await ask(message) }),
 });
-
-const greeting = await apps.bar.tools.greet({ name: "world" });
 ```
 
-To answer later, for example in another request, declare `capabilities: { elicitation: { form: {} } }` instead. The question then arrives as an `input_required` result from `callTool`, or on `ToolCallError.result` from `tools`. Without either option, a server that needs the capability rejects the call.
+Without `elicit`, the question arrives on `ToolCallError.result`, or as an `input_required` result from `callTool`. To answer later, for example in another request, call again with `inputResponses` and `requestState`.
 
 </details>
 
