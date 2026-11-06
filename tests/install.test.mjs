@@ -48,4 +48,6 @@ createApps({orders: binding});
   typecheck(source);
   const { apps } = await import(pathToFileURL(join(directory, "generated/index.js")));
   assert.equal(await apps.orders.tools, apps.orders.tools);
+  const load = "const [{ ToolCallError }, { ToolCallError: same }] = await Promise.all([import('holon-sh/protocol'), import('holon-sh/runtime')]); process.exit(ToolCallError === same ? 0 : 1);";
+  assert.equal(spawnSync(process.execPath, ["--input-type=module", "-e", load], { cwd: consumer }).status, 0);
 });
