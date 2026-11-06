@@ -22,8 +22,8 @@ function environment(identity, name) {
 export class ToolCallError extends Error {
   constructor(app, tool, result) {
     const detail = result.content?.find(part => part.type === "text")?.text;
-    const message = result.resultType === "input_required" ? "additional input required."
-      : detail ? `tool failed: ${detail}` : "tool failed.";
+    const message = result.resultType === "input_required" ? "additional input required"
+      : detail ? `tool failed: ${detail}` : "tool failed";
     super(`${app}.${tool}: ${message}`);
     this.name = "ToolCallError";
     this.result = result;
