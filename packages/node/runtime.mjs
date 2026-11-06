@@ -1,4 +1,4 @@
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client, MissingRequiredClientCapabilityError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { validator as defaultValidator } from "./validate.mjs";
 
 // Shared with the private @holon-sh/sdk and existing hosts.
@@ -70,7 +70,9 @@ export function createApps(identity, contracts, bindings, options) {
     let connection;
     const connect = resolved => {
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
-      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: resolved.capabilities, versionNegotiation: { mode: "auto" } });
+      const capabilities = resolved.elicit ? { elicitation: { form: {} }, ...resolved.capabilities } : resolved.capabilities;
+      const client = new Client({ name: identity.name, version: identity.version }, { capabilities, versionNegotiation: { mode: "auto" } });
+      if (resolved.elicit) client.setRequestHandler("elicitation/create", resolved.elicit);
       const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: resolved.fetch, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
       const current = { client, close: async () => {
         await transport.close();
@@ -98,7 +100,7 @@ export function createApps(identity, contracts, bindings, options) {
       const active = scoped ? connect(resolved) : (connection ??= connect(resolved));
       try {
         await untilAborted(active.ready, options?.signal);
-        return await run(active.client);
+        return await run(active.client, resolved);
       } finally { if (scoped) await active.close(); }
     };
     const tools = Object.create(null);
@@ -115,10 +117,14 @@ export function createApps(identity, contracts, bindings, options) {
         };
         validate(validation.input, request.arguments, `arguments for ${name}.${request.name}`);
       }
-      const result = await session(options, client => client.callTool(request, {
-        ...options, allowInputRequired: true,
+      // With a handler the MCP client answers input requests and retries; without one the caller gets the question.
+      const result = await session(options, (client, resolved) => client.callTool(request, {
+        ...options, allowInputRequired: !resolved?.elicit,
         ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } }),
-      }));
+      })).catch(error => {
+        if (error instanceof MissingRequiredClientCapabilityError) error.message = `${name}.${request.name}: ${error.message}. Set elicit or capabilities on the binding.`;
+        throw error;
+      });
       if (result.resultType === "input_required") return result;
       if (!result.isError && validation?.output) {
         validate(validation.output, result.structuredContent, `structured output from ${name}.${request.name}`);
