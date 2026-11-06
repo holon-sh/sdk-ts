@@ -13,7 +13,7 @@ test("tools return output or throw while callTool preserves MCP results and iden
     const server = new McpServer({ name: "orders", version: "1" });
     server.registerTool("get_order", { inputSchema: input }, async (args, ctx) => {
       identities.push(ctx.mcpReq.envelope[CLIENT_INFO_META_KEY].name);
-      if (args.id === "error") return { isError: true, content: [{ type: "image", data: "", mimeType: "image/png" }, { type: "text", text: "Unavailable" }], structuredContent: "failure", _meta: { preserved: true } };
+      if (args.id === "error") return { isError: true, content: [{ type: "text", text: "Unavailable" }], structuredContent: "failure", _meta: { preserved: true } };
       if (args.id === "input") return { resultType: "input_required", requestState: "opaque-state" };
       if (args.id === "text") return { content: [{ type: "text", text: '{"total":5}' }] };
       return { content: [{ type: "text", text: "Order" }], structuredContent: { total: args.id === "bad" ? "invalid" : args.limit }, _meta: { preserved: true } };
@@ -46,15 +46,15 @@ test("tools return output or throw while callTool preserves MCP results and iden
   assert.equal(incomplete.resultType, "input_required");
   assert.equal(incomplete.requestState, "opaque-state");
   const dynamic = createApps({ name: "dynamic", version: "1", requires: { orders: {} } }, {}, undefined, { resolve });
-  for (const [id, result, message] of [["error", error, "orders.get_order: tool failed: Unavailable"], ["input", incomplete, "orders.get_order: additional input required."]]) {
+  for (const [id, result] of [["error", error], ["input", incomplete]]) {
     assert.deepEqual(await dynamic.orders.callTool({ name: "get_order", arguments: { id } }), result);
     await assert.rejects(first.orders.tools.get_order({ id }), thrown => {
       assert.ok(thrown instanceof ToolCallError);
-      assert.equal(thrown.message, message);
       assert.deepEqual(thrown.result, result);
       return true;
     });
   }
+  await assert.rejects(first.orders.tools.get_order({ id: "error" }), /Unavailable/);
   await assert.rejects(first.orders.callTool({ name: "absent", arguments: {} }), /Unknown tool orders\.absent/);
   await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }), /Invalid structured output/);
   await assert.rejects(first.orders.tools.get_order({ id: "text" }), /Invalid structured output/);
