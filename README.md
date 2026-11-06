@@ -10,7 +10,7 @@ This repository contains the Node.js runtime for [`holon`](https://github.com/ho
 
 ```sh
 npm install holon-sh@dev
-npm install -D holon-types
+npm install -D holon-types@next
 ```
 
 `holon-types` is the `holon` CLI. `holon types check` brings its own TypeScript compiler and uses the project's `typescript` when one is installed.
