@@ -66,6 +66,16 @@ test("tools return output or throw while callTool preserves MCP results and iden
   assert.equal((await untyped.orders.tools.get_order({ id: "text" })).content[0].text, '{"total":5}');
 });
 
+test("ToolCallError keeps the server's error text", () => {
+  const message = result => new ToolCallError("orders", "lookup", result).message;
+  const content = [{ type: "image", data: "", mimeType: "image/png" }, { type: "text", text: "No upstream is running." }];
+  assert.equal(message({ isError: true, content }), "orders.lookup: tool failed: No upstream is running.");
+  assert.equal(message({ isError: true }), "orders.lookup: tool failed.");
+  const pending = new ToolCallError("orders", "lookup", { resultType: "input_required", content: [{ type: "text", text: "State" }] });
+  assert.equal(pending.message, "orders.lookup: additional input required.");
+  assert.equal(pending.code, "input_required");
+});
+
 test("endpoint bindings carry the auth provider and watch resources through subscriptions", { timeout: 20000 }, async t => {
   const summary = z.object({ total: z.number() });
   const uri = "orders://summary";
