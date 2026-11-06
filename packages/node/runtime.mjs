@@ -23,7 +23,8 @@ export class ToolCallError extends Error {
   constructor(app, tool, result) {
     const [code, message] = result.resultType === "input_required"
       ? ["input_required", "additional input required"] : ["tool_error", "tool failed"];
-    super(`${app}.${tool}: ${message}.`);
+    const detail = result.content?.find(part => part.type === "text")?.text;
+    super(`${app}.${tool}: ${message}${detail ? `: ${detail}` : "."}`);
     this.name = "ToolCallError";
     this.code = code;
     this.app = app;

@@ -13,7 +13,7 @@ test("tools return output or throw while callTool preserves MCP results and iden
     const server = new McpServer({ name: "orders", version: "1" });
     server.registerTool("get_order", { inputSchema: input }, async (args, ctx) => {
       identities.push(ctx.mcpReq.envelope[CLIENT_INFO_META_KEY].name);
-      if (args.id === "error") return { isError: true, content: [{ type: "text", text: "Unavailable" }], structuredContent: "failure", _meta: { preserved: true } };
+      if (args.id === "error") return { isError: true, content: [{ type: "image", data: "", mimeType: "image/png" }, { type: "text", text: "Unavailable" }], structuredContent: "failure", _meta: { preserved: true } };
       if (args.id === "input") return { resultType: "input_required", requestState: "opaque-state" };
       if (args.id === "text") return { content: [{ type: "text", text: '{"total":5}' }] };
       return { content: [{ type: "text", text: "Order" }], structuredContent: { total: args.id === "bad" ? "invalid" : args.limit }, _meta: { preserved: true } };
@@ -46,14 +46,14 @@ test("tools return output or throw while callTool preserves MCP results and iden
   assert.equal(incomplete.resultType, "input_required");
   assert.equal(incomplete.requestState, "opaque-state");
   const dynamic = createApps({ name: "dynamic", version: "1", requires: { orders: {} } }, {}, undefined, { resolve });
-  for (const [id, code, result] of [["error", "tool_error", error], ["input", "input_required", incomplete]]) {
+  for (const [id, code, result, message] of [["error", "tool_error", error, "orders.get_order: tool failed: Unavailable"], ["input", "input_required", incomplete, "orders.get_order: additional input required."]]) {
     assert.deepEqual(await dynamic.orders.callTool({ name: "get_order", arguments: { id } }), result);
     await assert.rejects(first.orders.tools.get_order({ id }), thrown => {
       assert.ok(thrown instanceof ToolCallError);
       assert.equal(thrown.code, code);
       assert.equal(thrown.app, "orders");
       assert.equal(thrown.tool, "get_order");
-      assert.match(thrown.message, /orders\.get_order/);
+      assert.equal(thrown.message, message);
       assert.deepEqual(thrown.result, result);
       return true;
     });
