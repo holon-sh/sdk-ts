@@ -6,6 +6,10 @@ const scripted = createNodeApps({orders:{endpoint:"https://orders.example/mcp", 
 await scripted.orders.resources["orders://summary"].watch(async (value) => { value.total.toFixed(); }, {signal: new AbortController().signal});
 const oauth: EndpointBinding = {endpoint: new URL("https://orders.example/mcp"), authProvider: {tokens: () => undefined, redirectUrl: undefined, clientMetadata: {}}};
 createNodeApps({orders: oauth});
+const answering: EndpointBinding = {endpoint: "https://orders.example/mcp", elicit: async ({params}) => ({action: "accept", content: {question: params.message}})};
+createNodeApps({orders: answering});
+// @ts-expect-error
+createNodeApps({orders:{endpoint:"https://orders.example/mcp", elicit: () => ({action: "maybe"})}});
 // @ts-expect-error
 scripted.orders.resources["orders://summary"].watch((value: string) => {});
 // @ts-expect-error

@@ -33,7 +33,8 @@
       "import": "./view.js"
     },
     "./protocol": {
-      "types": "./protocol.d.ts"
+      "types": "./protocol.d.ts",
+      "import": "./runtime.mjs"
     }
   },
   "files": [

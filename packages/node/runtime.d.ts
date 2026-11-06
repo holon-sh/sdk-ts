@@ -1,6 +1,6 @@
-import type { AuthProvider, CallOptions, ClientCapabilities, ToolClient } from "./protocol.js";
+import type { AuthProvider, CallOptions, ClientCapabilities, ElicitHandler, ToolClient } from "./protocol.js";
 export { ToolCallError } from "./protocol.js";
-export type { AuthProvider, CallOptions, CallMetadata, ClientCapabilities, ToolResult, ToolClient } from "./protocol.js";
+export type { AuthProvider, CallOptions, CallMetadata, ClientCapabilities, ElicitHandler, ToolResult, ToolClient } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
 export interface Binding {
@@ -14,8 +14,10 @@ export interface Binding {
   installationUID?: string;
   /** Close the session after every call instead of keeping one connection open. */
   scoped?: boolean;
-  /** Client capabilities declared to the server. On protocol 2026-07-28 every request carries them in `_meta["io.modelcontextprotocol/clientCapabilities"]` ([spec](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation#capabilities)); declare `{ elicitation: { form: {} } }` to receive form elicitations in input-required results. */
+  /** Client capabilities declared to the server. On protocol 2026-07-28 every request carries them in `_meta["io.modelcontextprotocol/clientCapabilities"]` ([spec](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation#capabilities)); declare `{ elicitation: { form: {} } }` to receive form elicitations in input-required results, or set `elicit` to answer them. */
   capabilities?: ClientCapabilities;
+  /** Answers elicitations in place, so `tools.x` and `callTool` return the completed result. Declares `{ elicitation: { form: {} } }` unless `capabilities` sets `elicitation`. */
+  elicit?: ElicitHandler;
 }
 /** Alias for an endpoint binding. */
 export type EndpointBinding = Binding;
