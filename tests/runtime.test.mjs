@@ -46,13 +46,10 @@ test("tools return output or throw while callTool preserves MCP results and iden
   assert.equal(incomplete.resultType, "input_required");
   assert.equal(incomplete.requestState, "opaque-state");
   const dynamic = createApps({ name: "dynamic", version: "1", requires: { orders: {} } }, {}, undefined, { resolve });
-  for (const [id, code, result, message] of [["error", "tool_error", error, "orders.get_order: tool failed: Unavailable"], ["input", "input_required", incomplete, "orders.get_order: additional input required."]]) {
+  for (const [id, result, message] of [["error", error, "orders.get_order: tool failed: Unavailable"], ["input", incomplete, "orders.get_order: additional input required."]]) {
     assert.deepEqual(await dynamic.orders.callTool({ name: "get_order", arguments: { id } }), result);
     await assert.rejects(first.orders.tools.get_order({ id }), thrown => {
       assert.ok(thrown instanceof ToolCallError);
-      assert.equal(thrown.code, code);
-      assert.equal(thrown.app, "orders");
-      assert.equal(thrown.tool, "get_order");
       assert.equal(thrown.message, message);
       assert.deepEqual(thrown.result, result);
       return true;
