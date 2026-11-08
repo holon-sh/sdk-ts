@@ -20,15 +20,22 @@ function environment(identity, name) {
   throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
 }
 
+function json(text) {
+  try { return JSON.parse(text); } catch { return undefined; }
+}
+
 export class ToolCallError extends Error {
   constructor(app, tool, result) {
     const asking = result.resultType === "input_required";
+    const text = result.content?.filter(part => part.type === "text").map(part => part.text).join("\n") || undefined;
     const detail = asking
       ? Object.values(result.inputRequests ?? {}).flatMap(({ params }) => [params?.message, params?.url]).filter(Boolean).join(" ")
-      : result.content?.find(part => part.type === "text")?.text;
+      : text;
     super(`${app}.${tool}: ${asking ? "additional input required" : "tool failed"}${detail ? `: ${detail}` : ""}`);
     this.name = "ToolCallError";
     this.result = result;
+    this.text = text;
+    this.data = result.structuredContent ?? json(text);
   }
 }
 
@@ -43,6 +50,14 @@ function untilAborted(promise, signal) {
     signal.addEventListener("abort", aborted, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", aborted));
   });
+}
+
+// The MCP client ends a request after 60 s unless given a timeout. A request without one waits as long as a timer can
+// (2^31 - 1 ms, about 24.8 days). A request with one asks for progress, and progress restarts its timeout.
+function patient(options) {
+  return options?.timeout === undefined
+    ? { ...options, timeout: 2 ** 31 - 1 }
+    : { onprogress: () => {}, resetTimeoutOnProgress: true, ...options };
 }
 
 function delay(milliseconds, signal) {
@@ -120,7 +135,7 @@ export function createApps(identity, contracts, bindings, options) {
       }
       const result = await session(options, async client => {
         const send = request => client.callTool(request, {
-          ...options, allowInputRequired: true,
+          ...patient(options), allowInputRequired: true,
           ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } }),
         });
         let result = await send(request);
@@ -138,7 +153,7 @@ export function createApps(identity, contracts, bindings, options) {
       }
       return { ...result, resultType: "complete" };
     };
-    const listTools = options => session(options, client => client.listTools(undefined, options));
+    const listTools = options => session(options, client => client.listTools(undefined, patient(options)));
     for (const tool of contract?.tools ?? []) if (!["then", "toJSON", "toString", "valueOf", "toLocaleString"].includes(tool.name)) {
       tools[tool.name] = async (input, options) => {
         const result = await callTool({ name: tool.name, arguments: input }, options);
@@ -155,7 +170,7 @@ export function createApps(identity, contracts, bindings, options) {
         validate(valid, value, `contents from ${name} ${resource.uri}`);
         return value;
       };
-      const read = async options => parse(await session(options, client => client.readResource({ uri: resource.uri }, options)));
+      const read = async options => parse(await session(options, client => client.readResource({ uri: resource.uri }, patient(options))));
       const watch = async (onChange, { signal } = {}) => {
         const resolved = current();
         if (!resolved?.endpoint) throw new Error(`Watching ${name} ${resource.uri} requires an endpoint binding.`);
@@ -167,7 +182,7 @@ export function createApps(identity, contracts, bindings, options) {
             const { client } = current;
             if (!client.getServerCapabilities()?.resources?.subscribe) throw new Error(`${name} does not advertise resource subscriptions.`);
             let reads = Promise.resolve();
-            const refresh = () => (reads = reads.then(async () => onChange(parse(await client.readResource({ uri: resource.uri }, { signal, cacheMode: "bypass" }))))
+            const refresh = () => (reads = reads.then(async () => onChange(parse(await client.readResource({ uri: resource.uri }, patient({ signal, cacheMode: "bypass" })))))
               .catch(error => { failure ??= error; return current.close(); }));
             client.setNotificationHandler("notifications/resources/updated", ({ params }) => { if (params.uri === resource.uri) void refresh(); });
             const subscription = await client.listen({ resourceSubscriptions: [resource.uri] }, { signal });

@@ -37,8 +37,6 @@ export async function greet(name: string): Promise<string> {
 }
 ```
 
-Arguments are validated before sending; the result is validated against the output schema and returned.
-
 </details>
 
 <details open>
@@ -51,7 +49,9 @@ try {
   await apps.bar.tools.greet({ name: "world" });
 } catch (error) {
   if (!(error instanceof ToolCallError)) throw error;
-  error.result; // the original MCP result
+  error.message; // includes the server's text
+  error.data;    // the server's structured content, or its text parsed as JSON
+  error.result;  // the original MCP result
 }
 ```
 

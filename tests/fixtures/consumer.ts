@@ -59,6 +59,9 @@ if (raw.resultType === "complete" && !raw.isError) {
   raw.structuredContent.invalid;
 }
 const unknown = await apps.orders.tools.unknown_output({});
-unknown.content;
+for (const block of unknown.content) if (block.type === "resource") {
+  const { uri, mimeType } = block.resource;
+  const body: string = "blob" in block.resource ? block.resource.blob : block.resource.text;
+}
 // @ts-expect-error
 unknown.total;

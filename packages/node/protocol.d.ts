@@ -7,7 +7,7 @@ export type AuthProvider =
 /** Answers a server's question so the call that asked can complete. `params.mode` tells a form from a URL to open. */
 export type ElicitHandler = (params: ElicitRequestParams) => ElicitResult | Promise<ElicitResult>;
 
-/** MCP request options, including AbortSignal and timeout in milliseconds. Input-required responses are enabled by the runtime. */
+/** MCP request options, including AbortSignal and timeout in milliseconds. A request without a timeout waits for its answer; progress from the server restarts a timeout. Input-required responses are enabled by the runtime. */
 export type CallOptions = Omit<RequestOptions, "allowInputRequired">;
 /** Call options for a tool. `elicit` answers its questions in place, so the call returns the completed result. */
 export type ToolCallOptions = CallOptions & { elicit?: ElicitHandler };
@@ -23,9 +23,13 @@ export type ToolResult<Output> =
   | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError: true; structuredContent?: unknown })
   | InputRequiredResult;
 
-/** Error thrown by the tools convenience methods for error or input_required results. Inspect the original result; pass elicit to answer questions in place, or continue later through callTool. */
+/** Error thrown by the tools convenience methods for error or input_required results. A failure's message carries its text; `data` is what the server said in a form to branch on. Pass elicit to answer questions in place, or continue later through callTool. */
 export declare class ToolCallError extends Error {
   readonly result: Extract<ToolResult<unknown>, { isError: true } | { resultType: "input_required" }>;
+  /** The failure's text content, its text blocks joined by newlines. Undefined for questions left unanswered. */
+  readonly text?: string;
+  /** The failure's structured content, or else its text parsed as JSON when that text is JSON. Its shape is the server's own. */
+  readonly data?: unknown;
   constructor(app: string, tool: string, result: ToolCallError["result"]);
 }
 
@@ -40,7 +44,7 @@ export interface ToolClient<I, O, R> {
     readonly read: (options?: CallOptions) => Promise<R[U]>;
     readonly watch: (onChange: (value: R[U]) => void | Promise<void>, options?: { signal?: AbortSignal }) => Promise<void>;
   } };
-  /** Convenience methods returning structured output, or the complete result for a tool without an output schema. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool. */
+  /** Convenience methods returning structured output, or the complete MCP result, with its content blocks typed, for a tool without an output schema. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool. */
   readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
   /** Return the full MCP result, preserving error results and questions left unanswered. Arguments and successful output are contract-validated. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
