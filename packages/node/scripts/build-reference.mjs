@@ -9,14 +9,6 @@ import ts from "typescript";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(root);
 execFileSync(process.execPath, ["scripts/build.mjs"], { stdio: "inherit" });
-const input = "docs/_build/entrypoints";
-mkdirSync(input, { recursive: true });
-// Read the actual published slot and resolve shared types to the package declarations.
-const source = readFileSync("generated/index.d.ts", "utf8").replace(
-  /\.\.\/(protocol|runtime)\.js/g,
-  (_, module) => `../../../${module}.js`,
-);
-writeFileSync(`${input}/root.d.ts`, source);
 const app = await Application.bootstrapWithPlugins({ options: "typedoc.json" });
 const project = await app.convert();
 if (!project) throw new Error("TypeDoc conversion failed");
@@ -50,8 +42,10 @@ if (
   throw new Error(
     "Package entrypoints changed; update the public API inventory",
   );
+// The root entrypoint re-exports the project's clients, so the reference documents docs/root.d.ts.
+const types = (entry) => (entry === "." ? "docs/root.d.ts" : pkg.exports[entry].types);
 const program = ts.createProgram(
-  Object.values(pkg.exports).map((e) => e.types),
+  Object.keys(pkg.exports).map(types),
   {
     module: ts.ModuleKind.NodeNext,
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
@@ -76,7 +70,7 @@ for (const module of project.children) {
   const published = checker
     .getExportsOfModule(
       checker.getSymbolAtLocation(
-        program.getSourceFile(pkg.exports[entry].types),
+        program.getSourceFile(types(entry)),
       ),
     )
     .filter(
@@ -98,7 +92,7 @@ for (const module of project.children) {
     id,
     title: `holon-sh${entry === "." ? "" : entry.slice(1)}`,
     source: `packages/node/${id === "root"
-      ? "scripts/build.mjs"
+      ? "docs/root.d.ts"
       : id === "view" ? "src/view.ts" : `${id}.d.ts`}`,
   });
 }

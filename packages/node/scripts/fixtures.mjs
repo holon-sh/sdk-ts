@@ -25,7 +25,7 @@ try {
   process.stdout.write(stdout);
   process.stderr.write(stderr);
   rmSync(directory, { recursive: true, force: true });
-  cpSync(join(runtime, "generated"), directory, { recursive: true });
+  cpSync(join(consumer, ".holon/generated/holon-sh"), directory, { recursive: true });
 } finally {
   server.closeAllConnections();
   await new Promise(resolve => server.close(resolve));
