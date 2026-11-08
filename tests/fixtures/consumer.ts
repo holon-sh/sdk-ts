@@ -31,6 +31,11 @@ const raw = await apps.orders.callTool({name:"get_order", arguments: {orderId: "
 if (raw.resultType === "complete" && !raw.isError) raw.structuredContent.total.toFixed();
 try { await apps.orders.tools.get_order(input); } catch (error) {
   if (error instanceof ToolCallError && error.result.resultType === "input_required") error.result.requestState?.toUpperCase();
+  if (error instanceof ToolCallError) {
+    error.text?.toUpperCase();
+    // @ts-expect-error the server's data is unknown until checked
+    error.data.status;
+  }
 }
 // @ts-expect-error
 apps.missing;
@@ -59,6 +64,9 @@ if (raw.resultType === "complete" && !raw.isError) {
   raw.structuredContent.invalid;
 }
 const unknown = await apps.orders.tools.unknown_output({});
-unknown.content;
+for (const block of unknown.content) if (block.type === "resource") {
+  const { uri, mimeType } = block.resource;
+  const body: string = "blob" in block.resource ? block.resource.blob : block.resource.text;
+}
 // @ts-expect-error
 unknown.total;

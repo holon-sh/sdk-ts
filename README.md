@@ -37,7 +37,9 @@ export async function greet(name: string): Promise<string> {
 }
 ```
 
-Arguments are validated before sending; the result is validated against the output schema and returned.
+Arguments are validated before sending; the result is validated against the output schema and returned. A tool without an output schema returns its MCP result, whose `content` blocks are typed, for example an embedded file's `uri`, `mimeType` and `text` or `blob`.
+
+A call waits for its answer unless it is given a `timeout` in milliseconds. Progress the server reports restarts that timeout, so a long call that keeps reporting stays alive.
 
 </details>
 
@@ -51,9 +53,13 @@ try {
   await apps.bar.tools.greet({ name: "world" });
 } catch (error) {
   if (!(error instanceof ToolCallError)) throw error;
-  error.result; // the original MCP result
+  error.message; // includes the server's text
+  error.data;    // the server's structured content, or its text parsed as JSON
+  error.result;  // the original MCP result
 }
 ```
+
+The shape of `error.data` is the server's own; check it before relying on it.
 
 </details>
 
