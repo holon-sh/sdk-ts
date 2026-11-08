@@ -8,9 +8,9 @@ npm run docs:build
 ```
 
 TypeDoc and typedoc-plugin-markdown read the runtime and protocol declarations,
-view helper, and actual package generation slot. Write API comments in
-`packages/node/runtime.d.ts`, `packages/node/protocol.d.ts`, and
-`packages/node/src/view.ts`. The slot comes from the normal package build.
+view helper, and the generated root's shape in `packages/node/docs/root.d.ts`.
+Write API comments in `packages/node/runtime.d.ts`, `packages/node/protocol.d.ts`,
+and `packages/node/src/view.ts`.
 `public-api.json` lists the supported exports of every package entrypoint.
 The build rejects coverage drift, generator warnings, and unresolved links.
 

@@ -7,8 +7,7 @@
     "skipLibCheck": true
   },
   "include": [
-    "_build/entrypoints/*.d.ts",
-    "../generated/*.d.ts",
+    "root.d.ts",
     "../runtime.d.ts",
     "../protocol.d.ts",
     "../src/view.ts"

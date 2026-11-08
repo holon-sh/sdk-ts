@@ -17,7 +17,7 @@
   },
   "holon": {
     "slot": "generated",
-    "contractVersion": 1
+    "contractVersion": 2
   },
   "exports": {
     ".": {
