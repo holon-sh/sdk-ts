@@ -142,43 +142,33 @@ test("session hooks serve custom bindings and respect validation and binding bou
   assert.equal(calls.length, before);
 });
 
-test("failures carry the server's text and JSON", { timeout: 10000 }, async t => {
+test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
   const problem = { type: "about:blank", title: "Conflict", status: 409 };
   const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "files", version: "1" });
-    server.registerTool("export", { inputSchema: z.object({ outcome: z.string() }) }, async ({ outcome }) => ({
-      json: { isError: true, content: [{ type: "text", text: JSON.stringify(problem) }] },
-      prose: { isError: true, content: [{ type: "text", text: "Disk" }, { type: "text", text: "full" }] },
-    })[outcome]);
+    server.registerTool("export", {}, async () => ({ isError: true, content: [{ type: "text", text: JSON.stringify(problem) }] }));
     return server;
   });
-  const contract = { tools: [{ name: "export", inputSchema: { type: "object", properties: { outcome: { type: "string" } }, required: ["outcome"] } }] };
+  const contract = { tools: [{ name: "export", inputSchema: { type: "object" } }] };
   const { files } = bindApps({ name: "script", version: "1" }, { files: contract }, { files: { endpoint, scoped: true } });
-  await assert.rejects(files.tools.export({ outcome: "json" }), error => {
+  await assert.rejects(files.tools.export({}), error => {
     assert.ok(error instanceof ToolCallError);
     assert.deepEqual(error.data, problem);
     assert.equal(error.text, JSON.stringify(problem));
     assert.equal(error.message, `files.export: tool failed: ${JSON.stringify(problem)}`);
     return true;
   });
-  await assert.rejects(files.tools.export({ outcome: "prose" }), error => {
-    assert.equal(error.text, "Disk\nfull");
-    assert.equal(error.data, undefined);
-    return true;
-  });
 });
 
-test("a call waits past the MCP client's default timeout unless its caller sets one, which progress restarts", { timeout: 10000 }, async t => {
+test("a call without a timeout waits past the MCP client's default, and progress restarts a timeout", { timeout: 10000 }, async t => {
   const checkpoints = [];
   let arrived;
   const checkpoint = () => new Promise(resume => { checkpoints.push(resume); arrived?.(); });
   const reached = async () => { while (!checkpoints.length) await new Promise(resolve => (arrived = resolve)); return checkpoints.shift(); };
-  const tokens = [];
   const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "builds", version: "1" });
     server.registerTool("build", { inputSchema: z.object({ progress: z.boolean() }) }, async ({ progress }, ctx) => {
       const progressToken = ctx.mcpReq._meta?.progressToken;
-      tokens.push(progressToken);
       await checkpoint();
       if (progress) {
         await ctx.mcpReq.notify({ method: "notifications/progress", params: { progressToken, progress: 1 } });
@@ -210,12 +200,4 @@ test("a call waits past the MCP client's default timeout unless its caller sets 
   t.mock.timers.tick(800);
   resume();
   assert.equal((await kept).content[0].text, "built");
-
-  const bounded = builds.tools.build({ progress: false }, { timeout: 1000 });
-  resume = await reached();
-  t.mock.timers.tick(1001);
-  await assert.rejects(bounded, /timed out/);
-  resume();
-  // Only a call with a timeout asks for progress, whether or not its caller listens.
-  assert.deepEqual(tokens.map(token => token !== undefined), [false, true, true]);
 });

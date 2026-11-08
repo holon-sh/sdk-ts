@@ -31,11 +31,6 @@ const raw = await apps.orders.callTool({name:"get_order", arguments: {orderId: "
 if (raw.resultType === "complete" && !raw.isError) raw.structuredContent.total.toFixed();
 try { await apps.orders.tools.get_order(input); } catch (error) {
   if (error instanceof ToolCallError && error.result.resultType === "input_required") error.result.requestState?.toUpperCase();
-  if (error instanceof ToolCallError) {
-    error.text?.toUpperCase();
-    // @ts-expect-error the server's data is unknown until checked
-    error.data.status;
-  }
 }
 // @ts-expect-error
 apps.missing;

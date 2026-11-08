@@ -37,10 +37,6 @@ export async function greet(name: string): Promise<string> {
 }
 ```
 
-Arguments are validated before sending; the result is validated against the output schema and returned. A tool without an output schema returns its MCP result, whose `content` blocks are typed, for example an embedded file's `uri`, `mimeType` and `text` or `blob`.
-
-A call waits for its answer unless it is given a `timeout` in milliseconds. Progress the server reports restarts that timeout, so a long call that keeps reporting stays alive.
-
 </details>
 
 <details open>
@@ -58,8 +54,6 @@ try {
   error.result;  // the original MCP result
 }
 ```
-
-The shape of `error.data` is the server's own; check it before relying on it.
 
 </details>
 
