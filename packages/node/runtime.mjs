@@ -35,7 +35,6 @@ export class ToolCallError extends Error {
     this.name = "ToolCallError";
     this.result = result;
     this.text = text;
-    // Servers define their failures: structured content when they send it, else their text when it is JSON.
     this.data = result.structuredContent ?? json(text);
   }
 }
@@ -53,14 +52,12 @@ function untilAborted(promise, signal) {
   });
 }
 
-const ignore = () => {};
-
 // The MCP client ends a request after 60 s unless given a timeout. A request without one waits as long as a timer can
 // (2^31 - 1 ms, about 24.8 days). A request with one asks for progress, and progress restarts its timeout.
 function patient(options) {
   return options?.timeout === undefined
     ? { ...options, timeout: 2 ** 31 - 1 }
-    : { onprogress: ignore, resetTimeoutOnProgress: true, ...options };
+    : { onprogress: () => {}, resetTimeoutOnProgress: true, ...options };
 }
 
 function delay(milliseconds, signal) {

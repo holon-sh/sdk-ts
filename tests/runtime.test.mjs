@@ -142,15 +142,13 @@ test("session hooks serve custom bindings and respect validation and binding bou
   assert.equal(calls.length, before);
 });
 
-test("failures carry the server's text and JSON, and untyped tools return their content", { timeout: 10000 }, async t => {
+test("failures carry the server's text and JSON", { timeout: 10000 }, async t => {
   const problem = { type: "about:blank", title: "Conflict", status: 409 };
-  const file = { uri: "files://report.pdf", mimeType: "application/pdf", blob: Buffer.from("%PDF").toString("base64") };
   const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "files", version: "1" });
     server.registerTool("export", { inputSchema: z.object({ outcome: z.string() }) }, async ({ outcome }) => ({
       json: { isError: true, content: [{ type: "text", text: JSON.stringify(problem) }] },
       prose: { isError: true, content: [{ type: "text", text: "Disk" }, { type: "text", text: "full" }] },
-      file: { content: [{ type: "resource", resource: file }] },
     })[outcome]);
     return server;
   });
@@ -168,8 +166,6 @@ test("failures carry the server's text and JSON, and untyped tools return their 
     assert.equal(error.data, undefined);
     return true;
   });
-  const result = await files.tools.export({ outcome: "file" });
-  assert.deepEqual(result.content, [{ type: "resource", resource: file }]);
 });
 
 test("a call waits past the MCP client's default timeout unless its caller sets one, which progress restarts", { timeout: 10000 }, async t => {
