@@ -12,11 +12,12 @@ export function setDefaultBinding(resolve) {
 
 function environment(identity, name) {
   if (!Object.hasOwn(identity.requires ?? {}, name)) return undefined;
-  const variable = `${name.toUpperCase().replaceAll("-", "_")}_MCP_URL`;
-  const endpoint = process.env[variable];
-  // Environment-bound dependencies connect for one call at a time.
-  if (endpoint) return { endpoint, scoped: true };
-  throw new Error(`Dependency ${name} is unavailable (${variable}). Provide a binding or set the environment variable.`);
+  const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
+  const endpoint = process.env[`${prefix}URL`];
+  // Environment-bound dependencies connect for one call at a time, sending <NAME>_MCP_TOKEN as the bearer token when it is set.
+  const token = process.env[`${prefix}TOKEN`];
+  if (endpoint) return { endpoint, scoped: true, ...(token && { authProvider: { token: async () => token } }) };
+  throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
 }
 
 export class ToolCallError extends Error {
