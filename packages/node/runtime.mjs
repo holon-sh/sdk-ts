@@ -85,7 +85,11 @@ export function createApps(identity, contracts, bindings, options) {
       // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
       const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} } }, versionNegotiation: { mode: "auto" } });
-      const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: resolved.fetch, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
+      const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: async (input, init) => {
+        const response = await (resolved.fetch ?? fetch)(input, init);
+        current.answered ||= response.ok;
+        return response;
+      }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
       const current = { client, close: async () => {
         await transport.close();
         await current.ready.catch(() => {});
@@ -110,20 +114,18 @@ export function createApps(identity, contracts, bindings, options) {
       // Bindings marked scoped connect for one call at a time.
       const scoped = resolved.scoped === true;
       const key = resolved[DISCOVERY];
-      const attempt = async discover => {
-        const active = scoped ? connect(resolved, discover) : (connection ??= connect(resolved));
-        try {
-          await untilAborted(active.ready, options?.signal);
-          if (key) discovered.set(key, active.client.getDiscoverResult());
-          return await run(active.client);
-        } finally { if (scoped) await active.close(); }
-      };
       const prior = discovered.get(key);
-      return attempt(prior).catch(error => {
-        // A server rejects a request in a protocol it no longer speaks without running it, so the call can be repeated.
-        if (!prior || error?.status !== 400) throw error;
-        return attempt();
-      });
+      const active = scoped ? connect(resolved, prior) : (connection ??= connect(resolved));
+      try {
+        await untilAborted(active.ready, options?.signal);
+        if (key) discovered.set(key, active.client.getDiscoverResult());
+        return await run(active.client);
+      } catch (error) {
+        // A server that no longer speaks the discovered protocol rejects the first request without running it.
+        if (!prior || active.answered || error?.status !== 400) throw error;
+        discovered.delete(key);
+        return session(options, run);
+      } finally { if (scoped) await active.close(); }
     };
     const tools = Object.create(null);
     const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition }]));
