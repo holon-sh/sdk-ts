@@ -3,7 +3,7 @@
 [![CI](https://github.com/holon-sh/sdk-ts/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/holon-sh/sdk-ts/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
 [![Apache 2.0 License](https://img.shields.io/badge/license-Apache--2.0-green)](https://github.com/holon-sh/sdk-ts/blob/main/LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://holon-labs.dev/discord/)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/jXExyBdy)
 
 This repository contains the Node.js runtime for [`holon`](https://github.com/holon-sh/cli).
 
@@ -128,4 +128,4 @@ server.registerTool("whoami", {}, async ctx => {
 
 ## Community
 
-Ask questions and share what you're building on the [Holon Discord](https://holon-labs.dev/discord/).
+Ask questions and share what you're building on the [Holon Discord](https://discord.gg/jXExyBdy).
