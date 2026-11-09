@@ -19,6 +19,12 @@ npm install -D holon-types@next
 
 The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Example](https://github.com/holon-sh/cli#example) for an explanation, or [Dependencies](https://github.com/holon-sh/cli#dependencies) to understand dependency resolution.
 
+### Type-checking MCP invocations
+
+```sh
+npx holon types check
+```
+
 <details open>
 <summary><h3>Call a tool</h3></summary>
 

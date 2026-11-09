@@ -4,6 +4,7 @@ import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { createApps, bindApps, ToolCallError } from "holon-sh/runtime";
+import { validator } from "../packages/node/validate.mjs";
 import { serve } from "./helpers.mjs";
 
 test("tools return output or throw while callTool preserves MCP results and identity", {timeout: 10000}, async t => {
@@ -27,12 +28,10 @@ test("tools return output or throw while callTool preserves MCP results and iden
   const make = name => createApps({ name, version: "1", requires: { orders: {} } }, { orders: contract }, undefined, { resolve });
   const first = make("first");
   const second = make("second");
-  const arguments_ = { id: "valid" };
-  const results = await Promise.all([first.orders.tools.get_order(arguments_), second.orders.callTool({ name: "get_order", arguments: { id: "valid", limit: 2 } })]);
+  const results = await Promise.all([first.orders.tools.get_order({ id: "valid" }), second.orders.callTool({ name: "get_order", arguments: { id: "valid", limit: 2 } })]);
   assert.deepEqual(results[0], { total: 5 });
   assert.equal(results[1].resultType, "complete");
   assert.deepEqual(results[1].structuredContent, { total: 2 });
-  assert.deepEqual(arguments_, { id: "valid" });
   assert.deepEqual(identities.sort(), ["first", "second"]);
   const error = await first.orders.callTool({ name: "get_order", arguments: { id: "error" } });
   assert.equal(error.structuredContent, "failure");
@@ -124,10 +123,8 @@ test("session hooks serve custom bindings and respect validation and binding bou
   await assert.rejects(createApps({ name: "checkout", version: "1" }, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is not declared by this application." });
   // Explicit bindings switch resolve off for every app.
   await assert.rejects(createApps(identity, { orders: contract, other: null }, { other: {} }, { resolve: () => assert.fail("resolve with explicit bindings") }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
-  const validator = schema => { assert.deepEqual(schema, contract.tools[0].inputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
-  const before = calls.length;
-  await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.tools.get_order({ id: "x" }), /Invalid arguments for orders\.get_order: \["rejected"\]/);
-  assert.equal(calls.length, before);
+  const validator = schema => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
+  await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
@@ -187,4 +184,10 @@ test("a call without a timeout waits past the MCP client's default, and progress
   t.mock.timers.tick(800);
   resume();
   assert.equal((await kept).content[0].text, "built");
+});
+
+test("schemas that share an $id validate independently", () => {
+  const total = validator({ $id: "https://contract.example/result", type: "object", required: ["total"] });
+  const status = validator({ $id: "https://contract.example/result", type: "object", required: ["status"] });
+  assert.deepEqual([total({ total: 1 }), status({ status: "ok" })], [true, true]);
 });

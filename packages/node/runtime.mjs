@@ -115,15 +115,6 @@ export function createApps(identity, contracts, bindings, options) {
     const callTool = async (request, { elicit, ...options } = {}) => {
       const tool = definitions.get(request.name);
       if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
-      let validation;
-      if (tool) {
-        const { definition } = tool;
-        validation = tool.validation ??= {
-          input: validator(definition.inputSchema),
-          output: definition.outputSchema ? validator(definition.outputSchema) : undefined,
-        };
-        validate(validation.input, request.arguments, `arguments for ${name}.${request.name}`);
-      }
       const result = await session(options, async client => {
         const send = request => client.callTool(request, {
           ...patient(options), allowInputRequired: true,
@@ -139,8 +130,9 @@ export function createApps(identity, contracts, bindings, options) {
         return result;
       });
       if (result.resultType === "input_required") return result;
-      if (!result.isError && validation?.output) {
-        validate(validation.output, result.structuredContent, `structured output from ${name}.${request.name}`);
+      // The server validates arguments; the client checks the output against the contract it was compiled against.
+      if (!result.isError && tool?.definition.outputSchema) {
+        validate(tool.output ??= validator(tool.definition.outputSchema), result.structuredContent, `structured output from ${name}.${request.name}`);
       }
       return { ...result, resultType: "complete" };
     };
