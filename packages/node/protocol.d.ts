@@ -46,6 +46,6 @@ export interface ToolClient<I, O, R> {
   } };
   /** Convenience methods returning structured output, or the complete MCP result, with its content blocks typed, for a tool without an output schema. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool. */
   readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
-  /** Return the full MCP result, preserving error results and questions left unanswered. Arguments and successful output are contract-validated. */
+  /** Return the full MCP result, preserving error results and questions left unanswered. Successful output is contract-validated; the server validates arguments. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
 }

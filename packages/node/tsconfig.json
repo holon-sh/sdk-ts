@@ -11,6 +11,7 @@
   },
   "files": [
     "runtime.d.ts",
-    "protocol.d.ts"
+    "protocol.d.ts",
+    "context.d.ts"
   ]
 }

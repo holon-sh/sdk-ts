@@ -1,10 +1,12 @@
-import Ajv from "ajv";
-import { Ajv2020 } from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 
+// The MCP client's own Ajv, one engine per schema so contracts that reuse an $id stay apart.
 export function validator(schema) {
-  const constructor = schema.$schema?.includes("draft-07") ? Ajv : Ajv2020;
-  const ajv = new constructor({ strict: false, ownProperties: true, allErrors: true });
-  addFormats(ajv);
-  return ajv.compile(schema);
+  const validate = new AjvJsonSchemaValidator().getValidator(schema);
+  const check = value => {
+    const { valid, errorMessage } = validate(value);
+    check.errors = errorMessage;
+    return valid;
+  };
+  return check;
 }

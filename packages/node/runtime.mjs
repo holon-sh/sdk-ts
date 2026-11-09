@@ -1,15 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { validator as defaultValidator } from "./validate.mjs";
 
-// Shared with the private @holon-sh/sdk and existing hosts.
-const DEFAULT_BINDING = Symbol.for("@holon-sh/sdk/default-binding");
-
-// Unbound clients fall back to <NAME>_MCP_URL when the resolver returns undefined.
-export function setDefaultBinding(resolve) {
-  if (typeof resolve !== "function") throw new TypeError("Binding resolver must be a function.");
-  globalThis[DEFAULT_BINDING] = resolve;
-}
-
 function environment(identity, name) {
   if (!Object.hasOwn(identity.requires ?? {}, name)) return undefined;
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
@@ -76,7 +67,7 @@ export function bindApps(identity, contracts, bindings, options) {
 }
 
 export function createApps(identity, contracts, bindings, options) {
-  const { validator = defaultValidator, resolve = name => globalThis[DEFAULT_BINDING]?.(name) ?? environment(identity, name), session: hosted } = options ?? {};
+  const { validator = defaultValidator, resolve = name => environment(identity, name), session: hosted } = options ?? {};
   const apps = Object.create(null);
   // Without explicit bindings, every declared dependency gets a client; those without a contract are untyped.
   const members = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
@@ -124,15 +115,6 @@ export function createApps(identity, contracts, bindings, options) {
     const callTool = async (request, { elicit, ...options } = {}) => {
       const tool = definitions.get(request.name);
       if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
-      let validation;
-      if (tool) {
-        const { definition } = tool;
-        validation = tool.validation ??= {
-          input: validator(definition.inputSchema),
-          output: definition.outputSchema ? validator(definition.outputSchema) : undefined,
-        };
-        validate(validation.input, request.arguments, `arguments for ${name}.${request.name}`);
-      }
       const result = await session(options, async client => {
         const send = request => client.callTool(request, {
           ...patient(options), allowInputRequired: true,
@@ -148,8 +130,9 @@ export function createApps(identity, contracts, bindings, options) {
         return result;
       });
       if (result.resultType === "input_required") return result;
-      if (!result.isError && validation?.output) {
-        validate(validation.output, result.structuredContent, `structured output from ${name}.${request.name}`);
+      // The server validates arguments; the client checks the output against the contract it was compiled against.
+      if (!result.isError && tool?.definition.outputSchema) {
+        validate(tool.output ??= validator(tool.definition.outputSchema), result.structuredContent, `structured output from ${name}.${request.name}`);
       }
       return { ...result, resultType: "complete" };
     };
