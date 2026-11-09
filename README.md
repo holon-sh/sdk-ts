@@ -95,7 +95,7 @@ Without `elicit`, the question arrives on `ToolCallError.result`, or as an `inpu
 <details open>
 <summary><h3>Read a resource</h3></summary>
 
-A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`, as the `orders` server in `tests/fixtures` does. The client then offers `read` and `watch`:
+A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`. The client then offers `read` and `watch`:
 
 ```ts
 const summary = await apps.orders.resources["orders://summary"].read();
@@ -110,16 +110,17 @@ await apps.orders.resources["orders://summary"].watch(value => console.log(value
 
 </details>
 
-## Serve an [MCP App](https://modelcontextprotocol.io/extensions/apps/overview) view
+## Identify the caller
+
+Inside a tool callback, `getContext(ctx.http).principal` is the user Holon admitted for the request, or `null` for anonymous requests. A `createMcpHandler` factory can pass its `McpRequestContext` instead.
 
 ```ts
-import { appView } from "holon-sh/view";
+import { getContext } from "holon-sh/context";
 
-server.registerResource(
-  ...appView("Foo", "ui://foo/index.html", new URL("./dist/index.html", import.meta.url), {
-    csp: { connectDomains: ["https://bar.example.com"] },
-  }),
-);
+server.registerTool("whoami", {}, async ctx => {
+  const { principal } = getContext(ctx.http);
+  if (!principal) throw new Error("Sign in first.");
+  principal.claims.email; // standard OpenID claims are typed: string | undefined
+  return { content: [{ type: "text", text: `${principal.subject} at ${principal.issuer}` }] };
+});
 ```
-
-The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).

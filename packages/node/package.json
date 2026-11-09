@@ -1,7 +1,7 @@
 {
   "name": "holon-sh",
   "version": "0.0.1",
-  "description": "Typed MCP clients and app view resources for Node.js.",
+  "description": "Typed MCP clients and the caller of an MCP request, for Node.js.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/holon-sh/sdk-ts.git",
@@ -23,9 +23,9 @@
       "types": "./runtime.d.ts",
       "import": "./runtime.mjs"
     },
-    "./view": {
-      "types": "./view.d.ts",
-      "import": "./view.js"
+    "./context": {
+      "types": "./context.d.ts",
+      "import": "./context.mjs"
     },
     "./protocol": {
       "types": "./protocol.d.ts",
@@ -37,18 +37,14 @@
     "runtime.d.ts",
     "validate.mjs",
     "protocol.d.ts",
-    "view.js",
-    "view.d.ts",
-    "README.md"
+    "context.mjs",
+    "context.d.ts"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
-    "prepack": "npm run build",
-    "docs:build": "node scripts/build-reference.mjs"
+    "prepack": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "^2.3.1",
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1"
+    "@modelcontextprotocol/client": "^2.3.1"
   }
 }

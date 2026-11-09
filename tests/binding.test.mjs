@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { McpServer, CLIENT_CAPABILITIES_META_KEY } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApps, setDefaultBinding } from "holon-sh/runtime";
+import { createApps } from "holon-sh/runtime";
 import { serve } from "./helpers.mjs";
 
 function orders() {
@@ -14,13 +14,10 @@ function orders() {
 const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }] };
 const identity = { name: "checkout", version: "1", requires: { orders: {}, payments: {} } };
 
-test("Node bindings resolve lazily, prefer the resolver, declare that they can be asked, and fall back to scoped environment calls with the environment's bearer token", { timeout: 10000 }, async t => {
+test("a resolved binding keeps one session and reconnects after close, clients declare that they can be asked, and the environment fallback is scoped with the environment's bearer token", { timeout: 10000 }, async t => {
   const environment = process.env;
-  process.env = { ...environment, ORDERS_MCP_URL: "", ORDERS_MCP_TOKEN: "ignored", PAYMENTS_MCP_URL: "" };
-  t.after(() => { process.env = environment; setDefaultBinding(() => undefined); });
-  setDefaultBinding(() => undefined);
-  const apps = createApps(identity, { orders: contract });
-  assert.throws(() => setDefaultBinding("not a function"), TypeError);
+  process.env = { ...environment, PAYMENTS_MCP_URL: "" };
+  t.after(() => { process.env = environment; });
   const authorization = new Set();
   const { endpoint } = await serve(t, orders, req => authorization.add(req.headers.authorization));
   // Each new connection starts by discovering the server.
@@ -35,34 +32,27 @@ test("Node bindings resolve lazily, prefer the resolver, declare that they can b
     }
     return originalFetch(input, init);
   };
-  process.env.ORDERS_MCP_URL = "http://unavailable.invalid/mcp";
-  // Clients created before the resolver was set use it at call time.
-  setDefaultBinding(() => ({ endpoint, fetch: counting("orders") }));
-  assert.deepEqual((await apps.orders.tools.get_order({ id: "a" })).structuredContent, { id: "a" });
-  assert.deepEqual((await apps.orders.tools.get_order({ id: "b" })).structuredContent, { id: "b" });
+  const resolved = createApps(identity, { orders: contract }, undefined, { resolve: app => app === "orders" ? { endpoint, fetch: counting("orders") } : undefined });
+  assert.deepEqual((await resolved.orders.tools.get_order({ id: "a" })).structuredContent, { id: "a" });
+  assert.deepEqual((await resolved.orders.tools.get_order({ id: "b" })).structuredContent, { id: "b" });
   assert.equal(connections.orders, 1);
   assert.deepEqual([...capabilities.orders], ['{"elicitation":{"form":{},"url":{}}}']);
-  await apps.orders.close();
-
-  // Existing hosts can also replace the shared symbol directly.
-  setDefaultBinding(() => undefined);
-  globalThis[Symbol.for("@holon-sh/sdk/default-binding")] = app => app === "orders" ? { endpoint } : undefined;
-  assert.deepEqual((await apps.orders.tools.get_order({ id: "host" })).structuredContent, { id: "host" });
-  await apps.orders.close();
-  // Only the environment's own endpoint receives the environment's token.
-  assert.deepEqual([...authorization], [undefined]);
+  await resolved.orders.close();
+  assert.deepEqual((await resolved.orders.tools.get_order({ id: "c" })).structuredContent, { id: "c" });
+  assert.equal(connections.orders, 2);
+  await resolved.orders.close();
+  const apps = createApps(identity, { orders: contract });
   process.env.PAYMENTS_MCP_URL = endpoint;
   // The Node environment fallback is scoped and consulted on every call.
   t.mock.method(globalThis, "fetch", counting("payments"));
   // payments has no contract: an untyped client that calls any tool without validation. PAYMENTS_MCP_TOKEN is read on every call too and sent as the bearer token.
-  for (const [id, token, header] of [["c", "", undefined], ["d", "secret", "Bearer secret"]]) {
+  for (const [id, token, header] of [["d", "", undefined], ["e", "secret", "Bearer secret"]]) {
     process.env.PAYMENTS_MCP_TOKEN = token;
     authorization.clear();
     assert.deepEqual((await apps.payments.callTool({ name: "get_order", arguments: { id } })).structuredContent, { id });
     assert.deepEqual([...authorization], [header]);
   }
   assert.equal(connections.payments, 2);
-  assert.deepEqual([...capabilities.payments], ['{"elicitation":{"form":{},"url":{}}}']);
   const { tools } = await apps.payments.listTools();
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
 });

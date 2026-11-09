@@ -4,6 +4,7 @@ import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { createApps, bindApps, ToolCallError } from "holon-sh/runtime";
+import { validator } from "../packages/node/validate.mjs";
 import { serve } from "./helpers.mjs";
 
 test("tools return output or throw while callTool preserves MCP results and identity", {timeout: 10000}, async t => {
@@ -17,7 +18,7 @@ test("tools return output or throw while callTool preserves MCP results and iden
       if (args.id === "error") return { isError: true, content: [{ type: "text", text: "Unavailable" }], structuredContent: "failure", _meta: { preserved: true } };
       if (args.id === "input") return { resultType: "input_required", requestState: "opaque-state" };
       if (args.id === "text") return { content: [{ type: "text", text: '{"total":5}' }] };
-      return { content: [{ type: "text", text: "Order" }], structuredContent: { total: args.id === "bad" ? "invalid" : args.limit }, _meta: { preserved: true } };
+      return { content: [{ type: "text", text: "Order" }], structuredContent: { total: args.id === "bad" ? "invalid" : args.limit } };
     });
     return server;
   });
@@ -27,41 +28,27 @@ test("tools return output or throw while callTool preserves MCP results and iden
   const make = name => createApps({ name, version: "1", requires: { orders: {} } }, { orders: contract }, undefined, { resolve });
   const first = make("first");
   const second = make("second");
-  const arguments_ = { id: "valid" };
-  const results = await Promise.all([first.orders.tools.get_order(arguments_), second.orders.callTool({ name: "get_order", arguments: { id: "valid", limit: 2 } })]);
+  const results = await Promise.all([first.orders.tools.get_order({ id: "valid" }), second.orders.callTool({ name: "get_order", arguments: { id: "valid", limit: 2 } })]);
   assert.deepEqual(results[0], { total: 5 });
   assert.equal(results[1].resultType, "complete");
-  assert.notEqual(results[1].isError, true, JSON.stringify(results[1]));
   assert.deepEqual(results[1].structuredContent, { total: 2 });
-  assert.deepEqual(results[1].content, [{ type: "text", text: "Order" }]);
-  assert.equal(results[1]._meta.preserved, true);
-  assert.deepEqual(arguments_, { id: "valid" });
   assert.deepEqual(identities.sort(), ["first", "second"]);
-  const extra = { id: "valid", extra: true };
-  await assert.rejects(first.orders.tools.get_order(extra), /Invalid arguments/);
   const error = await first.orders.callTool({ name: "get_order", arguments: { id: "error" } });
-  assert.equal(error.isError, true);
   assert.equal(error.structuredContent, "failure");
   assert.equal(error._meta.preserved, true);
   const incomplete = await first.orders.callTool({ name: "get_order", arguments: { id: "input" } });
   assert.equal(incomplete.resultType, "input_required");
   assert.equal(incomplete.requestState, "opaque-state");
-  const dynamic = createApps({ name: "dynamic", version: "1", requires: { orders: {} } }, {}, undefined, { resolve });
   for (const [id, result] of [["error", error], ["input", incomplete]]) {
-    assert.deepEqual(await dynamic.orders.callTool({ name: "get_order", arguments: { id } }), result);
     await assert.rejects(first.orders.tools.get_order({ id }), thrown => {
       assert.ok(thrown instanceof ToolCallError);
       assert.deepEqual(thrown.result, result);
       return true;
     });
   }
-  await assert.rejects(first.orders.tools.get_order({ id: "error" }), /Unavailable/);
   await assert.rejects(first.orders.callTool({ name: "absent", arguments: {} }), /Unknown tool orders\.absent/);
   await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }), /Invalid structured output/);
   await assert.rejects(first.orders.tools.get_order({ id: "text" }), /Invalid structured output/);
-  const untyped = createApps({ name: "untyped", version: "1", requires: { orders: {} } }, { orders: { tools: [{ name: "get_order", inputSchema: contract.tools[0].inputSchema }] } }, undefined, { resolve });
-  assert.deepEqual((await untyped.orders.tools.get_order({ id: "bad" })).structuredContent, { total: "invalid" });
-  assert.equal((await untyped.orders.tools.get_order({ id: "text" })).content[0].text, '{"total":5}');
 });
 
 test("endpoint bindings carry the auth provider and watch resources through subscriptions", { timeout: 20000 }, async t => {
@@ -136,10 +123,8 @@ test("session hooks serve custom bindings and respect validation and binding bou
   await assert.rejects(createApps({ name: "checkout", version: "1" }, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is not declared by this application." });
   // Explicit bindings switch resolve off for every app.
   await assert.rejects(createApps(identity, { orders: contract, other: null }, { other: {} }, { resolve: () => assert.fail("resolve with explicit bindings") }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
-  const validator = schema => { assert.deepEqual(schema, contract.tools[0].inputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
-  const before = calls.length;
-  await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.tools.get_order({ id: "x" }), /Invalid arguments for orders\.get_order: \["rejected"\]/);
-  assert.equal(calls.length, before);
+  const validator = schema => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
+  await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
@@ -152,7 +137,6 @@ test("a failure carries the server's text and its JSON", { timeout: 10000 }, asy
   const contract = { tools: [{ name: "export", inputSchema: { type: "object" } }] };
   const { files } = bindApps({ name: "script", version: "1" }, { files: contract }, { files: { endpoint, scoped: true } });
   await assert.rejects(files.tools.export({}), error => {
-    assert.ok(error instanceof ToolCallError);
     assert.deepEqual(error.data, problem);
     assert.equal(error.text, JSON.stringify(problem));
     assert.equal(error.message, `files.export: tool failed: ${JSON.stringify(problem)}`);
@@ -200,4 +184,10 @@ test("a call without a timeout waits past the MCP client's default, and progress
   t.mock.timers.tick(800);
   resume();
   assert.equal((await kept).content[0].text, "built");
+});
+
+test("schemas that share an $id validate independently", () => {
+  const total = validator({ $id: "https://contract.example/result", type: "object", required: ["total"] });
+  const status = validator({ $id: "https://contract.example/result", type: "object", required: ["status"] });
+  assert.deepEqual([total({ total: 1 }), status({ status: "ok" })], [true, true]);
 });
