@@ -16,16 +16,16 @@ test("clients generated into a CommonJS project run on the packed package in Nod
   const consumer = join(root, "consumer");
   mkdirSync(consumer);
   const dependencies = { "holon-sh": `file:${join(root, tarball.filename)}` };
-  writeFileSync(join(consumer, "package.json"), JSON.stringify({ type: "commonjs", private: true, dependencies }));
+  writeFileSync(join(consumer, "package.json"), JSON.stringify({ type: "commonjs", private: true, imports: { "#holon-sh": "./generated/holon-sh/index.mjs" }, dependencies }));
   // Runtime dependencies come from the npm cache or registry.
   const installed = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: consumer, encoding: "utf8" });
   assert.equal(installed.status, 0, installed.stderr);
-  // holon writes the clients into the project; nothing is copied into node_modules.
+  // holon writes the clients into the project and maps #holon-sh to them; nothing is copied into node_modules.
   cpSync(new URL("./fixtures/checkout/", import.meta.url), join(consumer, "generated/holon-sh"), { recursive: true });
   const source = join(consumer, "consumer.mts");
   copyFileSync(new URL("./fixtures/consumer.ts", import.meta.url), source);
   typecheck(source);
-  const load = "const [{ apps, ToolCallError }, { ToolCallError: same }] = await Promise.all([import('./generated/holon-sh/index.mjs'), import('holon-sh/protocol')]); process.exit(apps.orders && ToolCallError === same ? 0 : 1);";
+  const load = "const [{ apps, ToolCallError }, { ToolCallError: same }] = await Promise.all([import('#holon-sh'), import('holon-sh/protocol')]); process.exit(apps.orders && ToolCallError === same ? 0 : 1);";
   const loaded = spawnSync(process.execPath, ["--input-type=module", "-e", load], { cwd: consumer, encoding: "utf8" });
   assert.equal(loaded.status, 0, loaded.stderr);
 });
