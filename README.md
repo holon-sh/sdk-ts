@@ -31,7 +31,7 @@ npx holon types check
 <summary><h3>Call a tool</h3></summary>
 
 ```ts
-import { apps } from "./generated/holon-sh/index.js";
+import { apps } from "./generated/holon-sh/index.mjs";
 
 export async function greet(name: string): Promise<string> {
   const greeting = await apps.bar.tools.greet({ name }, { timeout: 5000 });
@@ -45,7 +45,7 @@ export async function greet(name: string): Promise<string> {
 <summary><h3>Handle errors</h3></summary>
 
 ```ts
-import { ToolCallError, apps } from "./generated/holon-sh/index.js";
+import { ToolCallError, apps } from "./generated/holon-sh/index.mjs";
 
 try {
   await apps.bar.tools.greet({ name: "world" });
