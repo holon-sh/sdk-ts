@@ -1,13 +1,18 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { validator as defaultValidator } from "./validate.mjs";
 
+// Environment-bound calls reuse the last server/discover result for the same endpoint and token instead of discovering
+// the server on every call. A failed call forgets it, so the next call discovers the server again.
+const DISCOVERY = Symbol("discovery");
+const discovered = new Map();
+
 function environment(identity, name) {
   if (!Object.hasOwn(identity.requires ?? {}, name)) return undefined;
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
   const endpoint = process.env[`${prefix}URL`];
   // Environment-bound dependencies connect for one call at a time, sending <NAME>_MCP_TOKEN as the bearer token when it is set.
   const token = process.env[`${prefix}TOKEN`];
-  if (endpoint) return { endpoint, scoped: true, ...(token && { authProvider: { token: async () => token } }) };
+  if (endpoint) return { endpoint, scoped: true, [DISCOVERY]: `${endpoint} ${token ?? ""}`, ...(token && { authProvider: { token: async () => token } }) };
   throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
 }
 
@@ -76,7 +81,7 @@ export function createApps(identity, contracts, bindings, options) {
     // Without explicit bindings, the resolve hook supplies the binding on every call.
     const current = () => binding ?? (bindings ? undefined : resolve(name));
     let connection;
-    const connect = resolved => {
+    const connect = (resolved, discover) => {
       // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
       const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} } }, versionNegotiation: { mode: "auto" } });
@@ -86,7 +91,7 @@ export function createApps(identity, contracts, bindings, options) {
         await current.ready.catch(() => {});
       } };
       transport.onclose = () => { if (connection === current) connection = undefined; };
-      current.ready = client.connect(transport).catch(async error => {
+      current.ready = client.connect(transport, discover && { prior: { kind: "modern", discover } }).catch(async error => {
         await transport.close();
         throw error;
       });
@@ -104,10 +109,15 @@ export function createApps(identity, contracts, bindings, options) {
       if (!resolved.endpoint) throw new Error(`Dependency ${name} binding has no endpoint.`);
       // Bindings marked scoped connect for one call at a time.
       const scoped = resolved.scoped === true;
-      const active = scoped ? connect(resolved) : (connection ??= connect(resolved));
+      const key = resolved[DISCOVERY];
+      const active = scoped ? connect(resolved, discovered.get(key)) : (connection ??= connect(resolved));
       try {
         await untilAborted(active.ready, options?.signal);
+        if (key) discovered.set(key, active.client.getDiscoverResult());
         return await run(active.client);
+      } catch (error) {
+        discovered.delete(key);
+        throw error;
       } finally { if (scoped) await active.close(); }
     };
     const tools = Object.create(null);

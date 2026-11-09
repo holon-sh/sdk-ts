@@ -20,7 +20,7 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   t.after(() => { process.env = environment; });
   const authorization = new Set();
   const { endpoint } = await serve(t, orders, req => authorization.add(req.headers.authorization));
-  // Each new connection starts by discovering the server.
+  // A new connection starts by discovering the server.
   const connections = { orders: 0, payments: 0 };
   const capabilities = { orders: new Set(), payments: new Set() };
   const originalFetch = globalThis.fetch;
@@ -46,7 +46,8 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   // The Node environment fallback is scoped and consulted on every call.
   t.mock.method(globalThis, "fetch", counting("payments"));
   // payments has no contract: an untyped client that calls any tool without validation. PAYMENTS_MCP_TOKEN is read on every call too and sent as the bearer token.
-  for (const [id, token, header] of [["d", "", undefined], ["e", "secret", "Bearer secret"]]) {
+  // A new token discovers the server again; the same token reuses what it discovered.
+  for (const [id, token, header] of [["d", "", undefined], ["e", "secret", "Bearer secret"], ["f", "secret", "Bearer secret"]]) {
     process.env.PAYMENTS_MCP_TOKEN = token;
     authorization.clear();
     assert.deepEqual((await apps.payments.callTool({ name: "get_order", arguments: { id } })).structuredContent, { id });
