@@ -25,11 +25,13 @@ The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Exampl
 npx holon types check
 ```
 
+`holon types generate` and `holon types check` write the clients to `generated/holon-sh/` beside your `package.json`, and map `#holon-sh` to them in its `imports`. A package that publishes code calling them lists `generated/holon-sh` in its `files`, so the projects that install it need not generate.
+
 <details open>
 <summary><h3>Call a tool</h3></summary>
 
 ```ts
-import { apps } from "holon-sh";
+import { apps } from "#holon-sh";
 
 export async function greet(name: string): Promise<string> {
   const greeting = await apps.bar.tools.greet({ name }, { timeout: 5000 });
@@ -43,7 +45,7 @@ export async function greet(name: string): Promise<string> {
 <summary><h3>Handle errors</h3></summary>
 
 ```ts
-import { ToolCallError, apps } from "holon-sh";
+import { ToolCallError, apps } from "#holon-sh";
 
 try {
   await apps.bar.tools.greet({ name: "world" });
