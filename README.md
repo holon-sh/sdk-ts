@@ -14,7 +14,7 @@ npm install holon-sh@dev
 npm install -D holon-types@next
 ```
 
-`holon-types` is the `holon` CLI. `holon types check` brings its own TypeScript compiler and uses the project's `typescript` when one is installed.
+`holon-types` is the `holon` CLI, with its own TypeScript compiler.
 
 ## Invoking MCP Servers
 
@@ -26,10 +26,9 @@ The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Exampl
 npx holon types check
 ```
 
-`holon types generate` and `holon types check` write the clients to `generated/holon-sh/` beside your `package.json`, and map `#holon-sh` to them in its `imports`. A package that publishes code calling them lists `generated/holon-sh` in its `files`, so the projects that install it need not generate.
+Clients are written to `generated/holon-sh/` and imported as `#holon-sh`. A package that publishes code calling them lists `generated/holon-sh` in its `files`.
 
-<details open>
-<summary><h3>Call a tool</h3></summary>
+### Call a tool
 
 ```ts
 import { apps } from "#holon-sh";
@@ -40,10 +39,7 @@ export async function greet(name: string): Promise<string> {
 }
 ```
 
-</details>
-
-<details open>
-<summary><h3>Handle errors</h3></summary>
+### Handle errors
 
 ```ts
 import { ToolCallError, apps } from "#holon-sh";
@@ -58,10 +54,7 @@ try {
 }
 ```
 
-</details>
-
-<details open>
-<summary><h3>Read the whole result</h3></summary>
+### Read the whole result
 
 `callTool` returns the full MCP result instead of throwing:
 
@@ -76,10 +69,7 @@ if (result.resultType === "input_required") {
 }
 ```
 
-</details>
-
-<details open>
-<summary><h3>Answer a server's question</h3></summary>
+### Answer a server's question
 
 A tool can stop and ask for input through an [MCP elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation). Pass `elicit` to answer in place, and the call returns its usual typed output:
 
@@ -89,12 +79,9 @@ const greeting = await apps.bar.tools.greet({ name: "world" }, {
 });
 ```
 
-Without `elicit`, the question arrives on `ToolCallError.result`, or as an `input_required` result from `callTool`. To answer later, for example in another request, call again with `inputResponses` and `requestState`.
+Without `elicit`, the question arrives on `ToolCallError.result`, or as an `input_required` result from `callTool`.
 
-</details>
-
-<details open>
-<summary><h3>Read a resource</h3></summary>
+### Read a resource
 
 A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`. The client then offers `read` and `watch`:
 
@@ -107,9 +94,7 @@ await apps.orders.resources["orders://summary"].watch(value => console.log(value
 });
 ```
 
-`watch` calls back with the current value, then on every update, until the signal aborts. It needs an endpoint binding and a server that supports resource subscriptions.
-
-</details>
+`watch` needs an endpoint binding and a server that supports resource subscriptions.
 
 ## Identify the caller
 
