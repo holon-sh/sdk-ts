@@ -3,6 +3,7 @@
     "docs/root.d.ts",
     "runtime.d.ts",
     "src/view.ts",
+    "context.d.ts",
     "protocol.d.ts"
   ],
   "tsconfig": "docs/tsconfig.json",

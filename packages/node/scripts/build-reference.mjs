@@ -33,6 +33,7 @@ const entries = {
   root: ".",
   runtime: "./runtime",
   view: "./view",
+  context: "./context",
   protocol: "./protocol",
 };
 if (

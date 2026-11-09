@@ -13,6 +13,11 @@
     "apps",
     "createApps"
   ],
+  "./context": [
+    "Principal",
+    "RequestContext",
+    "getContext"
+  ],
   "./protocol": [
     "AuthProvider",
     "CallMetadata",

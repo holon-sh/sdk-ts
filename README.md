@@ -121,3 +121,18 @@ server.registerResource(
 ```
 
 The page itself uses [`holon-ui`](https://github.com/holon-sh/sdk-ui).
+
+## Identify the caller
+
+Inside a tool callback, `getContext(ctx.http).principal` is the user Holon admitted for the request, or `null` for anonymous requests. A `createMcpHandler` factory can pass its `McpRequestContext` instead.
+
+```ts
+import { getContext } from "holon-sh/context";
+
+server.registerTool("whoami", {}, async ctx => {
+  const { principal } = getContext(ctx.http);
+  if (!principal) throw new Error("Sign in first.");
+  principal.claims.email; // claims as the identity provider issued them
+  return { content: [{ type: "text", text: `${principal.subject} at ${principal.issuer}` }] };
+});
+```

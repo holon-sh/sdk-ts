@@ -32,6 +32,10 @@
       "types": "./view.d.ts",
       "import": "./view.js"
     },
+    "./context": {
+      "types": "./context.d.ts",
+      "import": "./context.mjs"
+    },
     "./protocol": {
       "types": "./protocol.d.ts",
       "import": "./runtime.mjs"
@@ -44,6 +48,8 @@
     "protocol.d.ts",
     "view.js",
     "view.d.ts",
+    "context.mjs",
+    "context.d.ts",
     "generated/",
     "README.md"
   ],
