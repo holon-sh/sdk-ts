@@ -14,6 +14,8 @@
     "createApps"
   ],
   "./context": [
+    "AddressClaims",
+    "IdentityClaims",
     "Principal",
     "RequestContext",
     "getContext"
@@ -46,8 +48,7 @@
     "ToolResult",
     "ToolSession",
     "bindApps",
-    "createApps",
-    "setDefaultBinding"
+    "createApps"
   ],
   "./view": [
     "VIEW_MIME_TYPE",

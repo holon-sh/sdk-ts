@@ -19,12 +19,6 @@ npm install -D holon-types@next
 
 The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Example](https://github.com/holon-sh/cli#example) for an explanation, or [Dependencies](https://github.com/holon-sh/cli#dependencies) to understand dependency resolution.
 
-### Type-checking MCP invocations
-
-```sh
-npx holon types check
-```
-
 <details open>
 <summary><h3>Call a tool</h3></summary>
 
@@ -93,7 +87,7 @@ Without `elicit`, the question arrives on `ToolCallError.result`, or as an `inpu
 <details open>
 <summary><h3>Read a resource</h3></summary>
 
-A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`, as the `orders` server in `tests/fixtures` does. The client then offers `read` and `watch`:
+A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`. The client then offers `read` and `watch`:
 
 ```ts
 const summary = await apps.orders.resources["orders://summary"].read();
@@ -132,7 +126,7 @@ import { getContext } from "holon-sh/context";
 server.registerTool("whoami", {}, async ctx => {
   const { principal } = getContext(ctx.http);
   if (!principal) throw new Error("Sign in first.");
-  principal.claims.email; // claims as the identity provider issued them
+  principal.claims.email; // standard OpenID claims are typed: string | undefined
   return { content: [{ type: "text", text: `${principal.subject} at ${principal.issuer}` }] };
 });
 ```
