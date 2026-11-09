@@ -30,7 +30,6 @@ if (app.logger.hasErrors() || app.logger.hasWarnings())
 const pkg = JSON.parse(readFileSync("package.json"));
 const inventory = JSON.parse(readFileSync("docs/public-api.json"));
 const entries = {
-  root: ".",
   runtime: "./runtime",
   view: "./view",
   protocol: "./protocol",
@@ -42,8 +41,7 @@ if (
   throw new Error(
     "Package entrypoints changed; update the public API inventory",
   );
-// The root entrypoint re-exports the project's clients, so the reference documents docs/root.d.ts.
-const types = (entry) => (entry === "." ? "docs/root.d.ts" : pkg.exports[entry].types);
+const types = (entry) => pkg.exports[entry].types;
 const program = ts.createProgram(
   Object.keys(pkg.exports).map(types),
   {
@@ -90,10 +88,8 @@ for (const module of project.children) {
     throw new Error(`Public API coverage changed: ${entry}`);
   sources.set(urls.get(module), {
     id,
-    title: `holon-sh${entry === "." ? "" : entry.slice(1)}`,
-    source: `packages/node/${id === "root"
-      ? "docs/root.d.ts"
-      : id === "view" ? "src/view.ts" : `${id}.d.ts`}`,
+    title: `holon-sh${entry.slice(1)}`,
+    source: `packages/node/${id === "view" ? "src/view.ts" : `${id}.d.ts`}`,
   });
 }
 const sha = execFileSync("git", ["rev-parse", "HEAD"], {

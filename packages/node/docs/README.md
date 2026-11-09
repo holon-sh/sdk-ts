@@ -7,8 +7,8 @@ npm ci
 npm run docs:build
 ```
 
-TypeDoc and typedoc-plugin-markdown read the runtime and protocol declarations,
-view helper, and the generated root's shape in `packages/node/docs/root.d.ts`.
+TypeDoc and typedoc-plugin-markdown read the runtime and protocol declarations
+and the view helper.
 Write API comments in `packages/node/runtime.d.ts`, `packages/node/protocol.d.ts`,
 and `packages/node/src/view.ts`.
 `public-api.json` lists the supported exports of every package entrypoint.

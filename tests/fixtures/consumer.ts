@@ -1,6 +1,6 @@
-import { apps, ToolCallError, type Inputs, type Outputs, type Resources } from "holon-sh";
+import { apps, ToolCallError, type Inputs, type Outputs, type Resources } from "./generated/holon-sh/index.js";
 import type { ToolClient } from "holon-sh/protocol";
-import {createApps as createNodeApps, type EndpointBinding} from "holon-sh";
+import {createApps as createNodeApps, type EndpointBinding} from "./generated/holon-sh/index.js";
 const scripted = createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{token: async () => "token"}}});
 (await scripted.orders.tools.get_order({orderId:"script"})).total.toFixed();
 await scripted.orders.resources["orders://summary"].watch(async (value) => { value.total.toFixed(); }, {signal: new AbortController().signal});

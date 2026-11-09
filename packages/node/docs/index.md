@@ -4,15 +4,14 @@ The `holon-sh` package provides typed MCP clients and server-side HTML views for
 
 | Import | Purpose |
 | --- | --- |
-| `holon-sh` | Generated `apps`, `createApps`, and project types |
 | `holon-sh/runtime` | Low-level client construction and binding resolution |
 | `holon-sh/view` | Server registration of built HTML views |
 | `holon-sh/protocol` | Shared client/result types and `ToolCallError` |
 
-The root exports named values: `import { apps, createApps } from "holon-sh"`.
-The root re-exports your project's generated `Apps`, `Inputs`, `Outputs`, and
-`Resources` from `.holon/generated/holon-sh/`, so install `holon-sh` in the
-project's own `node_modules` and generate clients before importing it.
+Generated clients live in your project, in `generated/holon-sh/` beside its
+`package.json`. They export `apps`, `createApps`, `ToolCallError` and the
+`Apps`, `Inputs`, `Outputs`, `InputTypes`, `OutputTypes` and `Resources` types,
+and import `holon-sh/runtime`, so install `holon-sh` in the project.
 
 Run `holon types generate` from your project directory to use its `server.json`
 dependencies, or pass explicit dependencies with

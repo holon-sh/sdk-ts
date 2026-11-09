@@ -1,18 +1,4 @@
 {
-  ".": [
-    "Apps",
-    "Binding",
-    "CreateOptions",
-    "EndpointBinding",
-    "InputTypes",
-    "Inputs",
-    "OutputTypes",
-    "Outputs",
-    "Resources",
-    "ToolCallError",
-    "apps",
-    "createApps"
-  ],
   "./protocol": [
     "AuthProvider",
     "CallMetadata",

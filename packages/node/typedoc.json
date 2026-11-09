@@ -1,6 +1,5 @@
 {
   "entryPoints": [
-    "docs/root.d.ts",
     "runtime.d.ts",
     "src/view.ts",
     "protocol.d.ts"

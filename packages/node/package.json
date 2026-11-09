@@ -16,14 +16,9 @@
     "access": "public"
   },
   "holon": {
-    "slot": "generated",
     "contractVersion": 2
   },
   "exports": {
-    ".": {
-      "types": "./generated/index.d.ts",
-      "import": "./generated/index.js"
-    },
     "./runtime": {
       "types": "./runtime.d.ts",
       "import": "./runtime.mjs"
@@ -44,7 +39,6 @@
     "protocol.d.ts",
     "view.js",
     "view.d.ts",
-    "generated/",
     "README.md"
   ],
   "scripts": {

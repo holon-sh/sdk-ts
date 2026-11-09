@@ -7,7 +7,6 @@
     "skipLibCheck": true
   },
   "include": [
-    "root.d.ts",
     "../runtime.d.ts",
     "../protocol.d.ts",
     "../src/view.ts"
