@@ -93,7 +93,7 @@ export function createApps(identity, contracts, bindings, options) {
       transport.onclose = () => { if (connection === current) connection = undefined; };
       current.ready = client.connect(transport, discover && { prior: { kind: "modern", discover } }).catch(async error => {
         await transport.close();
-        if (!prior || error?.status !== 400) throw error;
+        throw error;
       });
       return current;
     };
