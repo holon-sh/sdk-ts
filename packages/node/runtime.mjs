@@ -2,7 +2,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { validator as defaultValidator } from "./validate.mjs";
 
 // Environment-bound calls reuse the last server/discover result for the same endpoint and token instead of discovering
-// the server on every call. A failed call forgets it, so the next call discovers the server again.
+// the server on every call.
 const DISCOVERY = Symbol("discovery");
 const discovered = new Map();
 
@@ -93,7 +93,7 @@ export function createApps(identity, contracts, bindings, options) {
       transport.onclose = () => { if (connection === current) connection = undefined; };
       current.ready = client.connect(transport, discover && { prior: { kind: "modern", discover } }).catch(async error => {
         await transport.close();
-        throw error;
+        if (!prior || error?.status !== 400) throw error;
       });
       return current;
     };
@@ -110,15 +110,20 @@ export function createApps(identity, contracts, bindings, options) {
       // Bindings marked scoped connect for one call at a time.
       const scoped = resolved.scoped === true;
       const key = resolved[DISCOVERY];
-      const active = scoped ? connect(resolved, discovered.get(key)) : (connection ??= connect(resolved));
-      try {
-        await untilAborted(active.ready, options?.signal);
-        if (key) discovered.set(key, active.client.getDiscoverResult());
-        return await run(active.client);
-      } catch (error) {
-        discovered.delete(key);
-        throw error;
-      } finally { if (scoped) await active.close(); }
+      const attempt = async discover => {
+        const active = scoped ? connect(resolved, discover) : (connection ??= connect(resolved));
+        try {
+          await untilAborted(active.ready, options?.signal);
+          if (key) discovered.set(key, active.client.getDiscoverResult());
+          return await run(active.client);
+        } finally { if (scoped) await active.close(); }
+      };
+      const prior = discovered.get(key);
+      return attempt(prior).catch(error => {
+        // A server rejects a request in a protocol it no longer speaks without running it, so the call can be repeated.
+        if (!prior || error?.status !== 400) throw error;
+        return attempt();
+      });
     };
     const tools = Object.create(null);
     const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition }]));

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { McpServer, CLIENT_CAPABILITIES_META_KEY } from "@modelcontextprotocol/server";
+import { McpServer, CLIENT_CAPABILITIES_META_KEY, createMcpHandler, legacyStatelessFallback } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps } from "holon-sh/runtime";
 import { serve } from "./helpers.mjs";
@@ -56,4 +56,18 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   assert.equal(connections.payments, 2);
   const { tools } = await apps.payments.listTools();
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
+});
+
+test("an environment-bound call succeeds after its server stops speaking the protocol it was discovered with", async t => {
+  const environment = process.env;
+  process.env = { ...environment, PAYMENTS_MCP_URL: "http://payments.invalid/mcp" };
+  t.after(() => { process.env = environment; });
+  const modern = createMcpHandler(orders, { legacy: "reject" });
+  t.after(() => modern.close());
+  let serve = modern.fetch;
+  t.mock.method(globalThis, "fetch", (input, init) => serve(new Request(input, init)));
+  const apps = createApps(identity, {});
+  await apps.payments.callTool({ name: "get_order", arguments: { id: "a" } });
+  serve = legacyStatelessFallback(orders);
+  assert.deepEqual((await apps.payments.callTool({ name: "get_order", arguments: { id: "b" } })).structuredContent, { id: "b" });
 });
