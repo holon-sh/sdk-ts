@@ -1,9 +1,10 @@
 # Holon TypeScript SDK
 
 [![CI](https://github.com/holon-sh/sdk-ts/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/holon-sh/sdk-ts/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-holon--labs.dev-blue)](https://holon-labs.dev/docs/)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-5FA04E?logo=node.js&logoColor=white)](https://nodejs.org/en/download)
 [![Apache 2.0 License](https://img.shields.io/badge/license-Apache--2.0-green)](https://github.com/holon-sh/sdk-ts/blob/main/LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://holon-labs.dev/discord/)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/jXExyBdy)
 
 This repository contains the Node.js runtime for [`holon`](https://github.com/holon-sh/cli).
 
@@ -11,14 +12,37 @@ This repository contains the Node.js runtime for [`holon`](https://github.com/ho
 
 ```sh
 npm install holon-sh@dev
-npm install -D holon-types@next
+npm install -D holon-types typescript
 ```
 
 `holon-types` is the `holon` CLI. `holon types check` brings its own TypeScript compiler and uses the project's `typescript` when one is installed.
 
+## Create an app
+
+```sh
+npx create-holon-app foo
+```
+
 ## Invoking MCP Servers
 
-The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Example](https://github.com/holon-sh/cli#example) for an explanation, or [Dependencies](https://github.com/holon-sh/cli#dependencies) to understand dependency resolution.
+Declare dependencies under `sh.holon.requires` in a [`server.json`](https://modelcontextprotocol.io/registry/quickstart#step-4-create-server-json) beside the server, here the public [Hugging Face](https://huggingface.co/docs/hub/en/hf-mcp-server) MCP server:
+
+```json
+{
+  "name": "com.example/foo",
+  "version": "0.1.0",
+  "description": "Example Foo",
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "sh.holon": {
+        "requires": {
+          "huggingface": { "url": "https://huggingface.co/mcp" }
+        }
+      }
+    }
+  }
+}
+```
 
 ### Type-checking MCP invocations
 
@@ -26,106 +50,23 @@ The Holon TypeScript SDK allows generation of type-safe MCP clients. See [Exampl
 npx holon types check
 ```
 
-`holon types generate` and `holon types check` write the clients to `generated/holon-sh/` beside your `package.json`, and map `#holon-sh` to them in its `imports`. A package that publishes code calling them lists `generated/holon-sh` in its `files`, so the projects that install it need not generate.
-
-<details open>
-<summary><h3>Call a tool</h3></summary>
+A wrong tool name or argument is a type error:
 
 ```ts
 import { apps } from "#holon-sh";
 
-export async function greet(name: string): Promise<string> {
-  const greeting = await apps.bar.tools.greet({ name }, { timeout: 5000 });
-  return greeting.result;
-}
-```
+await apps.huggingface.tools.hub_repo_search({ query: "llama" });
 
-</details>
+await apps.huggingface.tools.hub_repo_search({ limit: "3" });
+// error TS2322: Type 'string' is not assignable to type 'number'.
 
-<details open>
-<summary><h3>Handle errors</h3></summary>
+await apps.huggingface.tools.hub_repo_details({});
+// error TS2741: Property '"repo_ids"' is missing in type '{}' but required in type '{ config?: string | undefined; limit?: number | undefined; offset?: number | undefined; operations?: ("dataset_preview" | "dataset_structure" | "overview")[] | undefined; repo_ids: string[]; repo_type?: "dataset" | ... 2 more ... | undefined; split?: string | undefined; }'.
 
-```ts
-import { ToolCallError, apps } from "#holon-sh";
-
-try {
-  await apps.bar.tools.greet({ name: "world" });
-} catch (error) {
-  if (!(error instanceof ToolCallError)) throw error;
-  error.message; // includes the server's text
-  error.data;    // the server's structured content, or its text parsed as JSON
-  error.result;  // the original MCP result
-}
-```
-
-</details>
-
-<details open>
-<summary><h3>Read the whole result</h3></summary>
-
-`callTool` returns the full MCP result instead of throwing:
-
-```ts
-const result = await apps.bar.callTool({ name: "greet", arguments: { name: "world" } });
-if (result.resultType === "input_required") {
-  // call again with inputResponses and requestState
-} else if (result.isError) {
-  // inspect result.content
-} else {
-  result.structuredContent; // typed as Outputs["bar"]["greet"]
-}
-```
-
-</details>
-
-<details open>
-<summary><h3>Answer a server's question</h3></summary>
-
-A tool can stop and ask for input through an [MCP elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation). Pass `elicit` to answer in place, and the call returns its usual typed output:
-
-```ts
-const greeting = await apps.bar.tools.greet({ name: "world" }, {
-  elicit: async ({ message }) => ({ action: "accept", content: await ask(message) }),
-});
-```
-
-Without `elicit`, the question arrives on `ToolCallError.result`, or as an `input_required` result from `callTool`. To answer later, for example in another request, call again with `inputResponses` and `requestState`.
-
-</details>
-
-<details open>
-<summary><h3>Read a resource</h3></summary>
-
-A provider types a JSON resource by registering it with `mimeType: "application/json"` and an `"sh.holon/outputSchema"` JSON Schema in its `_meta`. The client then offers `read` and `watch`:
-
-```ts
-const summary = await apps.orders.resources["orders://summary"].read();
-
-const controller = new AbortController();
-await apps.orders.resources["orders://summary"].watch(value => console.log(value.total), {
-  signal: controller.signal,
-});
-```
-
-`watch` calls back with the current value, then on every update, until the signal aborts. It needs an endpoint binding and a server that supports resource subscriptions.
-
-</details>
-
-## Identify the caller
-
-Inside a tool callback, `getContext(ctx.http).principal` is the user Holon admitted for the request, or `null` for anonymous requests. A `createMcpHandler` factory can pass its `McpRequestContext` instead.
-
-```ts
-import { getContext } from "holon-sh/context";
-
-server.registerTool("whoami", {}, async ctx => {
-  const { principal } = getContext(ctx.http);
-  if (!principal) throw new Error("Sign in first.");
-  principal.claims.email; // standard OpenID claims are typed: string | undefined
-  return { content: [{ type: "text", text: `${principal.subject} at ${principal.issuer}` }] };
-});
+await apps.huggingface.tools.hub_search({ query: "llama" });
+// error TS2339: Property 'hub_search' does not exist on type '{ readonly hf_fs: (input: { operations: { args: string[]; cmd: "attach" | "cat" | "find" | "ls" | "search" | "stat"; }[]; }, options?: ToolCallOptions | undefined) => Promise<{ results: ({ ...; } | { ...; })[]; truncated?: boolean | undefined; truncation_reason?: "output_budget" | undefined; }>; readonly hf_whoami: ...'.
 ```
 
 ## Community
 
-Ask questions and share what you're building on the [Holon Discord](https://holon-labs.dev/discord/).
+Ask questions and share what you're building on the [Holon Discord](https://discord.gg/jXExyBdy).
