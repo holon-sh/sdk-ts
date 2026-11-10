@@ -167,6 +167,8 @@ export interface EventsOptions {
 export interface DeliveryMode {
   readonly name: string;
   serve(server: object, internals: object): void;
+  /** Called as each event type is declared, before any server is served. */
+  declared?(type: object, internals: object): void;
 }
 /** The event types of a process, served by each MCP server it creates. */
 export interface Events {

@@ -19,9 +19,10 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
 // A server whose rooms say things, by webhook too. A room can be closed to its subscribers.
 async function rooms(t, options) {
   const closed = new Set();
-  const events = createEvents({ modes: [webhooks({ allowInsecureLocalCallbacksForTesting: true, backoff: 10, reverify: 0, ...options })] });
+  const events = createEvents({ modes: [webhooks({ allowInsecureLocalCallbacksForTesting: true, backoff: 10, reverify: 20, ...options })] });
   const said = events.event("room.said", {
-    inputSchema: z.object({ room: z.string() }).refine(({ room }) => !closed.has(room), "The room is closed."),
+    inputSchema: z.object({ room: z.string() }),
+    authorize: ({ room }) => !closed.has(room),
     payloadSchema: z.object({ text: z.string() }),
     match: ({ room }, args) => room === args.room,
     transform: ({ text }) => ({ text }),
@@ -96,11 +97,10 @@ test("a client with a receiver is delivered its events by webhook, keeps its sub
   assert.equal(posts.length, sent);
 });
 
-test("a subscription the server no longer serves ends with the error it was terminated with", async t => {
-  const { subscription, say, close } = await subscribed(t);
+test("a subscription whose caller loses access is ended while nothing is emitted, with the error it was terminated with", { timeout: 10_000 }, async t => {
+  const { subscription, close } = await subscribed(t);
   close("a");
-  say("a", "one");
-  await assert.rejects(take(subscription, 1), error => error.code === -32602 && /ended the subscription to room.said: .*The room is closed/.test(error.message));
+  await assert.rejects(take(subscription, 1), error => error.code === -32024 && /ended the subscription to room.said: Forbidden/.test(error.message));
 });
 
 test("a server that restarts with a store delivers to the subscriptions it kept, though no client subscribes again", { timeout: 10_000 }, async t => {
@@ -111,9 +111,9 @@ test("a server that restarts with a store delivers to the subscriptions it kept,
     remove: id => { kept.delete(id); },
   };
   const { subscription } = await subscribed(t, { store });
-  // Another process with the same store. The client still talks to the first, so this one is never subscribed to.
+  // Another process with the same store. The client still talks to the first, so this one is never subscribed to, and
+  // nothing has asked it anything.
   const restarted = await rooms(t, { store });
-  await (await client(t, restarted.endpoint))("events/list", {});
   restarted.say("a", "after the restart");
   assert.deepEqual(await take(subscription, 1), ["after the restart"]);
 });

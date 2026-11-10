@@ -147,7 +147,7 @@ import { webhooks } from "holon-sh/webhooks";
 const events = createEvents({ modes: [webhooks()] });
 ```
 
-The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. Subscriptions are kept in memory; give `webhooks({ store })` to keep them across restarts.
+The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `end`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again every minute. Subscriptions are kept in memory; give `webhooks({ store })` to keep them across restarts, and delivery to them resumes as soon as the process declares their event types.
 
 A client that can be reached mounts a receiver at a URL and gives both to `createApps`. Its subscriptions then use webhooks wherever a server offers them:
 

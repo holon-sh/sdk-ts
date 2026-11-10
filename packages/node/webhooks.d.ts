@@ -12,12 +12,12 @@ export interface WebhookSubscription {
   previous?: { secret: string; until: number };
   /** When the subscription lapses unless refreshed, in milliseconds since the epoch. Null when it does not. */
   expiresAt: number | null;
-  /** The subscription's checked arguments, and the caller match and transform are given. */
-  subscription: { arguments: unknown; context: unknown };
+  /** The id again, the subscription's checked arguments, and the caller match, transform and authorize are given. */
+  subscription: { id: string; arguments: unknown; context: unknown };
 }
 /** Keeps webhook subscriptions across restarts. Without one they live in memory, and clients subscribe again when they refresh. */
 export interface WebhookStore {
-  /** Every subscription kept. Read once, when the first server is served. */
+  /** Every subscription kept. Read once, when the first event type is declared. */
   load(): Iterable<WebhookSubscription> | Promise<Iterable<WebhookSubscription>>;
   save(subscription: WebhookSubscription): void | Promise<void>;
   remove(id: string): void | Promise<void>;
@@ -38,12 +38,10 @@ export interface WebhookOptions {
   backoff?: number;
   /** How long a delivery has, from connecting to its answer, in milliseconds. Five seconds unless given. */
   timeout?: number;
-  /** How often a subscription's arguments and authorization are checked again before delivery, in milliseconds. One minute unless given. */
+  /** How often each subscription's access is checked again with its type's authorize, in milliseconds. One minute unless given. */
   reverify?: number;
   /** How many events may be in flight to one subscription. Beyond it events are skipped, and the client is told of the gap. A thousand unless given. */
   maxPending?: number;
-  /** How many subscriptions one principal may hold. Beyond it a subscribe is refused with -32025. A hundred unless given. */
-  maxSubscriptions?: number;
   /** How many deliveries run to one endpoint at once. Four unless given. */
   concurrency?: number;
   /** For tests only: accepts http callbacks and callbacks at private addresses, such as a receiver on localhost. */

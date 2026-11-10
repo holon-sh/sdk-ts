@@ -282,6 +282,8 @@ export function createEvents({
         sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(),
       };
       types.set(name, type);
+      // A delivery mode hears of each type as it is declared, so it can deliver before any server is served.
+      for (const mode of modes) mode.declared?.(type, internals);
       changed();
       return {
         emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscription: target } = {}) {
