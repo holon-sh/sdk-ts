@@ -253,7 +253,8 @@ export function createApps(identity, contracts, bindings, options) {
       let established;
       const active = new Promise((resolve, reject) => { established = { resolve: () => { confirmed = true; resolve(); }, reject }; });
       // A server's refusal ends the subscription. Anything else is tried again from the cursor.
-      const refused = error => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500;
+      // So does an answer that the event type is gone, that access was lost, or that the request is no longer valid.
+      const refused = error => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500 || [-32602, -32023, -32024, -32026].includes(error?.code);
       const poll = async () => {
         while (!ended.aborted) {
           let wait = 1000;
@@ -351,7 +352,7 @@ export function createApps(identity, contracts, bindings, options) {
             } catch (error) {
               if (until.aborted) break;
               // The server refusing the subscription ends it. Anything else, a failure inside the server too, is tried again.
-              if (!confirmed || refused(error) || [-32602, -32023, -32024, -32026, -32027].includes(error?.code)) throw error;
+              if (!confirmed || refused(error) || error?.code === -32027) throw error;
               wait = retry;
               retry = Math.min(retry * 2, 60_000);
             }
