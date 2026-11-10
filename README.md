@@ -69,7 +69,7 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 
 ## Events
 
-A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it, so it lives under `ext`: `holon-sh/ext/events` and `holon-sh/ext/webhooks` on a server, and `ext.events` on a client. Expect what is there to change.
+A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it, so it lives under `ext`: `holon-sh/ext/events` on a server and `ext.events` on a client. Expect what is there to change.
 
 A server declares an event type and emits its occurrences:
 
@@ -124,36 +124,34 @@ const said = events.event("room.said", {
   // ...
   authorize: ({ room }, context) => mayRead(getContext(context).principal, room),
   onSubscribe: ({ id, arguments: { room } }) => {
-    const listener = upstream.join(room, text => said.emit({ room, text }, { subscription: id }));
-    return () => listener.leave();
+    listeners.set(id, upstream.join(room, text => said.emit({ room, text }, { subscriptionId: id })));
   },
+  onUnsubscribe: ({ id }) => listeners.get(id)?.leave(),
 });
 
-said.end(id);   // ends one subscription; said.end() ends them all
-said.remove();  // stops offering the type; createEvents({ listChanged: true }) also tells clients
+said.terminate(id);  // terminates one subscription; said.terminate() terminates them all
+said.remove();       // stops offering the type; createEvents({ listChanged: true }) also tells clients
 ```
 
-A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. `createEvents` takes what each type keeps (`keep: { events, age }`), the `interval` of polls and checks, and limits on subscriptions in all and per caller.
+A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. `createEvents` takes the sketch's `emitBuffer: { maxAge, maxEvents }` and `pollSubscriptionTtl`, the `interval` of polls and checks, and limits on subscriptions in all and per caller. Names follow the design sketch.
 
-Poll and push delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Typed event names are not here yet. A client learns that the event types changed only on a connection that lasts, such as stdio: over stateless HTTP it lists them again.
+Poll, push and webhook delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Typed event names are not. A client learns that the event types changed only on a connection that lasts, such as stdio: over stateless HTTP it lists them again.
 
 ### Webhook delivery
 
-A server delivers by webhook too when `createEvents` is given the mode. Nothing else changes: `emit` reaches webhook subscribers as it does the others.
+A server delivers by webhook too when `createEvents` is given the sketch's `webhookTtl`, the longest lifetime it grants a webhook subscription. Nothing else changes: `emit` reaches webhook subscribers as it does the others.
 
 ```ts
-import { webhooks } from "holon-sh/ext/webhooks";
-
-const events = createEvents({ modes: [webhooks()] });
+const events = createEvents({ webhookTtl: 30 * 60_000 });
 ```
 
-The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `end`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again every minute. Subscriptions are kept in memory; give `webhooks({ store })` to keep them across restarts, and delivery to them resumes as soon as the process declares their event types.
+The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `terminate`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again every minute. Subscriptions are kept in memory; give `createEvents({ webhook: { store } })` to keep them across restarts, and delivery to them resumes as soon as the process declares their event types.
 
-A client that can be reached mounts a receiver at a URL and gives both to `createApps`. Its subscriptions then use webhooks wherever a server offers them:
+A client that can be reached mounts a receiver at a URL and gives both to `createApps` as the sketch's `WebhookConfig`. Its subscriptions then use webhooks wherever a server offers them:
 
 ```ts
 import { createApps } from "#holon-sh";
-import { createReceiver } from "holon-sh/ext/webhooks";
+import { createReceiver } from "holon-sh/ext/events";
 
 const receiver = createReceiver();
 const apps = createApps({ rooms: { endpoint } }, { ext: { events: { webhook: { url: "https://app.example/hooks", receiver } } } });
@@ -162,7 +160,7 @@ const apps = createApps({ rooms: { endpoint } }, { ext: { events: { webhook: { u
 const subscription = await apps.rooms.ext.events.subscribe("room.said", { room: "lobby" });
 ```
 
-The receiver checks each delivery's signature and age, answers the server's challenge, drops repeats, and hands each event to its subscription. The client refreshes the subscription before it lapses and unsubscribes when it ends. A Holon app cannot serve its own routes yet, so a receiver runs in a server of your own.
+The receiver checks each delivery's signature and age, answers the server's challenge, drops repeats, and hands each event to its subscription. Each subscription signs with a secret of its own, or with what `secretProvider` returns. The client refreshes the subscription before it lapses and unsubscribes when it ends. A Holon app cannot serve its own routes yet, so a receiver runs in a server of your own.
 
 ## Community
 

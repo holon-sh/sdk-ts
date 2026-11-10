@@ -1,13 +1,15 @@
 // Webhook delivery of MCP Events, both sides, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#webhook-based-delivery
-// The server side is a delivery mode for createEvents. The client side is a receiver an application mounts at its
-// callback URL, which the runtime's subscribe hands deliveries from. Nothing here needs a Node module until it sends:
-// a server is evaluated for its contract where node:crypto and its neighbours are not there.
-import { ProtocolError } from "@modelcontextprotocol/server";
-import type { Server, ServerContext, StandardSchemaV1 } from "@modelcontextprotocol/server";
-import type { BlockList, LookupFunction } from "node:net";
+// The server side is the webhook delivery mode createEvents adds when given a webhookTtl. The client side is a receiver
+// an application mounts at its callback URL, which the runtime's subscribe hands deliveries from. Both are exported by
+// holon-sh/ext/events. Deliveries are signed and verified by the Standard Webhooks library. Nothing here needs a Node
+// module until it sends: a server is evaluated for its contract where node:crypto and its neighbours are not there.
+import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
+import type { ServerContext, StandardSchemaV1 } from "@modelcontextprotocol/server";
+import { Webhook } from "standardwebhooks";
 import { getContext } from "../context.js";
-import type { DeliveryMode, EventError, EventTypeState, Internals, Owed, Occurrence, SubscriptionContext } from "./events.js";
+import type { WebhookReceiver } from "../protocol.js";
+import type { DeliveryMode, EventError, EventOccurrence, EventTypeState, Internals, Owed, SubscriptionContext } from "./events.js";
 
 /** A webhook subscription as the server keeps it. Its secret signs deliveries, so a store keeps it as it would a key. */
 export interface WebhookSubscription {
@@ -31,12 +33,8 @@ export interface WebhookStore {
   save(subscription: WebhookSubscription): void | Promise<void>;
   remove(id: string): void | Promise<void>;
 }
+/** How webhook delivery runs: createEvents' `webhook` option. Its `webhookTtl` turns it on and caps grants. */
 export interface WebhookOptions {
-  /**
-   * The longest lifetime granted to a subscription, in milliseconds: a client's suggestion is held to it. Thirty
-   * minutes unless given. Null lets a client ask for no expiry, which needs a store.
-   */
-  ttl?: number | null;
   /** The shortest lifetime granted, so clients do not refresh too often. One minute unless given. */
   minTtl?: number;
   /** Where subscriptions are kept. In memory unless given. */
@@ -56,15 +54,9 @@ export interface WebhookOptions {
   /** For tests only: accepts http callbacks and callbacks at private addresses, such as a receiver on localhost. */
   allowInsecureLocalCallbacksForTesting?: boolean;
 }
-/** Mount at the callback URL. It answers each delivery a server POSTs there. */
-export interface WebhookReceiver {
-  (request: Request): Promise<Response>;
-  /** @internal Used by the runtime's subscribe. */
-  listen(handle: (message: unknown) => void): { readonly secret: string; bind(id: string): void; close(): boolean };
-}
 
-const INVALID_PARAMS = -32602;
-const INTERNAL_ERROR = -32603;
+const INVALID_PARAMS = ProtocolErrorCode.InvalidParams;
+const INTERNAL_ERROR = ProtocolErrorCode.InternalError;
 // The sketch's general-purpose codes, provisional until the specification allocates them.
 const NOT_FOUND = -32023;
 const FORBIDDEN = -32024;
@@ -116,16 +108,6 @@ function secretBytes(secret: unknown): Uint8Array<ArrayBuffer> | undefined {
   } catch { return undefined; }
 }
 
-// HMAC-SHA256 of `id.timestamp.body` under the secret, the signature Standard Webhooks defines.
-async function sign(secret: string, id: string, timestamp: number | string, body: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", secretBytes(secret)!, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return base64(await crypto.subtle.sign("HMAC", key, encoder.encode(`${id}.${timestamp}.${body}`)));
-}
-async function verifies(secret: string, id: string, timestamp: string, body: string, signature: Uint8Array<ArrayBuffer>): Promise<boolean> {
-  const key = await crypto.subtle.importKey("raw", secretBytes(secret)!, { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
-  return crypto.subtle.verify("HMAC", key, signature, encoder.encode(`${id}.${timestamp}.${body}`));
-}
-
 // JSON with object keys in order, so arguments that are equal give the same subscription.
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -143,80 +125,47 @@ function equal(a: unknown, b: string): boolean {
   return difference === 0;
 }
 
-// Addresses that are not globally routable, from the IANA special-purpose registries, and IPv4-compatible IPv6. A
-// callback never reaches them.
-const PRIVATE = {
-  ipv4: ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/3"],
-  ipv6: ["::/96", "::ffff:0:0/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "100:0:0:1::/64", "2001::/23", "2001:db8::/32", "2002::/16", "3fff::/20", "5f00::/16", "fc00::/7", "fe80::/10", "ff00::/8"],
-} as const;
-let blocked: BlockList | undefined;
-
 /** How a POST to a callback went: `ok` and the start of the answer's `body`, or the sketch's category of `error`. */
 interface Posted { ok?: boolean; status?: number; body?: string; error?: string }
 
+// The sketch's lastError category for a POST that got no answer.
+function category(error: unknown): string {
+  const cause = (error as { cause?: { code?: string } } | undefined)?.cause;
+  const name = (error as Error | undefined)?.name;
+  if (name === "TimeoutError" || name === "AbortError" || /TIMEOUT/.test(cause?.code ?? "")) return "timeout";
+  if (/TLS|SSL|CERT|SELF_SIGNED|UNABLE_TO|DEPTH_ZERO/.test(cause?.code ?? "")) return "tls_error";
+  return "connection_refused";
+}
+
 /**
- * POSTs a signed body to a callback and says how it went. The address is checked when the request connects, after
- * the name is resolved, so a name that resolves to a private address later cannot be used to reach one. Redirects are
+ * POSTs a signed body to a callback and says how it went. It connects only to globally reachable addresses, checked
+ * when each connection is made, after the name is resolved, so a name that resolves to a private address later cannot
+ * be used to reach one; files' fetch does this, and is loaded when first needed, since it needs Node. Redirects are
  * not followed, and the whole exchange has `timeout` milliseconds, so an endpoint that answers slowly cannot hold it
- * open.
+ * open. Only the start of an answer is read, which a challenge's echo fits in.
  */
 async function post(url: string, headers: Record<string, string>, body: string, { timeout, local }: { timeout: number; local: boolean }): Promise<Posted> {
-  const target = new URL(url);
-  // node:https takes the same requests as node:http, over TLS.
-  const [{ request }, dns, net] = await Promise.all([import(target.protocol === "https:" ? "node:https" : "node:http") as Promise<typeof import("node:http")>, import("node:dns"), import("node:net")]);
-  if (!blocked) {
-    blocked = new net.BlockList();
-    for (const [type, ranges] of Object.entries(PRIVATE)) for (const range of ranges) {
-      const [address = "", prefix] = range.split("/");
-      blocked.addSubnet(address, Number(prefix), type as "ipv4" | "ipv6");
+  try {
+    const send = local ? fetch : (await import("#platform")).fetchGlobal;
+    const response = await send(url, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body, redirect: "manual", signal: AbortSignal.timeout(timeout) });
+    const { status } = response;
+    const ok = status >= 200 && status < 300;
+    let text = "";
+    if (response.body) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      for (let read = await reader.read(); !read.done && text.length < 4096; read = await reader.read()) text += decoder.decode(read.value, { stream: true });
+      await reader.cancel().catch(() => {});
     }
+    return { ok, status, body: text.slice(0, 4096), ...(!ok && { error: status >= 500 ? "http_5xx" : "http_4xx" }) };
+  } catch (error) {
+    // A header fetch will not send, such as an eventId outside Latin-1, fails here too.
+    return { error: category(error) };
   }
-  const list = blocked;
-  const reachable = (address: string) => local || !list.check(address, net.isIP(address) === 6 ? "ipv6" : "ipv4");
-  const host = target.hostname.replace(/^\[|\]$/g, "");
-  // A literal address is connected to without a lookup, so it is checked here.
-  if (net.isIP(host) && !reachable(host)) return { error: "connection_refused" };
-  const lookup: LookupFunction = (hostname, options, callback) => dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
-    if (error) return callback(error, "", 4);
-    const allowed = addresses.filter(({ address }) => reachable(address));
-    const first = allowed[0];
-    if (!first) return callback(Object.assign(new Error(`${hostname} resolves to no public address`), { code: "ECONNREFUSED" }), "", 4);
-    if (options.all) (callback as (error: null, addresses: typeof allowed) => void)(null, allowed);
-    else callback(null, first.address, first.family);
-  });
-  const bytes = encoder.encode(body);
-  return new Promise(resolve => {
-    let outgoing: ReturnType<typeof request> | undefined;
-    const done = (result: Posted) => {
-      clearTimeout(deadline);
-      outgoing?.destroy();
-      resolve(result);
-    };
-    const deadline = setTimeout(() => done({ error: "timeout" }), timeout);
-    deadline.unref?.();
-    try {
-      outgoing = request(target, { method: "POST", agent: false, lookup, headers: { ...headers, "content-type": "application/json", "content-length": bytes.length } }, response => {
-        const status = response.statusCode ?? 0;
-        const ok = status >= 200 && status < 300;
-        const chunks: Buffer[] = [];
-        let size = 0;
-        // Only the start of an answer is kept, which a challenge's echo fits in, so the rest is not read.
-        const finish = () => done({ ok, status, body: Buffer.concat(chunks).subarray(0, 4096).toString(), ...(!ok && { error: status >= 500 ? "http_5xx" : "http_4xx" }) });
-        response.on("data", (chunk: Buffer) => { chunks.push(chunk); if ((size += chunk.length) >= 4096) finish(); });
-        response.on("end", finish);
-        response.on("error", finish);
-      });
-    } catch {
-      // A header Node will not send, such as an eventId outside Latin-1, fails here rather than on the wire.
-      return done({ error: "connection_refused" });
-    }
-    outgoing.on("error", (error: NodeJS.ErrnoException) => done({ error: /TLS|SSL|CERT|SELF_SIGNED|UNABLE_TO|DEPTH_ZERO/.test(error.code ?? "") ? "tls_error" : "connection_refused" }));
-    outgoing.end(bytes);
-  });
 }
 
 /** A message waiting to be sent to a subscription's callback: an event, or a control envelope. */
-interface Entry { state: State; id: string; tries: number; body(): string; event?: Occurrence; cursor?: string | null | undefined; settled?: boolean }
+interface Entry { state: State; id: string; tries: number; body(): string; event?: EventOccurrence; cursor?: string | null | undefined; settled?: boolean }
 /** What delivering to one subscription has come to. */
 interface State {
   type: EventTypeState;
@@ -238,12 +187,13 @@ interface State {
 type Callback = Pick<WebhookSubscription, "id" | "url" | "secret" | "previous">;
 
 /**
- * Webhook delivery of MCP Events, for createEvents' modes. It serves events/subscribe and events/unsubscribe to
- * authenticated callers, verifies each callback by a challenge before delivering to it, signs each delivery per
- * Standard Webhooks with the client's secret, retries failed ones, and lets subscriptions lapse when not refreshed.
+ * The webhook delivery mode, which createEvents adds when given a webhookTtl, the `ttl` here. It serves
+ * events/subscribe and events/unsubscribe to authenticated callers, verifies each callback by a challenge before
+ * delivering to it, signs each delivery per Standard Webhooks with the client's secret, retries failed ones, and lets
+ * subscriptions lapse when not refreshed.
  */
 export function webhooks({
-  ttl = 30 * 60_000,
+  ttl,
   minTtl = 60_000,
   store,
   attempts = 5,
@@ -253,7 +203,7 @@ export function webhooks({
   maxPending = 1000,
   concurrency = 4,
   allowInsecureLocalCallbacksForTesting = false,
-}: WebhookOptions = {}): DeliveryMode {
+}: WebhookOptions & { ttl: number | null }): DeliveryMode {
   // A subscription that never expires is never refreshed, so it must outlive the process: that needs a store.
   if (ttl === null && !store) throw new Error("Webhook subscriptions without expiry need a store that keeps them across restarts.");
   const local = allowInsecureLocalCallbacksForTesting === true;
@@ -319,9 +269,11 @@ export function webhooks({
   };
 
   const send = async (record: Callback, id: string, body: string) => {
-    const timestamp = Math.floor(Date.now() / 1000);
+    const at = new Date();
+    const timestamp = Math.floor(at.getTime() / 1000);
     const secrets = [record.secret, ...(record.previous && record.previous.until > Date.now() ? [record.previous.secret] : [])];
-    const signatures = await Promise.all(secrets.map(async secret => `v1,${await sign(secret, id, timestamp, body)}`));
+    // While a refresh's new secret settles in, both sign, as Standard Webhooks allows.
+    const signatures = secrets.map(secret => new Webhook(secret).sign(id, at, body));
     const release = await slot(record.url);
     try {
       return await post(record.url, { "webhook-id": id, "webhook-timestamp": String(timestamp), "webhook-signature": signatures.join(" "), "X-MCP-Subscription-Id": record.id }, body, { timeout, local });
@@ -396,7 +348,7 @@ export function webhooks({
     setTimeout(() => quietly(attempt(record, entry)), backoff * 5 ** (entry.tries - 1)).unref?.();
   };
 
-  const enqueue = (record: WebhookSubscription, event: Occurrence) => {
+  const enqueue = (record: WebhookSubscription, event: EventOccurrence) => {
     const state = states.get(record);
     if (!state) return;
     // Beyond what may be in flight, events are skipped, and the client is told of the gap.
@@ -599,10 +551,11 @@ export function webhooks({
     verified.set(key, Date.now() + Math.max(ttl ?? 0, 24 * 60 * 60_000));
   };
 
-  // Only what match, transform and authorize may read of the subscribing request is kept: never its token.
+  // Only what match, transform and authorize may read of the subscribing request is kept: never its token, which a
+  // store would otherwise hold. They read the caller from the rest.
   const keep = (context: SubscriptionContext): SubscriptionContext => {
     const authInfo = context?.authInfo;
-    return authInfo && { authInfo: { clientId: authInfo.clientId, scopes: authInfo.scopes, ...(authInfo.extra && { extra: authInfo.extra }) } };
+    return authInfo && { authInfo: { token: "", clientId: authInfo.clientId, scopes: authInfo.scopes, ...(authInfo.extra && { extra: authInfo.extra }) } };
   };
 
   // The subscription a request names, checked as the events of every mode are, with the type's authorization. Its
@@ -636,8 +589,7 @@ export function webhooks({
       start(given);
       attach(type);
     },
-    serve(served, given) {
-      const server = served as Server;
+    serve(server, given) {
       start(given);
       for (const type of internals.types.values()) attach(type);
       server.setRequestHandler("events/subscribe", { params: anything }, async (request, ctx: ServerContext) => {
@@ -713,11 +665,11 @@ interface Listener { secret: string; handle: (message: unknown) => void; seen: S
 /**
  * The client's end of webhook delivery, as a function from a Request to a Response, for any server that speaks
  * fetch. Give it to createApps with the URL it is reached at, and mount it there: subscriptions then prefer webhook
- * delivery where a server offers it. It checks each delivery's signature and age, answers the challenge, drops what it
- * has seen, and hands the rest to the subscription it belongs to. `tolerance` is how old a delivery may be, in
- * seconds. Five minutes unless given.
+ * delivery where a server offers it. It checks each delivery's signature, and that it is at most five minutes old, with
+ * the Standard Webhooks library; answers the challenge; drops what it has seen; and hands the rest to the subscription
+ * it belongs to.
  */
-export function createReceiver({ tolerance = 5 * 60 }: { tolerance?: number } = {}): WebhookReceiver {
+export function createReceiver(): WebhookReceiver {
   // Subscriptions by the id the server derived, and those whose subscribe response has not said theirs yet.
   const routes = new Map<string, Set<Listener>>();
   const waiting = new Set<Listener>();
@@ -742,24 +694,26 @@ export function createReceiver({ tolerance = 5 * 60 }: { tolerance?: number } = 
     if (request.method !== "POST") return reply(405);
     const [id, timestamp, signature, subscription] = ["webhook-id", "webhook-timestamp", "webhook-signature", "x-mcp-subscription-id"].map(name => request.headers.get(name));
     if (!id || !timestamp || !signature || !subscription) return reply(400);
-    if (!/^\d+$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > tolerance) return reply(400);
+    // The library checks the age too; checked first here, a stale delivery is told apart from a forged one.
+    if (!/^\d+$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 5 * 60) return reply(400);
     const body = await read(request, MAX_BODY);
     if (body === undefined) return reply(413);
-    const signatures = signature.split(" ").filter(part => part.startsWith("v1,")).flatMap(part => { try { return [unbase64(part.slice(3))]; } catch { return []; } });
+    const headers = { "webhook-id": id, "webhook-timestamp": timestamp, "webhook-signature": signature };
+    let parsed: unknown;
     // The listeners among these whose secret signed the delivery. Only they may hear it.
-    const signers = async (listeners: Iterable<Listener>) => {
-      const found: Listener[] = [];
-      for (const listener of listeners) for (const bytes of signatures) if (await verifies(listener.secret, id, timestamp, body, bytes)) { found.push(listener); break; }
-      return found;
-    };
+    const signers = (listeners: Iterable<Listener>) => [...listeners].filter(listener => {
+      try {
+        parsed = new Webhook(listener.secret).verify(body, headers);
+        return true;
+      } catch { return false; }
+    });
     const route = routes.get(subscription);
-    const signed = await signers(route ?? []);
+    const signed = signers(route ?? []);
     // A subscription whose subscribe response has not arrived can answer a challenge, but is not routed to by what a
     // delivery says: the server tries its events again once the response has bound it.
-    const pending = signed.length ? [] : await signers(waiting);
+    const pending = signed.length ? [] : signers(waiting);
     if (!signed.length && !pending.length) return reply(!route && ended.has(subscription) ? 410 : 401);
-    let message: { type?: unknown; challenge?: unknown } | null;
-    try { message = JSON.parse(body); } catch { return reply(400); }
+    const message = parsed as { type?: unknown; challenge?: unknown } | null;
     if (message?.type === "verification") return reply(200, { challenge: message.challenge });
     if (!signed.length) return reply(503);
     for (const listener of signed) {
@@ -771,8 +725,9 @@ export function createReceiver({ tolerance = 5 * 60 }: { tolerance?: number } = 
   }
 
   return Object.assign(receive, {
-    listen(handle: (message: unknown) => void) {
-      const listener: Listener = { secret: `whsec_${base64(random(32))}`, handle, seen: new Set() };
+    listen(handle: (message: unknown) => void, secret?: string) {
+      // A secret the application provides is used as given; the server refuses one Standard Webhooks does not allow.
+      const listener: Listener = { secret: secret ?? `whsec_${base64(random(32))}`, handle, seen: new Set() };
       waiting.add(listener);
       return {
         secret: listener.secret,

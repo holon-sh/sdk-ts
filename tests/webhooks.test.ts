@@ -9,8 +9,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps, type Subscription } from "holon-sh/runtime";
-import { createEvents } from "holon-sh/ext/events";
-import { createReceiver, webhooks, type WebhookOptions, type WebhookSubscription } from "holon-sh/ext/webhooks";
+import { createEvents, createReceiver, type WebhookOptions, type WebhookSubscription } from "holon-sh/ext/events";
 import { serve } from "./helpers.ts";
 
 const identity = { name: "test", version: "1.0.0" };
@@ -25,10 +24,11 @@ interface Refusal { code?: number; message: string; data?: { reason?: string } }
 
 // A server whose rooms say things, by webhook too. A room can be closed to its subscribers, and whether one is open
 // can become impossible to tell.
-async function rooms(t: TestContext, options?: WebhookOptions) {
+async function rooms(t: TestContext, options?: WebhookOptions & { webhookTtl?: number | null }) {
   const closed = new Set<string>();
   const unknown = new Set<string>();
-  const events = createEvents({ modes: [webhooks({ allowInsecureLocalCallbacksForTesting: true, backoff: 10, reverify: 20, ...options })] });
+  const { webhookTtl = 30 * 60_000, ...webhook } = options ?? {};
+  const events = createEvents({ webhookTtl, webhook: { allowInsecureLocalCallbacksForTesting: true, backoff: 10, reverify: 20, ...webhook } });
   const said = events.event("room.said", {
     inputSchema: z.object({ room: z.string() }),
     authorize: ({ room }) => {
@@ -63,7 +63,7 @@ async function host(t: TestContext, handle: (request: Request) => Response | Pro
   return `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
 }
 
-async function subscribed(t: TestContext, options?: WebhookOptions, room = "a") {
+async function subscribed(t: TestContext, options?: WebhookOptions & { webhookTtl?: number | null }, room = "a") {
   const server = await rooms(t, options);
   const receiver = createReceiver();
   const posts: Array<string | null> = [];
@@ -90,7 +90,7 @@ async function take(subscription: Subscription, count: number) {
 
 test("a client with a receiver is delivered its events by webhook, keeps its subscription by refreshing it, and lets go of it when it ends", { timeout: 10_000 }, async t => {
   // Grants of a few hundred milliseconds lapse during the test unless the client refreshes them.
-  const { subscription, say, posts } = await subscribed(t, { ttl: 300, minTtl: 100 });
+  const { subscription, say, posts } = await subscribed(t, { webhookTtl: 300, minTtl: 100 });
   assert.equal(subscription.delivery, "webhook");
   say("a", "one");
   say("b", "another room");
@@ -126,7 +126,7 @@ test("a subscription its type ends while it is being set up is refused, delivers
   const checking = Promise.withResolvers<void>();
   const teardowns: string[] = [];
   const delivered: string[] = [];
-  const events = createEvents({ modes: [webhooks({ allowInsecureLocalCallbacksForTesting: true, backoff: 10 })] });
+  const events = createEvents({ webhookTtl: 30 * 60_000, webhook: { allowInsecureLocalCallbacksForTesting: true, backoff: 10 } });
   const tick = events.event("tick", {
     inputSchema: z.object({}),
     payloadSchema: z.object({}),
@@ -136,7 +136,7 @@ test("a subscription its type ends while it is being set up is refused, delivers
       if (cursor === null) { checking.resolve(); await reading.promise; return { events: [], cursor: "0" }; }
       return { events: [{ eventId: `after ${cursor}`, data: {} }], cursor: String(Number(cursor) + 1) };
     },
-    onSubscribe: () => () => teardowns.push("torn down"),
+    onUnsubscribe: () => { teardowns.push("torn down"); },
   });
   const { endpoint } = await serve(t, () => { const server = new McpServer({ name: "ticks", version: "1.0.0" }); events.serve(server); return server; }, admit);
   const root = await host(t, async incoming => {
@@ -182,7 +182,7 @@ test("the server speaks the sketch's webhook messages, and delivers only to an h
   await assert.rejects(request("events/subscribe", params("http://hooks.example/a")), refused(-32602));
   await assert.rejects(request("events/subscribe", { ...params("https://hooks.example/a"), delivery: { url: "https://hooks.example/a", secret: "whsec_c2hvcnQ=" } }), refused(-32602));
   await assert.rejects(request("events/subscribe", params("https://127.0.0.1:1/a")), refused(-32027, "connection_refused"));
-  const events = createEvents({ modes: [webhooks()] });
+  const events = createEvents({ webhookTtl: 30 * 60_000 });
   events.event("room.said", { inputSchema: z.object({}), payloadSchema: z.object({}) });
   const anonymous = await serve(t, () => { const server = new McpServer({ name: "rooms", version: "1.0.0" }); events.serve(server); return server; });
   await assert.rejects((await connect(anonymous.endpoint))("events/subscribe", params("https://hooks.example/a")), refused(-32024));

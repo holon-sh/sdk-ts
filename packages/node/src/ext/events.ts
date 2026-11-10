@@ -1,32 +1,27 @@
 // The server side of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 // The draft is experimental, so this lives under ext and may change with it.
-// It serves the poll and push delivery modes. Another delivery mode is a module of its own, given to createEvents,
-// which reaches the event types through the internals below.
-import { ProtocolError } from "@modelcontextprotocol/server";
+// It serves the poll and push delivery modes, and webhook delivery when given a webhookTtl. Another delivery mode is a
+// module of its own, given to createEvents, which reaches the event types through the internals below. Names follow the sketch, and types are the MCP SDK's
+// own wherever it has them.
+import { ProtocolError, ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
+import type { AuthInfo, JSONRPCErrorResponse, McpServer, Server, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
+import { webhooks, type WebhookOptions } from "./webhooks.js";
 
-/** A schema that validates a value and describes itself as JSON Schema, as Zod's schemas do. */
-export interface EventSchema<T = unknown> {
-  readonly "~standard": {
-    readonly version: 1;
-    readonly vendor: string;
-    readonly types?: { readonly input: unknown; readonly output: T };
-    readonly validate: (value: unknown) => Checked<T> | Promise<Checked<T>>;
-    readonly jsonSchema: { readonly input: (options: { target: "draft-2020-12" }) => object };
-  };
-}
-/** What a schema says of a value: the value it accepts, or why it refuses it. */
-export type Checked<T> = { readonly value: T; readonly issues?: undefined } | { readonly issues: ReadonlyArray<{ readonly message: string }> };
+export { createReceiver } from "./webhooks.js";
+export type { WebhookOptions, WebhookStore, WebhookSubscription } from "./webhooks.js";
+export type { WebhookConfig, WebhookReceiver } from "../protocol.js";
+
 /** The request a subscription came in, as Holon admitted it: read its caller with getContext. */
-export type SubscriptionContext = { authInfo?: { clientId: string; scopes: string[]; extra?: Record<string, unknown> } } | undefined;
-/** How a subscription receives its events. */
-export type DeliveryModeName = "poll" | "push" | (string & {});
-/** A JSON-RPC error, as a subscription that ends or fails is told it. */
-export interface EventError { code: number; message: string; data?: unknown }
+export type SubscriptionContext = { authInfo?: AuthInfo | undefined } | undefined;
+/** How a subscription receives its events: the sketch's poll, push or webhook. */
+export type DeliveryModeName = "poll" | "push" | "webhook" | (string & {});
+/** A JSON-RPC error, as a subscription that is terminated or fails is told it. */
+export type EventError = JSONRPCErrorResponse["error"];
 /** A subscription as it begins: who asked, for what, and by which delivery mode. */
 export interface Subscription<A> {
   /**
-   * Names the subscription to `emit` and `end`. For a caller with an identity it is the same for the same caller,
+   * Names the subscription to `emit` and `terminate`. For a caller with an identity it is the same for the same caller,
    * event type and arguments, so it survives a reconnect and a poll lease that lapses. The caller is the user, the
    * client acting for them, the agent acting for the user and the token's scopes, as Holon admitted them; two streams
    * with the same id both receive what is emitted to it. A caller without a subject has no identity: each of its
@@ -39,24 +34,28 @@ export interface Subscription<A> {
   readonly arguments: A;
   readonly context: SubscriptionContext;
 }
-/** An event a check function found. */
-export interface CheckedEvent<D> {
+/** An occurrence as subscriptions receive it: the sketch's EventOccurrence. `cursor` is the position after it. */
+export interface EventOccurrence<D = unknown> {
+  eventId: string;
+  name: string;
+  /** When it happened, in ISO 8601. */
+  timestamp: string;
   data: D;
-  /** The source's own id, so that a client drops an event it has seen. Made up when not given. */
-  eventId?: string;
-  /** When it happened, in ISO 8601. Now when not given. */
-  timestamp?: string;
-  /** The position just after this event, so that a batch can be cut short. Without it, a batch is delivered whole. */
-  cursor?: string;
+  cursor?: string | null;
   _meta?: Record<string, unknown>;
 }
-/** What happened after a cursor, as a check function finds it. */
-export interface CheckResult<D> {
+/**
+ * What happened after a cursor, as a check function finds it: the sketch's EventResult. Each event is an
+ * EventOccurrence whose name is the type's, and whose `eventId` (the source's own, so a client drops one it has seen)
+ * and `timestamp` are made up when not given. An event's `cursor`, the position just after it, lets a batch be cut
+ * short; without it a batch is delivered whole.
+ */
+export interface EventResult<D> {
   /**
    * Empty when the cursor was null: a null cursor asks only for the current position. A source without positions
    * answers with a null cursor, is asked with null each time, and answers each time with what is new.
    */
-  events: CheckedEvent<D>[];
+  events: Array<Omit<EventOccurrence<D>, "name" | "eventId" | "timestamp" | "cursor"> & { eventId?: string; timestamp?: string; cursor?: string }>;
   /** The position after these events, or null when the source cannot be resumed from a position. */
   cursor: string | null;
   /** Events between the cursor and these were skipped, for instance because the source no longer keeps them. */
@@ -68,9 +67,9 @@ export interface CheckResult<D> {
 export interface EventDefinition<A, D> {
   description?: string;
   /** The arguments of a subscription. A request whose arguments do not match is refused. */
-  inputSchema: EventSchema<A>;
+  inputSchema: StandardSchemaWithJSON<unknown, A>;
   /** The data of each occurrence, as subscriptions receive it. */
-  payloadSchema: EventSchema;
+  payloadSchema: StandardSchemaWithJSON;
   /** Listed with the event type, as `_meta` is on a tool. */
   _meta?: Record<string, unknown>;
   /**
@@ -88,7 +87,7 @@ export interface EventDefinition<A, D> {
    * current position. The function filters and shapes for the arguments itself; `match` and `transform` apply only to
    * what is emitted. Without it, emitted events are kept in memory and polls and streams are served from there.
    */
-  check?: (cursor: string | null, args: A, context: SubscriptionContext) => CheckResult<D> | Promise<CheckResult<D>>;
+  check?: (cursor: string | null, args: A, context: SubscriptionContext) => EventResult<D> | Promise<EventResult<D>>;
   /** How long a poll is told to wait, and how often a stream asks the check function, in milliseconds. The `interval` given to createEvents unless given. */
   interval?: number;
   /** The delivery modes this event type offers. Every mode served unless given. */
@@ -100,18 +99,22 @@ export interface EventDefinition<A, D> {
    */
   authorize?: (args: A, context: SubscriptionContext) => boolean | Promise<boolean>;
   /**
-   * Called when a subscription begins, to set up what its events come from. What it returns is called when the
-   * subscription ends: its last push stream closes, its poll lease lapses because polls stopped, or the app ends it.
-   * A subscription held by two streams at once is set up once. A server that restarts calls it again on the next
-   * poll or stream, with the same id.
+   * The sketch's on_subscribe: called when a subscription begins, to set up what its events come from. A
+   * subscription held by two streams at once is set up once. A server that restarts calls it again on the next poll
+   * or stream, with the same id. A subscription refused by the limits never reaches it.
    */
-  onSubscribe?: (subscription: Subscription<A>) => void | (() => unknown) | Promise<void | (() => unknown)>;
+  onSubscribe?: (subscription: Subscription<A>) => void | Promise<void>;
+  /**
+   * The sketch's on_unsubscribe: called when a subscription that `onSubscribe` set up ends: its last push stream
+   * closes, its poll lease lapses because polls stopped, or the app terminates it.
+   */
+  onUnsubscribe?: (subscription: Subscription<A>) => void | Promise<void>;
 }
 /** Emits occurrences of one event type to the subscriptions they match, and ends its subscriptions. */
 export interface Emitter<D> {
   /**
    * `eventId` lets a client drop an occurrence it has seen. Give the source's own id when it has one. With
-   * `subscription`, the occurrence goes to that subscription alone, whatever its arguments; it is kept like any
+   * `subscriptionId`, the sketch's targeted emit, the occurrence goes to that subscription alone, whatever its arguments; it is kept like any
    * other, so a subscription that reconnects or polls again from its cursor still has it, or is told of a gap. An
    * event type with a check function pushes what it emits to open streams at once and does not keep it: polls and
    * reconnecting streams learn of it from the check function, and one emitted to a subscription that does not get it
@@ -127,7 +130,7 @@ export interface Emitter<D> {
    * The data is serialised when it is emitted, so data that cannot be sent as JSON throws here, before anything is
    * kept or sent.
    */
-  emit(data: D, options?: { eventId?: string; timestamp?: string; subscription?: string }): void;
+  emit(data: D, options?: { eventId?: string; timestamp?: string; subscriptionId?: string }): void;
   /**
    * The position after the last occurrence emitted, for a type without a check function. Return it with the state
    * a tool reads, in the same synchronous run, and a client that subscribes from it hears every change after that
@@ -136,10 +139,10 @@ export interface Emitter<D> {
    */
   cursor(): string;
   /**
-   * Ends one subscription, or all of this type's. A stream is told `error` and closed, and the next poll is answered
-   * with it. Forbidden unless given.
+   * Terminates one subscription, or all of this type's: a stream is sent `notifications/events/terminated` with
+   * `error` and closed, and the next poll is answered with it. Forbidden unless given.
    */
-  end(subscription?: string, error?: EventError): void;
+  terminate(subscriptionId?: string, error?: EventError): void;
   /**
    * Stops offering this event type: its subscriptions end with NotFound. With `listChanged`, clients are told the list
    * changed.
@@ -147,12 +150,15 @@ export interface Emitter<D> {
   remove(): void;
 }
 export interface EventsOptions {
-  /** What each event type without a check function keeps of what it emits, for polls and reconnecting streams. */
-  keep?: {
-    /** How many events. Ten thousand unless given. */
-    events?: number;
+  /**
+   * The sketch's emit buffer: what each event type without a check function keeps of what it emits, for polls and
+   * reconnecting streams.
+   */
+  emitBuffer?: {
     /** For how long, in milliseconds. Ten minutes unless given. */
-    age?: number;
+    maxAge?: number;
+    /** How many events. Ten thousand unless given. */
+    maxEvents?: number;
   };
   /**
    * How long a poll is told to wait before the next, and how often a stream asks a check function, in milliseconds,
@@ -162,10 +168,10 @@ export interface EventsOptions {
   /** How often a stream hears from the server when nothing happens, in milliseconds. Thirty seconds unless given. */
   heartbeat?: number;
   /**
-   * How long a poll subscription lasts after its last poll, in milliseconds, before it ends. A minute, or three of
-   * the type's intervals when that is longer, unless given.
+   * The sketch's poll subscription TTL: how long a poll subscription lasts after its last poll, in milliseconds,
+   * before it ends. A minute, or three of the type's intervals when that is longer, unless given.
    */
-  pollLease?: number;
+  pollSubscriptionTtl?: number;
   /**
    * How many subscriptions may be held at once, by every delivery mode: each stream and each poll lease counts. Ten
    * thousand unless given. Past it a subscription is refused with ResourceExhausted.
@@ -180,13 +186,21 @@ export interface EventsOptions {
   pageSize?: number;
   /** Clients are told when event types are removed or declared while the servers run, where their connection lasts. */
   listChanged?: boolean;
-  /** Delivery modes besides poll and push, each from a module of its own. */
+  /**
+   * The sketch's webhook_ttl, which turns webhook delivery on: the longest lifetime granted to a webhook
+   * subscription, in milliseconds. A client's suggestion is held to it. Null lets a client ask for no expiry, which
+   * needs `webhook.store`. Without it, webhook delivery is not offered.
+   */
+  webhookTtl?: number | null;
+  /** How webhook delivery keeps subscriptions, retries, and limits what callers may ask of it. */
+  webhook?: WebhookOptions;
+  /** Delivery modes besides poll, push and webhook, each from a module of its own. */
   modes?: DeliveryMode[];
 }
 /** A delivery mode besides poll and push. It registers its requests on each server and is listed by events/list. */
 export interface DeliveryMode {
   readonly name: string;
-  serve(server: object, internals: Internals): void;
+  serve(server: Server, internals: Internals): void;
   /** Called as each event type is declared, before any server is served. */
   declared?(type: EventTypeState, internals: Internals): void;
 }
@@ -195,18 +209,16 @@ export interface Events {
   /** Declares an event type. Emit its occurrences with the returned emitter. */
   event<A, D>(name: string, definition: EventDefinition<A, D>): Emitter<D>;
   /** Serves events/list, events/poll and events/stream on an McpServer or a Server, and declares the extension. */
-  serve(server: object): void;
+  serve(server: McpServer | Server): void;
   /** What a delivery mode works with. Not for applications. */
   readonly [INTERNALS]: Internals;
 }
 
-/** An occurrence as subscriptions receive it, at the cursor after it when it has one. */
-export interface Occurrence { eventId: string; name: string; timestamp: string; data: unknown; _meta?: Record<string, unknown>; cursor?: string | null }
 /** An emitted event: kept, at a sequence, for a type without a check function; pushed only, for one with. */
-export interface Kept { sequence?: number; at?: number; target?: string | undefined; occurrence: Occurrence }
+export interface Kept { sequence?: number; at?: number; target?: string | undefined; occurrence: EventOccurrence }
 /** What a subscription is owed after a cursor. */
 export interface Owed {
-  events: Occurrence[];
+  events: EventOccurrence[];
   /** Events that could not be shaped for it, and were skipped. */
   failures?: EventError[];
   /** Where delivery starts. */
@@ -256,7 +268,7 @@ export interface Internals {
   /** What a subscription is owed of the events emitted. */
   readonly since: (type: EventTypeState, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, cursor: string | null | undefined, maxAgeMs?: number, limit?: number) => Owed;
   /** An emitted event as one subscription receives it, or nothing when it is not for it. */
-  readonly shape: (type: EventTypeState, kept: Kept, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, failed?: (error: EventError) => void) => Occurrence | undefined;
+  readonly shape: (type: EventTypeState, kept: Kept, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, failed?: (error: EventError) => void) => EventOccurrence | undefined;
   /** A type's current cursor. */
   readonly position: (type: EventTypeState, sequence?: number) => string;
 }
@@ -281,13 +293,14 @@ interface Context {
 interface Type<A = any, D = any> extends EventTypeState {
   readonly order: number;
   readonly description?: string | undefined;
-  readonly inputSchema: EventSchema<A>;
-  readonly payloadSchema: EventSchema;
+  readonly inputSchema: StandardSchemaWithJSON<unknown, A>;
+  readonly payloadSchema: StandardSchemaWithJSON;
   readonly _meta?: Record<string, unknown> | undefined;
   readonly match?: EventDefinition<A, D>["match"];
   readonly transform?: EventDefinition<A, D>["transform"];
   readonly authorize?: EventDefinition<A, D>["authorize"];
   readonly onSubscribe?: EventDefinition<A, D>["onSubscribe"];
+  readonly onUnsubscribe?: EventDefinition<A, D>["onUnsubscribe"];
   sequence: number;
   dropped: number;
   kept: Array<Kept & { sequence: number; at: number }>;
@@ -296,9 +309,8 @@ interface Type<A = any, D = any> extends EventTypeState {
 }
 interface Lease { type: Type; opening?: Promise<Held>; ended?: EventError; release?: () => void; timer?: ReturnType<typeof setTimeout> }
 
-const SUBSCRIPTION = "io.modelcontextprotocol/subscriptionId";
-const INVALID_PARAMS = -32602;
-const INTERNAL_ERROR = -32603;
+const INVALID_PARAMS = ProtocolErrorCode.InvalidParams;
+const INTERNAL_ERROR = ProtocolErrorCode.InternalError;
 // The sketch's general-purpose codes, provisional until the specification allocates them.
 const NOT_FOUND = -32023;
 const FORBIDDEN = -32024;
@@ -343,16 +355,18 @@ const integer = (value: unknown, minimum: number) => value === undefined || Numb
 
 /**
  * Event types a process emits and the MCP servers it creates serve, in the poll and push delivery modes of MCP Events,
- * the draft extension of the Triggers & Events Working Group. Each type keeps what it emits, as `keep` bounds it, for
+ * the draft extension of the Triggers & Events Working Group. Each type keeps what it emits, as `emitBuffer` bounds it, for
  * polls and for streams that reconnect: those cursors last as long as the process, and after a restart a client is
  * told that events were skipped. A type with a check function uses its source's cursors instead, which outlive the
  * process. A type is asked again, and a poll told to come back, every `interval` milliseconds unless the type says
  * otherwise. A stream hears from the server every `heartbeat` milliseconds.
  */
 export function createEvents({
-  keep: { events: keptEvents = 10_000, age: keptAge = 10 * 60_000 } = {}, interval = 1000, heartbeat = 30_000,
-  pollLease, maxSubscriptions = 10_000, maxSubscriptionsPerCaller = 1000, pageSize = 100, listChanged = false, modes = [],
+  emitBuffer: { maxAge: keptAge = 10 * 60_000, maxEvents: keptEvents = 10_000 } = {}, interval = 1000, heartbeat = 30_000,
+  pollSubscriptionTtl, maxSubscriptions = 10_000, maxSubscriptionsPerCaller = 1000, pageSize = 100, listChanged = false,
+  webhookTtl, webhook, modes: given = [],
 }: EventsOptions = {}): Events {
+  const modes = webhookTtl === undefined ? given : [...given, webhooks({ ...webhook, ttl: webhookTtl })];
   const offered = ["poll", "push", ...modes.map(mode => mode.name)];
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
   // without node:crypto, which is not there when a server is evaluated for its contract.
@@ -390,7 +404,7 @@ export function createEvents({
     const later = type.kept.filter(kept => kept.sequence > sequence);
     const recent = later.filter(kept => kept.at >= floor);
     const truncated = sequence < type.dropped || recent.length < later.length;
-    const events: Occurrence[] = [];
+    const events: EventOccurrence[] = [];
     const failures: EventError[] = [];
     let reached = recent.length ? recent[0]!.sequence - 1 : type.sequence;
     const start = position(type, reached);
@@ -415,7 +429,7 @@ export function createEvents({
     const items = result?.events ?? [];
     const floor = maxAgeMs === undefined || cursor == null ? -Infinity : Date.now() - maxAgeMs;
     let truncated = next !== null && Boolean(result.truncated);
-    const events: Occurrence[] = [];
+    const events: EventOccurrence[] = [];
     const failures: EventError[] = [];
     let reached = cursor ?? null;
     let cuttable = false;
@@ -499,8 +513,8 @@ export function createEvents({
 
   // Begins holding a subscription, by a stream, a poll lease or another delivery mode: counted against the limits
   // first, so a refused one provisions nothing. The type's onSubscribe is called when the first hold of an id
-  // begins, and its teardown when the last ends, so two streams of one subscription set it up once. `end` is how the
-  // delivery mode is told the app ended it; `close` is how the mode says its hold is over.
+  // begins, and its onUnsubscribe when the last ends, so two streams of one subscription set it up once. `end` is how
+  // the delivery mode is told the app terminated it; `close` is how the mode says its hold is over.
   const open: Internals["open"] = async (state, { id, delivery, arguments: args, context }, end) => {
     const type = state as Type;
     if (types.get(type.name) !== type) throw refusal(removed);
@@ -512,7 +526,8 @@ export function createEvents({
     callers.set(who, (callers.get(who) ?? 0) + 1);
     let entry = type.subscriptions.get(id);
     if (!entry) {
-      const ready = Promise.resolve().then(() => type.onSubscribe?.({ id, name: type.name, delivery, arguments: args, context }));
+      const subscription = { id, name: type.name, delivery, arguments: args, context };
+      const ready = Promise.resolve().then(() => type.onSubscribe?.(subscription)).then(() => subscription);
       ready.catch(() => {});
       entry = { held: new Set(), ready };
       type.subscriptions.set(id, entry);
@@ -529,7 +544,8 @@ export function createEvents({
       current.held.delete(held);
       if (current.held.size) return;
       if (type.subscriptions.get(id) === current) type.subscriptions.delete(id);
-      current.ready.then(teardown => { if (typeof teardown === "function") settle(teardown as () => unknown); }, () => {});
+      // Only a subscription that was set up is told it ended.
+      current.ready.then(subscription => { if (type.onUnsubscribe) settle(() => type.onUnsubscribe!(subscription as Subscription<unknown>)); }, () => {});
     } };
     current.held.add(held);
     try {
@@ -547,7 +563,7 @@ export function createEvents({
   };
 
   // Poll subscriptions are leased: the first poll of a subscription begins one, each poll renews it, and it ends
-  // when polls stop for `pollLease`, a few of the intervals the poll was told to wait unless given.
+  // when polls stop for `pollSubscriptionTtl`, a few of the intervals the poll was told to wait unless given.
   const leases = new Map<string, Lease>();
   const lease = async (type: Type, { lease: key, ...subscribed }: Requested): Promise<Held> => {
     // A lease shared by callers without an identity is nobody's in particular, so nothing is emitted to it alone.
@@ -586,7 +602,7 @@ export function createEvents({
     current.timer = setTimeout(() => {
       if (leases.get(key) === current) leases.delete(key);
       held.close();
-    }, pollLease ?? Math.max(60_000, 3 * type.interval));
+    }, pollSubscriptionTtl ?? Math.max(60_000, 3 * type.interval));
     current.timer.unref?.();
     return held;
   };
@@ -613,12 +629,12 @@ export function createEvents({
      * event from their arguments, and `transform` shapes its data for each. `check` returns what happened after a
      * cursor, for event types whose source keeps its own history.
      */
-    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, check, interval: every = interval, delivery = offered, authorize, onSubscribe }: EventDefinition<A, D>): Emitter<D> {
+    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, check, interval: every = interval, delivery = offered, authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D> {
       if (types.has(name)) throw new Error(`Event ${name} is already declared.`);
       const unknown = delivery.filter(mode => !offered.includes(mode));
       if (unknown.length || !delivery.length) throw new Error(`Event ${name} is delivered by ${delivery.join(", ") || "nothing"}, but only ${offered.join(", ")} are served.`);
       const type: Type<A, D> = {
-        name, order: ++declared, description, inputSchema, payloadSchema, _meta, match, transform, check: check as Type["check"], interval: every, delivery, authorize, onSubscribe,
+        name, order: ++declared, description, inputSchema, payloadSchema, _meta, match, transform, check: check as Type["check"], interval: every, delivery, authorize, onSubscribe, onUnsubscribe,
         sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(), owed: new Map(),
       };
       types.set(name, type);
@@ -626,7 +642,7 @@ export function createEvents({
       for (const mode of modes) mode.declared?.(type, internals);
       changed();
       return {
-        emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscription: target } = {}) {
+        emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscriptionId: target } = {}) {
           const occurrence = { eventId, name, timestamp, data };
           // Data that cannot be sent as JSON is refused here, before anything is kept or sent.
           JSON.stringify(occurrence);
@@ -647,7 +663,7 @@ export function createEvents({
           if (type.check) throw new Error(`Event ${name} has a check function, whose cursor is its source's own.`);
           return position(type);
         },
-        end(id, error = forbidden) {
+        terminate(id, error = forbidden) {
           if (id !== undefined) return endSubscription(type, id, error);
           for (const each of [...type.subscriptions.keys()]) endSubscription(type, each, error);
         },
@@ -662,7 +678,9 @@ export function createEvents({
 
     /** Serves the declared event types on an MCP server: events/list, events/poll and events/stream. */
     serve(mcp) {
-      const server: Served = (mcp as { server?: Served }).server ?? mcp as Served;
+      const underlying: Server = "server" in mcp ? mcp.server : mcp;
+      // The custom methods are registered through the parts of the server this module uses.
+      const server = underlying as unknown as Served;
       server.registerCapabilities({ extensions: { [EVENTS_EXTENSION]: { listChanged } } });
       if (listChanged) {
         const reference = new WeakRef(server);
@@ -674,7 +692,7 @@ export function createEvents({
           previous?.();
         };
       }
-      const json = (schema: EventSchema) => schema["~standard"].jsonSchema.input({ target: "draft-2020-12" });
+      const json = (schema: StandardSchemaWithJSON) => schema["~standard"].jsonSchema.input({ target: "draft-2020-12" });
       server.setRequestHandler("events/list", { params }, request => {
         const all = [...types.values()];
         let start = 0;
@@ -697,7 +715,7 @@ export function createEvents({
           ...(start + pageSize < all.length && { nextCursor: String(page.at(-1)!.order) }),
         };
       });
-      for (const mode of modes) mode.serve(server, internals);
+      for (const mode of modes) mode.serve(underlying, internals);
 
       server.setRequestHandler("events/poll", { params }, async (request, ctx) => {
         const { type, subscription: subscribed } = await subscription(request, ctx.http, "poll");
@@ -713,7 +731,7 @@ export function createEvents({
         const { type: state, subscription: subscribed } = await subscription(request, ctx.http, "push");
         const type = state as Type;
         const { signal } = ctx.mcpReq;
-        const meta = { [SUBSCRIPTION]: ctx.mcpReq.id };
+        const meta = { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id };
         let done = false;
         let ending: EventError | undefined;
         let wake = () => {};

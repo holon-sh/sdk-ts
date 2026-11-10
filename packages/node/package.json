@@ -31,10 +31,6 @@
       "types": "./dist/ext/events.d.ts",
       "import": "./dist/ext/events.js"
     },
-    "./ext/webhooks": {
-      "types": "./dist/ext/webhooks.d.ts",
-      "import": "./dist/ext/webhooks.js"
-    },
     "./protocol": {
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
@@ -49,7 +45,6 @@
       "runtime": ["./dist/runtime.d.ts"],
       "context": ["./dist/context.d.ts"],
       "ext/events": ["./dist/ext/events.d.ts"],
-      "ext/webhooks": ["./dist/ext/webhooks.d.ts"],
       "protocol": ["./dist/protocol.d.ts"],
       "ext/files": ["./dist/ext/files.d.ts"]
     }
@@ -71,6 +66,7 @@
   "dependencies": {
     "@modelcontextprotocol/client": "^2.3.1",
     "ipaddr.js": "^2.5.0",
+    "standardwebhooks": "^1.1.1",
     "undici": "^7.16.0"
   },
   "peerDependencies": {

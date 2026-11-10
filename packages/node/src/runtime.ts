@@ -4,8 +4,7 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests, downloads, isUploadRequest, prepare, settings, upload } from "./ext/files.client.js";
 import { ToolCallError } from "./protocol.js";
-import type { AuthProvider, CallMetadata, CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
-import type { WebhookReceiver } from "./ext/webhooks.js";
+import type { AuthProvider, CallMetadata, CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolClient, ToolResult, WebhookConfig } from "./protocol.js";
 
 export { ToolCallError } from "./protocol.js";
 export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
@@ -53,8 +52,8 @@ export interface CreateOptions<B = Binding> {
   session?: (app: string, binding: B) => ToolSession | undefined;
   /** Settings of draft MCP extensions, whose shape may change with their drafts. */
   ext?: {
-    /** MCP Events. `webhook` is where servers deliver events by webhook: the URL the receiver is mounted at, and the receiver. */
-    events?: { webhook?: { url: URL | string; receiver: WebhookReceiver } };
+    /** MCP Events. `webhook` is the sketch's WebhookConfig: with it, subscriptions use webhook delivery where offered. */
+    events?: { webhook?: WebhookConfig };
   };
 }
 
@@ -351,8 +350,9 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       if (!offered) throw new Error(`${name} has no event ${event}.`);
       // A webhook ties up no connection, push hears of an event at once, and poll works wherever a request does: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#delivery-mode-selection
       const delivery = options.delivery ?? ([...(webhook ? ["webhook"] as const : []), "push", "poll"] as const).find(mode => offered.includes(mode));
-      if (!delivery || !offered.includes(delivery)) throw new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`);
-      if (delivery === "webhook" && !webhook) throw new Error(`Webhook delivery of ${name} ${event} needs the ext.events.webhook option of createApps.`);
+      // The sketch's NoCompatibleDeliveryMode: none of the modes the server offers is one this client uses.
+      if (!delivery || !offered.includes(delivery)) throw Object.assign(new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`), { name: "NoCompatibleDeliveryMode" });
+      if (delivery === "webhook" && !webhook) throw Object.assign(new Error(`Webhook delivery of ${name} ${event} needs the ext.events.webhook option of createApps.`), { name: "NoCompatibleDeliveryMode" });
       const cancelled = new AbortController();
       const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
       let cursor = options.cursor ?? null;
@@ -453,9 +453,10 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       };
       // The server POSTs to the application's receiver, which hands this subscription its deliveries. The subscription
       // lives as long as it is refreshed, and is let go of at once when it ends.
-      const hook = async ({ url, receiver }: NonNullable<typeof webhook>) => {
+      const hook = async ({ url, receiver, secretProvider }: WebhookConfig) => {
         let terminated: Ended | undefined;
         const stopped = new AbortController();
+        const secret = await secretProvider?.({ name: event, arguments: args });
         const listening = receiver.listen(body => {
           const message = body as (Partial<Sent> & { type?: string; error?: Ended }) | undefined;
           if (message?.type === "gap") return reach(message.cursor, true);
@@ -463,7 +464,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
           if (!message || message.type) return;
           try { deliver(message as Sent); } catch (error) { failure = error; return cancelled.abort(); }
           reach(message.cursor);
-        });
+        }, secret);
         const until = AbortSignal.any([ended, stopped.signal]);
         const target = { name: event, arguments: args, delivery: { mode: "webhook", url: String(url) } };
         // Failed refreshes are tried again sooner than the grant ends, a little later each time.
