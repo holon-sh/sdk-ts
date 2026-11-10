@@ -125,10 +125,10 @@ test("a subscription is delivered its events while it is refreshed, lapses when 
 });
 
 test("a subscription whose caller loses access is terminated while nothing is emitted, though a check of another one keeps failing", { timeout: 10_000 }, async t => {
-  // Access is checked again every thirty seconds, which the test's clock jumps to.
-  t.mock.timers.enable({ apis: ["setInterval"] });
   const server = await rooms(t);
   const { url, ended } = await callback(t);
+  // Access is checked again every thirty seconds, from the server's first request on, which the test's clock jumps to.
+  t.mock.timers.enable({ apis: ["setInterval"] });
   const { subscribe } = await subscriber(t, server.endpoint, url);
   // The failing check comes first, and must not keep the other subscription from being checked.
   const failing = await subscribe("b");

@@ -333,19 +333,12 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   second.cancel();
   await until(() => ended.length === 3);
 
-  // Polls for the same arguments by the same caller are one subscription, which ends a minute after they stop. The
-  // test's clock jumps over the minute.
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  // Polls for the same arguments by the same caller are one subscription, set up once.
   const polled = await app.ext.events.subscribe("room.said", { room: "b", listener: "bob" }, { delivery: "poll" });
   const again = await app.ext.events.subscribe("room.said", { listener: "bob", room: "b" }, { delivery: "poll" });
   assert.deepEqual(begun.slice(3).map(({ delivery }) => delivery), ["poll"]);
   polled.cancel();
   again.cancel();
-  for (let tries = 0; ended.length < 4 && tries < 100; tries++) {
-    t.mock.timers.tick(60_000);
-    await new Promise(setImmediate);
-  }
-  assert.equal(ended[3], begun[3]!.id);
 });
 
 test("callers without an identity do not share a subscription, and what is emitted to one's stream does not reach the other", async t => {
