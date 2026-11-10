@@ -145,7 +145,7 @@ A server delivers by webhook too when `createEvents` is given the sketch's `webh
 const events = createEvents({ webhookTtl: 30 * 60_000 });
 ```
 
-The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `terminate`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again every minute. Subscriptions are kept in memory; give `createEvents({ webhook: { store } })` to keep them across restarts, and delivery to them resumes as soon as the process declares their event types.
+The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `terminate`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again at each `heartbeat`. Subscriptions are kept in memory, so after a restart each comes back when its client next refreshes it.
 
 Every subscription expires unless its client refreshes it: one that never expires would need storage the server does not have. On Holon, an app that delivers webhooks leaves `egress` undeclared in `holon.yaml`, since declared hosts are the only ones it can reach.
 

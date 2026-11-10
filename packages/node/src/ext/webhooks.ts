@@ -10,8 +10,8 @@ import { Webhook } from "standardwebhooks";
 import { getContext } from "../context.js";
 import type { DeliveryMode, EventError, EventOccurrence, EventTypeState, Internals, Owed, SubscriptionContext } from "./events.js";
 
-/** A webhook subscription as the server keeps it. Its secret signs deliveries, so a store keeps it as it would a key. */
-export interface WebhookSubscription {
+/** A webhook subscription as the server keeps it, in memory. */
+interface WebhookSubscription {
   /** Derived from the principal, callback URL, event name and arguments, which together are the subscription. */
   id: string;
   principal: { issuer: string; subject: string };
@@ -25,31 +25,8 @@ export interface WebhookSubscription {
   /** The id again, the subscription's checked arguments, and the caller match, transform and authorize are given. */
   subscription: { id: string; arguments: unknown; context: SubscriptionContext };
 }
-/** Keeps webhook subscriptions across restarts. Without one they live in memory, and clients subscribe again when they refresh. */
-export interface WebhookStore {
-  /** Every subscription kept. Read once, when the first event type is declared. */
-  load(): Iterable<WebhookSubscription> | Promise<Iterable<WebhookSubscription>>;
-  save(subscription: WebhookSubscription): void | Promise<void>;
-  remove(id: string): void | Promise<void>;
-}
 /** How webhook delivery runs: createEvents' `webhook` option. Its `webhookTtl` turns it on and caps grants. */
 export interface WebhookOptions {
-  /** The shortest lifetime granted, so clients do not refresh too often. One minute unless given. */
-  minTtl?: number;
-  /** Where subscriptions are kept. In memory unless given. */
-  store?: WebhookStore;
-  /** How many times an event is sent before it is given up on. Five unless given. */
-  attempts?: number;
-  /** The wait before the first retry, in milliseconds; each wait is five times the last. Five seconds unless given. */
-  backoff?: number;
-  /** How long a delivery has, from connecting to its answer, in milliseconds. Five seconds unless given. */
-  timeout?: number;
-  /** How often each subscription's access is checked again with its type's authorize, in milliseconds. One minute unless given. */
-  reverify?: number;
-  /** How many events may be in flight to one subscription. Beyond it events are skipped, and the client is told of the gap. A thousand unless given. */
-  maxPending?: number;
-  /** How many deliveries run to one endpoint at once. Four unless given. */
-  concurrency?: number;
   /** For tests only: accepts http callbacks and callbacks at private addresses, such as a receiver on localhost. */
   allowInsecureLocalCallbacksForTesting?: boolean;
 }
@@ -60,7 +37,6 @@ const INTERNAL_ERROR = ProtocolErrorCode.InternalError;
 const NOT_FOUND = -32023;
 const FORBIDDEN = -32024;
 const RESOURCE_EXHAUSTED = -32025;
-const UNSUPPORTED = -32026;
 const CALLBACK_ENDPOINT_ERROR = -32027;
 // A body over this is refused by many receivers, so the sketch asks servers to stay under it.
 const MAX_BODY = 256 * 1024;
@@ -68,6 +44,18 @@ const MAX_BODY = 256 * 1024;
 const ROTATION_GRACE = 5 * 60_000;
 // A subscription whose deliveries fail this often over this window, with at least this many attempts, is suspended.
 const SUSPEND = { window: 60 * 60_000, attempts: 100, rate: 0.95 };
+// The shortest lifetime granted, unless the cap is shorter, so clients do not refresh too often.
+const MIN_TTL = 60_000;
+// Each event is sent this many times at most, the first retry after BACKOFF and each later one five times longer:
+// about thirteen minutes in all, within the sketch's suggestion.
+const ATTEMPTS = 5;
+const BACKOFF = 5000;
+// How long a delivery has, from connecting to its answer, as the sketch suggests.
+const TIMEOUT = 5000;
+// How many events may be in flight to one subscription, beyond which the client is told of a gap.
+const MAX_PENDING = 1000;
+// How many deliveries run to one endpoint at once.
+const CONCURRENCY = 4;
 // A URL whose challenge failed is not challenged again for this long, and a host at most this often.
 const FAILED_CHALLENGE = 10 * 60_000;
 const VERIFICATIONS = { window: 60_000, max: 10 };
@@ -75,8 +63,6 @@ const VERIFICATIONS = { window: 60_000, max: 10 };
 const PROBES = { window: 10 * 60_000, max: 5 };
 // Re-checks of access that fail this many times in a row end a subscription.
 const UNANSWERED = 3;
-// The protocol's own refusals, which end a subscription. Anything else may pass, and is tried again.
-const REFUSALS = [INVALID_PARAMS, NOT_FOUND, FORBIDDEN, RESOURCE_EXHAUSTED, UNSUPPORTED, CALLBACK_ENDPOINT_ERROR];
 
 /** The fields of events/subscribe and events/unsubscribe this module reads. They are checked here. */
 interface WebhookRequest {
@@ -185,31 +171,18 @@ interface State {
 type Callback = Pick<WebhookSubscription, "id" | "url" | "secret" | "previous">;
 
 /**
- * The webhook delivery mode, which createEvents adds when given a webhookTtl, the `ttl` here. It serves
+ * The webhook delivery mode, which createEvents adds when given a webhookTtl, the `ttl` here. Access is checked again
+ * every `heartbeat`, as push streams check it. It serves
  * events/subscribe and events/unsubscribe to authenticated callers, verifies each callback by a challenge before
  * delivering to it, signs each delivery per Standard Webhooks with the client's secret, retries failed ones, and lets
  * subscriptions lapse when not refreshed.
  */
-export function webhooks({
-  ttl,
-  minTtl = 60_000,
-  store,
-  attempts = 5,
-  backoff = 5000,
-  timeout = 5000,
-  reverify = 60_000,
-  maxPending = 1000,
-  concurrency = 4,
-  allowInsecureLocalCallbacksForTesting = false,
-}: WebhookOptions & { ttl: number }): DeliveryMode {
-  // A subscription that never expires is never refreshed, so it must outlive the process: that needs a store.
+export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting = false }: WebhookOptions & { ttl: number; heartbeat: number }): DeliveryMode {
   const local = allowInsecureLocalCallbacksForTesting === true;
   // Subscriptions being delivered to, by event name, then id; and what delivering to each has come to, which is kept
   // in memory only, lost on restart and begun again.
   const live = new Map<string, Map<string, WebhookSubscription>>();
   const states = new WeakMap<WebhookSubscription, State>();
-  // Kept subscriptions whose event type is not declared yet.
-  const parked = new Map<string, WebhookSubscription[]>();
   // Callback URLs each principal has proved it receives at, so their next subscriptions are not challenged again; URLs
   // whose challenge failed; and when each host was challenged lately.
   const verified = new Map<string, number>();
@@ -221,7 +194,6 @@ export function webhooks({
   const endpoints = new Map<string, { running: number; waiting: Array<() => void> }>();
   const attached = new WeakSet<EventTypeState>();
   let internals!: Internals;
-  let loaded: Promise<void> | undefined;
 
   const quietly = (promise: unknown) => void Promise.resolve(promise).catch(() => {});
   const principalOf = (context: SubscriptionContext) => {
@@ -232,7 +204,6 @@ export function webhooks({
   const endpointError = (reason: string | undefined) => new ProtocolError(CALLBACK_ENDPOINT_ERROR, "CallbackEndpointError", { reason });
   const expired = (record: WebhookSubscription) => record.expiresAt <= Date.now();
   const refreshBefore = (record: WebhookSubscription) => new Date(record.expiresAt).toISOString();
-  const codeOf = (error: unknown) => (error as Partial<EventError> | undefined)?.code;
 
   // Stops delivering to a subscription and lets go of its place among its type's subscriptions. A newer subscription
   // with the same id is not this one's to remove.
@@ -244,7 +215,6 @@ export function webhooks({
     const records = live.get(record.name);
     if (records?.get(record.id) !== record) return;
     records.delete(record.id);
-    await store?.remove(record.id);
   };
 
   // The safe-to-persist cursor: every event at or before it has been acknowledged or given up on.
@@ -256,7 +226,7 @@ export function webhooks({
     let endpoint = endpoints.get(origin);
     if (!endpoint) endpoints.set(origin, endpoint = { running: 0, waiting: [] });
     const current = endpoint;
-    if (current.running < concurrency) current.running++;
+    if (current.running < CONCURRENCY) current.running++;
     else await new Promise<void>(resolve => current.waiting.push(resolve));
     return () => {
       const next = current.waiting.shift();
@@ -273,7 +243,7 @@ export function webhooks({
     const signatures = secrets.map(secret => new Webhook(secret).sign(id, at, body));
     const release = await slot(record.url);
     try {
-      return await post(record.url, { "webhook-id": id, "webhook-timestamp": String(timestamp), "webhook-signature": signatures.join(" "), "X-MCP-Subscription-Id": record.id }, body, { timeout, local });
+      return await post(record.url, { "webhook-id": id, "webhook-timestamp": String(timestamp), "webhook-signature": signatures.join(" "), "X-MCP-Subscription-Id": record.id }, body, { timeout: TIMEOUT, local });
     } finally { release(); }
   };
   const control = (type: string) => `msg_${type}_${hex(random(12))}`;
@@ -336,16 +306,16 @@ export function webhooks({
     // A receiver declining an event (410) or refusing its size (413) says nothing about the subscription, and is not retried.
     const declined = result.status === 410 || result.status === 413;
     if (!declined) outcome(record, state, result);
-    if (result.ok || declined || ++entry.tries >= attempts) return void (entry.event && settle(record, entry));
+    if (result.ok || declined || ++entry.tries >= ATTEMPTS) return void (entry.event && settle(record, entry));
     if (!state.active || state.unknown) return void state.held.push(entry);
-    setTimeout(() => quietly(attempt(record, entry)), backoff * 5 ** (entry.tries - 1)).unref?.();
+    setTimeout(() => quietly(attempt(record, entry)), BACKOFF * 5 ** (entry.tries - 1)).unref?.();
   };
 
   const enqueue = (record: WebhookSubscription, event: EventOccurrence) => {
     const state = states.get(record);
     if (!state) return;
     // Beyond what may be in flight, events are skipped, and the client is told of the gap.
-    if (state.queue.length >= maxPending) return void (state.gap = true);
+    if (state.queue.length >= MAX_PENDING) return void (state.gap = true);
     if (state.queue.some(entry => entry.id === event.eventId)) return;
     // What a type with a check function emits carries no cursor of its own, and is placed where the subscription is.
     const entry: Entry = { state, id: event.eventId, event, cursor: event.cursor ?? state.reached, tries: 0, body: () => JSON.stringify({ ...event, cursor: state.queue[0] === entry ? entry.cursor : state.floor }) };
@@ -411,18 +381,6 @@ export function webhooks({
     return missed;
   };
 
-  // A kept subscription resumes from where its type is now, once its type is declared. One the server refuses is
-  // ended; one that fails otherwise, as a check or onSubscribe may once, is tried again, a little later each time.
-  const resume = async (type: EventTypeState, record: WebhookSubscription, wait = 1000): Promise<void> => {
-    if (expired(record) || internals.types.get(type.name) !== type) return void await store?.remove(record.id);
-    try { await begin(type, record, null); } catch (error) {
-      const code = codeOf(error);
-      if (code === undefined || !REFUSALS.includes(code)) return void setTimeout(() => quietly(resume(type, record, Math.min(wait * 2, 5 * 60_000))), wait).unref?.();
-      await store?.remove(record.id);
-      await terminated(record, error as EventError);
-    }
-  };
-
   // Each emitted event goes to the subscriptions of its type it is for.
   const attach = (type: EventTypeState) => {
     if (attached.has(type)) return;
@@ -435,7 +393,6 @@ export function webhooks({
         if (event) enqueue(record, event);
       }
     });
-    for (const record of parked.get(type.name)?.splice(0) ?? []) quietly(resume(type, record));
   };
 
   // Expired subscriptions and stale verifications are let go of now and then, without keeping the process alive.
@@ -446,11 +403,9 @@ export function webhooks({
     for (const [url, { until }] of failed) if (until <= now) failed.delete(url);
     for (const [host, times] of challenged) if ((times.at(-1) ?? 0) <= now - VERIFICATIONS.window) challenged.delete(host);
     for (const [who, hosts] of probed) if ([...hosts.values()].every(at => at <= now - PROBES.window)) probed.delete(who);
-    // A store that failed to load is read again.
-    quietly(load());
   };
 
-  // Access is checked again every `reverify` milliseconds, so a subscription whose caller lost it stops, whether or
+  // Access is checked again every `heartbeat` milliseconds, so a subscription whose caller lost it stops, whether or
   // not it expires. A check that throws is no answer: the subscription's messages wait until one comes, and after a
   // few in a row it ends with the error. One subscription's check never stops the others'.
   let checking = false;
@@ -484,34 +439,14 @@ export function webhooks({
     } finally { checking = false; }
   };
 
-  // Reads the store once. One that fails to load fails the subscribe or unsubscribe waiting for it, and is read again
-  // at the next, or at the next sweep.
-  const load = (): Promise<void> => loaded ??= Promise.resolve().then(() => store?.load()).then(records => {
-    for (const record of records ?? []) {
-      // A kept subscription exists only because its endpoint was verified, so it is not challenged again.
-      verified.set(owner(record.principal, record.url), Infinity);
-      const type = internals.types.get(record.name);
-      if (type && attached.has(type)) quietly(resume(type, record));
-      else {
-        let waiting = parked.get(record.name);
-        if (!waiting) parked.set(record.name, waiting = []);
-        waiting.push(record);
-      }
-    }
-  }, error => {
-    loaded = undefined;
-    throw error;
-  });
-  // Delivery begins as soon as the first event type is declared: kept subscriptions are read, and resume without
-  // waiting for a server to be served or a client to subscribe again.
+  // Expiry and access are checked from the first time a server is served, without keeping the process alive.
   let started = false;
   const start = (given: Internals) => {
     internals = given;
     if (started) return;
     started = true;
-    quietly(load());
     setInterval(sweep, 60_000).unref?.();
-    setInterval(() => quietly(recheck()), reverify).unref?.();
+    setInterval(() => quietly(recheck()), heartbeat).unref?.();
   };
 
   // The endpoint proves it wants deliveries by echoing a challenge, signed like any delivery. A URL whose challenge
@@ -544,8 +479,8 @@ export function webhooks({
     verified.set(key, Date.now() + Math.max(ttl, 24 * 60 * 60_000));
   };
 
-  // Only what match, transform and authorize may read of the subscribing request is kept: never its token, which a
-  // store would otherwise hold. They read the caller from the rest.
+  // Only what match, transform and authorize may read of the subscribing request is kept: never its token, which
+  // outlives the request it came with. They read the caller from the rest.
   const keep = (context: SubscriptionContext): SubscriptionContext => {
     const authInfo = context?.authInfo;
     return authInfo && { authInfo: { token: "", clientId: authInfo.clientId, scopes: authInfo.scopes, ...(authInfo.extra && { extra: authInfo.extra }) } };
@@ -570,20 +505,15 @@ export function webhooks({
 
   // The granted lifetime: the client's suggestion within the server's floor and cap. A request for no expiry, which
   // needs storage the server does not have, is granted the cap.
-  const grant = (suggested: unknown) => Math.max(minTtl, Math.min(typeof suggested === "number" && suggested > 0 ? suggested : ttl, ttl));
+  const grant = (suggested: unknown) => Math.max(Math.min(MIN_TTL, ttl), Math.min(typeof suggested === "number" && suggested > 0 ? suggested : ttl, ttl));
 
   return {
     name: "webhook",
-    declared(type, given) {
-      start(given);
-      attach(type);
-    },
     serve(served, given) {
       const server = served as Server;
       start(given);
       for (const type of internals.types.values()) attach(type);
       server.setRequestHandler("events/subscribe", { params: anything }, async (request, ctx: ServerContext) => {
-        await load();
         if (request.delivery?.mode !== undefined && request.delivery.mode !== "webhook") throw new ProtocolError(INVALID_PARAMS, "delivery.mode must be webhook.");
         const secret = request.delivery?.secret;
         if (typeof secret !== "string" || !secretBytes(secret)) throw new ProtocolError(INVALID_PARAMS, "delivery.secret must be whsec_ and the base64 of 24 to 64 bytes.");
@@ -600,7 +530,6 @@ export function webhooks({
             subscription,
             ...(existing.secret !== secret && { secret, previous: { secret: existing.secret, until: Date.now() + ROTATION_GRACE } }),
           });
-          await store?.save(existing);
           // Failures before the refresh do not count toward suspending it again.
           Object.assign(state, { active: true, outcomes: [] });
           for (const entry of state.held.splice(0)) quietly(attempt(existing, entry));
@@ -610,12 +539,10 @@ export function webhooks({
         // A new subscription is counted against the limits before its endpoint is challenged, and starts from the
         // client's cursor: what it missed since is delivered first.
         const missed = await begin(type, record, request.cursor, request.maxAgeMs, () => verify(principal, url, id, secret));
-        await store?.save(record);
         const started = states.get(record);
         return { id, refreshBefore: refreshBefore(record), cursor: started ? watermark(started) : missed.cursor, truncated: missed.truncated };
       });
       server.setRequestHandler("events/unsubscribe", { params: anything }, async (request, ctx: ServerContext) => {
-        await load();
         const { type, id } = await keyed(request, ctx.http);
         const record = live.get(type.name)?.get(id);
         if (!record || expired(record)) throw new ProtocolError(NOT_FOUND, "NotFound", { kind: "subscription" });

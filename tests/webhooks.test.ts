@@ -8,7 +8,7 @@ import type { TestContext } from "node:test";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createEvents, type WebhookOptions, type WebhookSubscription } from "holon-sh/ext/events";
+import { createEvents, type WebhookOptions } from "holon-sh/ext/events";
 import { serve } from "./helpers.ts";
 
 const identity = { name: "test", version: "1.0.0" };
@@ -27,10 +27,11 @@ const secret = `whsec_${randomBytes(32).toString("base64")}`;
 // A server whose rooms say things, by webhook too. A room can be closed to its subscribers, and whether one is open
 // can become impossible to tell.
 async function rooms(t: TestContext, options?: WebhookOptions & { webhookTtl?: number }) {
+  // Access is checked again at each heartbeat, made short here.
   const closed = new Set<string>();
   const unknown = new Set<string>();
   const { webhookTtl = 30 * 60_000, ...webhook } = options ?? {};
-  const events = createEvents({ webhookTtl, webhook: { allowInsecureLocalCallbacksForTesting: true, backoff: 10, reverify: 20, ...webhook } });
+  const events = createEvents({ webhookTtl, heartbeat: 20, webhook: { allowInsecureLocalCallbacksForTesting: true, ...webhook } });
   const said = events.event("room.said", {
     inputSchema: z.object({ room: z.string() }),
     authorize: ({ room }) => {
@@ -102,7 +103,7 @@ async function subscriber(t: TestContext, endpoint: string, url: string) {
 
 test("a subscription is delivered its events while it is refreshed, lapses when it is not, and ends when unsubscribed", { timeout: 10_000 }, async t => {
   // Grants of a few hundred milliseconds lapse during the test unless they are refreshed.
-  const server = await rooms(t, { webhookTtl: 600, minTtl: 100 });
+  const server = await rooms(t, { webhookTtl: 600 });
   const { url, said } = await callback(t);
   const { subscribe, unsubscribe } = await subscriber(t, server.endpoint, url);
   const kept = await subscribe("a", { ttlMs: 600 });
@@ -144,7 +145,7 @@ test("a subscription its type ends while it is being set up is refused, delivers
   const checking = Promise.withResolvers<void>();
   const teardowns: string[] = [];
   const delivered: string[] = [];
-  const events = createEvents({ webhookTtl: 30 * 60_000, webhook: { allowInsecureLocalCallbacksForTesting: true, backoff: 10 } });
+  const events = createEvents({ webhookTtl: 30 * 60_000, webhook: { allowInsecureLocalCallbacksForTesting: true } });
   const tick = events.event("tick", {
     inputSchema: z.object({}),
     payloadSchema: z.object({}),
@@ -173,24 +174,8 @@ test("a subscription its type ends while it is being set up is refused, delivers
   assert.deepEqual([teardowns, delivered], [["torn down"], []]);
 });
 
-test("a server that restarts with a store delivers to the subscriptions it kept, though no client subscribes again", { timeout: 10_000 }, async t => {
-  const kept = new Map<string, WebhookSubscription>();
-  const store = {
-    load: () => [...kept.values()].map(record => structuredClone(record)),
-    save: (record: WebhookSubscription) => { kept.set(record.id, structuredClone(record)); },
-    remove: (id: string) => { kept.delete(id); },
-  };
-  const first = await rooms(t, { store });
-  const { url, said } = await callback(t);
-  const { id } = await (await subscriber(t, first.endpoint, url)).subscribe("a");
-  // Another process with the same store, which nothing has subscribed to or asked anything.
-  const restarted = await rooms(t, { store });
-  restarted.say("a", "after the restart");
-  await until(() => said(id).length);
-  assert.deepEqual(said(id), ["after the restart"]);
-});
-
-test("the server speaks the sketch's webhook messages, and delivers only to an https endpoint that proved it wants them", async t => {
+// A failed delivery is tried again after five seconds.
+test("the server speaks the sketch's webhook messages, and delivers only to an https endpoint that proved it wants them", { timeout: 20_000 }, async t => {
   const connect = (endpoint: string) => client(t, endpoint);
   const secret = `whsec_${randomBytes(32).toString("base64")}`;
   const params = (url: string, more?: Record<string, unknown>) => ({ name: "room.said", arguments: { room: "a" }, delivery: { mode: "webhook", url, secret } as { mode: string; url: string; secret?: string }, ...more });

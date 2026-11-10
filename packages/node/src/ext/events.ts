@@ -1,14 +1,14 @@
 // The server side of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 // The draft is experimental, so this lives under ext and may change with it.
-// It serves the poll and push delivery modes, and webhook delivery when given a webhookTtl. Another delivery mode is a
-// module of its own, given to createEvents, which reaches the event types through the internals below. Names follow the sketch, and types are the MCP SDK's
-// own wherever it has them.
+// It serves the poll and push delivery modes, and webhook delivery when given a webhookTtl, from a module of its own
+// that reaches the event types through the internals below. Names follow the sketch, and types are the MCP SDK's own
+// wherever it has them.
 import { ProtocolError, ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import type { AuthInfo, JSONRPCErrorResponse, McpServer, Server, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { webhooks, type WebhookOptions } from "./webhooks.js";
 
-export type { WebhookOptions, WebhookStore, WebhookSubscription } from "./webhooks.js";
+export type { WebhookOptions } from "./webhooks.js";
 
 /** The request a subscription came in, as Holon admitted it: read its caller with getContext. */
 export type SubscriptionContext = { authInfo?: AuthInfo | undefined } | undefined;
@@ -190,17 +190,13 @@ export interface EventsOptions {
    * delivery is not offered.
    */
   webhookTtl?: number;
-  /** How webhook delivery keeps subscriptions, retries, and limits what callers may ask of it. */
+  /** For tests of webhook delivery. */
   webhook?: WebhookOptions;
-  /** Delivery modes besides poll, push and webhook, each from a module of its own. */
-  modes?: DeliveryMode[];
 }
-/** A delivery mode besides poll and push. It registers its requests on each server and is listed by events/list. */
+/** A delivery mode besides poll and push: webhook. It registers its requests on each server and is listed by events/list. Not for applications. */
 export interface DeliveryMode {
   readonly name: string;
   serve(server: object, internals: Internals): void;
-  /** Called as each event type is declared, before any server is served. */
-  declared?(type: EventTypeState, internals: Internals): void;
 }
 /** The event types of a process, served by each MCP server it creates. */
 export interface Events {
@@ -362,9 +358,9 @@ const integer = (value: unknown, minimum: number) => value === undefined || Numb
 export function createEvents({
   emitBuffer: { maxAge: keptAge = 10 * 60_000, maxEvents: keptEvents = 10_000 } = {}, interval = 1000, heartbeat = 30_000,
   pollSubscriptionTtl, maxSubscriptions = 10_000, maxSubscriptionsPerCaller = 1000, pageSize = 100, listChanged = false,
-  webhookTtl, webhook, modes: given = [],
+  webhookTtl, webhook,
 }: EventsOptions = {}): Events {
-  const modes = webhookTtl === undefined ? given : [...given, webhooks({ ...webhook, ttl: webhookTtl })];
+  const modes = webhookTtl === undefined ? [] : [webhooks({ ...webhook, ttl: webhookTtl, heartbeat })];
   const offered = ["poll", "push", ...modes.map(mode => mode.name)];
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
   // without node:crypto, which is not there when a server is evaluated for its contract.
@@ -636,8 +632,6 @@ export function createEvents({
         sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(), owed: new Map(),
       };
       types.set(name, type);
-      // A delivery mode hears of each type as it is declared, so it can deliver before any server is served.
-      for (const mode of modes) mode.declared?.(type, internals);
       changed();
       return {
         emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscriptionId: target } = {}) {
