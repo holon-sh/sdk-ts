@@ -1,9 +1,7 @@
-import type { CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, RequestOptions } from "@modelcontextprotocol/client";
+import type { AuthProvider as BearerAuthProvider, CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, OAuthClientProvider, RequestOptions } from "@modelcontextprotocol/client";
 
 /** Bearer-token or OAuth provider accepted by the MCP transport. */
-export type AuthProvider =
-  | { token(): Promise<string | undefined>; onUnauthorized?(context: unknown): Promise<void> }
-  | { tokens(): unknown; redirectUrl: unknown; clientMetadata: unknown };
+export type AuthProvider = BearerAuthProvider | OAuthClientProvider;
 /** Answers a server's question so the call that asked can complete. `params.mode` tells a form from a URL to open. */
 export type ElicitHandler = (params: ElicitRequestParams) => ElicitResult | Promise<ElicitResult>;
 

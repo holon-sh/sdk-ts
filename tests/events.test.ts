@@ -6,7 +6,7 @@ import { McpServer, ProtocolError } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps, type Subscription } from "holon-sh/runtime";
 import { createEvents, type EventDefinition, type EventsOptions } from "holon-sh/events";
-import { serve } from "./helpers.ts";
+import { serve, serveLegacy } from "./helpers.ts";
 
 const identity = { name: "test", version: "1.0.0" };
 // Wire messages are checked by the assertions that read them.
@@ -73,6 +73,33 @@ test("a subscription is pushed the events its arguments match, and resumes from 
 
   await assert.rejects(app.events.subscribe("room.left", {}), /no event room.left/);
   await assert.rejects(app.events.subscribe("room.said", { room: 1 }), /Invalid arguments|status|400/);
+});
+
+test("a subscription to a 2025 server is pushed its events, and ending it ends its session", async t => {
+  const events = createEvents();
+  const ended: string[] = [];
+  const said = events.event<{ room: string }, { text: string }>("room.said", {
+    inputSchema: z.object({ room: z.string() }),
+    payloadSchema: z.object({ text: z.string() }),
+    onSubscribe: ({ id }) => () => { ended.push(id); },
+  });
+  const { endpoint } = await serveLegacy(t, () => {
+    const server = new McpServer({ name: "rooms", version: "1.0.0" });
+    events.serve(server);
+    return server;
+  });
+  const methods: string[] = [];
+  const counting: typeof fetch = (input, init) => {
+    methods.push(init?.method ?? "GET");
+    return fetch(input, init);
+  };
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint, fetch: counting } });
+  t.after(() => app!.close());
+  // A 2025 server answers its initialization as a stream too, which is not the subscription's.
+  const subscription = await app!.events.subscribe("room.said", { room: "a" });
+  said.emit({ text: "one" }, { eventId: "one" });
+  assert.deepEqual(await take(subscription, 1), ["one"]);
+  await until(() => ended.length === 1 && methods.includes("DELETE"));
 });
 
 test("a poll returns what happened since its cursor, and says when events were skipped", async t => {

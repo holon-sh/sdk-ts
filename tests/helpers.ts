@@ -1,14 +1,15 @@
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createServer, type IncomingMessage } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { once } from "node:events";
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { TestContext } from "node:test";
-import { createMcpHandler } from "@modelcontextprotocol/server";
-import { toNodeHandler } from "@modelcontextprotocol/node";
+import { createMcpHandler, type McpServer } from "@modelcontextprotocol/server";
+import { NodeStreamableHTTPServerTransport, toNodeHandler } from "@modelcontextprotocol/node";
 import assert from "node:assert/strict";
 
 export function temporary(t: TestContext): string {
@@ -29,6 +30,17 @@ export function typecheck(source: string): void {
   }
 }
 
+async function listen(t: TestContext, http: Server, close: () => Promise<unknown>): Promise<string> {
+  t.after(async () => {
+    await close();
+    http.closeAllConnections();
+    await http[Symbol.asyncDispose]();
+  });
+  http.listen(0, "127.0.0.1");
+  await once(http, "listening");
+  return `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`;
+}
+
 export async function serve(t: TestContext, factory: Parameters<typeof createMcpHandler>[0], onRequest?: (req: IncomingMessage) => void) {
   const handler = createMcpHandler(factory, { legacy: "reject" });
   const dispatch = toNodeHandler(handler);
@@ -36,12 +48,21 @@ export async function serve(t: TestContext, factory: Parameters<typeof createMcp
     onRequest?.(req);
     void dispatch(req, res).catch(() => res.destroy());
   });
-  t.after(async () => {
-    await handler.close();
-    http.closeAllConnections();
-    await http[Symbol.asyncDispose]();
+  return { handler, http, endpoint: await listen(t, http, () => handler.close()) };
+}
+
+export async function serveLegacy(t: TestContext, factory: () => McpServer) {
+  const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
+  const http = createServer(async (req, res) => {
+    const id = req.headers["mcp-session-id"];
+    if (typeof id === "string") {
+      const session = sessions.get(id);
+      return session ? session.handleRequest(req, res).catch(() => res.destroy()) : void res.writeHead(404).end();
+    }
+    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, onsessioninitialized: id => { sessions.set(id, transport); }, onsessionclosed: id => { sessions.delete(id); } });
+    await factory().connect(transport);
+    await transport.handleRequest(req, res).catch(() => res.destroy());
+    if (!transport.sessionId) await transport.close();
   });
-  http.listen(0, "127.0.0.1");
-  await once(http, "listening");
-  return { handler, http, endpoint: `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp` };
+  return { endpoint: await listen(t, http, () => Promise.all([...sessions.values()].map(transport => transport.close()))) };
 }
