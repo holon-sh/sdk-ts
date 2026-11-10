@@ -32,7 +32,7 @@ function record(t: TestContext, route: (url: string) => string = url => url) {
   return () => sent.splice(0);
 }
 
-test("a resolved binding keeps one session and reconnects after close, clients declare that they can be asked, and the environment fallback is scoped with the environment's bearer token", { timeout: 10000 }, async t => {
+test("a resolved binding keeps one session and reconnects after close, clients declare on every request that they can be asked and take files, and the environment fallback is scoped with the environment's bearer token", { timeout: 10000 }, async t => {
   environment(t, { PAYMENTS_MCP_URL: "" });
   const authorization = new Set();
   const { endpoint } = await serve(t, orders, req => authorization.add(req.headers.authorization));
@@ -53,7 +53,7 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   assert.deepEqual((await resolved.orders.tools.get_order({ id: "a" }) as CompleteResult<unknown>).structuredContent, { id: "a" });
   assert.deepEqual((await resolved.orders.tools.get_order({ id: "b" }) as CompleteResult<unknown>).structuredContent, { id: "b" });
   assert.equal(connections.orders, 1);
-  assert.deepEqual([...capabilities.orders], ['{"elicitation":{"form":{},"url":{}}}']);
+  assert.deepEqual([...capabilities.orders], ['{"elicitation":{"form":{},"url":{}},"extensions":{"io.modelcontextprotocol/files":{"upload":{},"download":{}}}}']);
   await resolved.orders.close();
   assert.deepEqual((await resolved.orders.tools.get_order({ id: "c" }) as CompleteResult<unknown>).structuredContent, { id: "c" });
   assert.equal(connections.orders, 2);
