@@ -1,6 +1,6 @@
 import type { AuthProvider, CallOptions, ToolClient } from "./protocol.js";
 export { ToolCallError } from "./protocol.js";
-export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
+export type { AuthProvider, CallOptions, CallMetadata, Download, ElicitHandler, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
 export interface Binding {
@@ -14,6 +14,8 @@ export interface Binding {
   installationUID?: string;
   /** Close the session after every call instead of keeping one connection open. */
   scoped?: boolean;
+  /** Origins the server may name as file upload or download targets, e.g. "https://storage.example.com". Unset, any https origin on a globally reachable address is allowed; set, only these, which may also be http on loopback or have a non-global address. */
+  fileOrigins?: string[];
 }
 /** Alias for an endpoint binding. */
 export type EndpointBinding = Binding;

@@ -5,7 +5,7 @@ import { getContext } from "holon-sh/context";
 const scripted = createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{token: async () => "token"}}});
 (await scripted.orders.tools.get_order({orderId:"script"})).total.toFixed();
 await scripted.orders.resources["orders://summary"].watch(async (value) => { value.total.toFixed(); }, {signal: new AbortController().signal});
-const oauth: EndpointBinding = {endpoint: new URL("https://orders.example/mcp"), authProvider: {tokens: () => undefined, redirectUrl: undefined, clientMetadata: {}}};
+const oauth: EndpointBinding = {endpoint: new URL("https://orders.example/mcp"), authProvider: {tokens: () => undefined, redirectUrl: undefined, clientMetadata: {}}, fileOrigins: ["https://storage.example"]};
 createNodeApps({orders: oauth});
 (await scripted.orders.tools.get_order({orderId:"script"}, {elicit: async ({message}) => ({action: "accept", content: {question: message}})})).total.toFixed();
 // @ts-expect-error
@@ -30,6 +30,7 @@ result.total.toFixed();
 await apps["with-hyphen"].callTool({name: "then", arguments:{}});
 const raw = await apps.orders.callTool({name:"get_order", arguments: {orderId: "ord"}});
 if (raw.resultType === "complete" && !raw.isError) raw.structuredContent.total.toFixed();
+if (raw.resultType === "complete") for (const file of raw.downloads ?? []) (await file.blob({signal: new AbortController().signal})).size.toFixed(file.size);
 try { await apps.orders.tools.get_order(input); } catch (error) {
   if (error instanceof ToolCallError && error.result.resultType === "input_required") error.result.requestState?.toUpperCase();
 }

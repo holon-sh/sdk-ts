@@ -1,5 +1,6 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { validator as defaultValidator } from "./validate.mjs";
+import { EXTENSION, acceptUploadRequests, downloads, isUploadRequest, prepare, settings, upload } from "./files.mjs";
 
 // Environment-bound calls reuse the last server/discover result for the same endpoint and token instead of discovering
 // the server on every call.
@@ -84,13 +85,17 @@ export function createApps(identity, contracts, bindings, options) {
     const connect = (resolved, discover) => {
       // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
-      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} } }, versionNegotiation: { mode: "auto" } });
-      const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: async (input, init) => {
+      // Every request declares the files extension, tools/list included, with the same settings.
+      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
+      const endpoint = new URL(resolved.endpoint);
+      const transport = acceptUploadRequests(new StreamableHTTPClientTransport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
+        // A file target with credentials "include" gets the Authorization value of the MCP requests, and no other.
+        if (String(input) === endpoint.href) current.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
         const response = await (resolved.fetch ?? fetch)(input, init);
         current.answered ||= response.ok;
         return response;
-      }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
-      const current = { client, close: async () => {
+      }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }));
+      const current = { client, resolved, close: async () => {
         await transport.close();
         await current.ready.catch(() => {});
       } };
@@ -119,7 +124,7 @@ export function createApps(identity, contracts, bindings, options) {
       try {
         await untilAborted(active.ready, options?.signal);
         if (key) discovered.set(key, active.client.getDiscoverResult());
-        return await run(active.client);
+        return await run(active.client, active);
       } catch (error) {
         // A server that no longer speaks the discovered protocol rejects the first request without running it.
         if (!prior || active.answered || error?.status !== 400) throw error;
@@ -132,19 +137,43 @@ export function createApps(identity, contracts, bindings, options) {
     const callTool = async (request, { elicit, ...options } = {}) => {
       const tool = definitions.get(request.name);
       if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
-      const result = await session(options, async client => {
+      const label = `${name}.${request.name}`;
+      const result = await session(options, async (client, connection) => {
         const send = request => client.callTool(request, {
           ...patient(options), allowInputRequired: true,
           ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } }),
         });
-        let result = await send(request);
-        // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
-        for (let round = 0; elicit && result.resultType === "input_required" && round < 10; round++) {
+        // Blobs at the tool's file arguments become FileInputs, sent the same on every request of the call.
+        const { arguments: args, files } = await prepare(request.arguments, {
+          label, connection, settings: () => settings(client),
+          schema: async () => tool?.definition.inputSchema ?? (await client.listTools(undefined, patient(options))).tools.find(({ name }) => name === request.name)?.inputSchema,
+        });
+        let next = files.size ? { ...request, arguments: args } : request;
+        let uploaded = false;
+        for (let answered = 0; ;) {
+          let result;
+          try {
+            result = await send(next);
+          } catch (error) {
+            if (isUploadRequest(error)) {
+              if (uploaded) throw new Error(`${label}: the server asked for a second upload; the tool did not run.`);
+              await upload(error.data, files, connection, options.signal, label);
+              uploaded = true;
+              // requestState carries the answers so far, so the retry does not repeat them.
+              const { inputResponses, ...retry } = next;
+              next = { ...retry, requestState: error.data.requestState };
+              continue;
+            }
+            // The retry that answers an upload request, and every later one, may have run the tool, so it is never resent.
+            if (uploaded) throw new Error(`${label}: the outcome is unknown; the tool may have run (${error?.message ?? error}).`, { cause: error });
+            throw error;
+          }
+          // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
+          if (!elicit || result.resultType !== "input_required" || answered++ === 10) return connection ? downloads(result, connection, settings(client)) : result;
           const inputResponses = {};
           for (const [key, { params }] of Object.entries(result.inputRequests ?? {})) inputResponses[key] = await elicit(params);
-          result = await send({ ...request, inputResponses, requestState: result.requestState });
+          next = { ...next, inputResponses, requestState: result.requestState };
         }
-        return result;
       });
       if (result.resultType === "input_required") return result;
       // The server validates arguments; the client checks the output against the contract it was compiled against.

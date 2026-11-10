@@ -32,9 +32,18 @@
       "import": "./runtime.mjs"
     }
   },
+  "imports": {
+    "#platform": {
+      "node": "./platform.node.mjs",
+      "default": "./platform.browser.mjs"
+    }
+  },
   "files": [
     "runtime.mjs",
     "runtime.d.ts",
+    "files.mjs",
+    "platform.node.mjs",
+    "platform.browser.mjs",
     "validate.mjs",
     "protocol.d.ts",
     "context.mjs",
@@ -45,6 +54,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "^2.3.1"
+    "@modelcontextprotocol/client": "^2.3.1",
+    "ipaddr.js": "^2.5.0",
+    "undici": "^7.30.2"
   }
 }

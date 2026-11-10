@@ -14,7 +14,7 @@ function orders() {
 const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }] };
 const identity = { name: "checkout", version: "1", requires: { orders: {}, payments: {} } };
 
-test("a resolved binding keeps one session and reconnects after close, clients declare that they can be asked, and the environment fallback is scoped with the environment's bearer token", { timeout: 10000 }, async t => {
+test("a resolved binding keeps one session and reconnects after close, clients declare on every request that they can be asked and take files, and the environment fallback is scoped with the environment's bearer token", { timeout: 10000 }, async t => {
   const environment = process.env;
   process.env = { ...environment, PAYMENTS_MCP_URL: "" };
   t.after(() => { process.env = environment; });
@@ -36,7 +36,7 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   assert.deepEqual((await resolved.orders.tools.get_order({ id: "a" })).structuredContent, { id: "a" });
   assert.deepEqual((await resolved.orders.tools.get_order({ id: "b" })).structuredContent, { id: "b" });
   assert.equal(connections.orders, 1);
-  assert.deepEqual([...capabilities.orders], ['{"elicitation":{"form":{},"url":{}}}']);
+  assert.deepEqual([...capabilities.orders], ['{"elicitation":{"form":{},"url":{}},"extensions":{"io.modelcontextprotocol/files":{"upload":{},"download":{}}}}']);
   await resolved.orders.close();
   assert.deepEqual((await resolved.orders.tools.get_order({ id: "c" })).structuredContent, { id: "c" });
   assert.equal(connections.orders, 2);

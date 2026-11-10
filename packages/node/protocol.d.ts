@@ -15,12 +15,30 @@ export type ToolCallOptions = CallOptions & { elicit?: ElicitHandler };
 export type CallMetadata = Omit<CallToolRequest["params"], "name" | "arguments"> & { inputResponses?: InputResponses; requestState?: string };
 /** @internal */
 type Fields<T> = { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
+/** A file a tool returned for the caller to fetch. Its fields come from the server and are untrusted. */
+export interface Download {
+  readonly name?: string;
+  readonly mimeType: string;
+  /** Size in bytes. */
+  readonly size: number;
+  /** SHA-256 of the file, base64url without padding. */
+  readonly digest?: { algorithm: "sha-256"; value: string };
+  /** RFC 3339 time after which the file can no longer be fetched. */
+  readonly expiresAt?: string;
+  /** Fetch the file. Rejects, keeping no bytes, when it has expired, its target breaks the extension's rules, or the bytes do not match size or digest. */
+  blob(options?: { signal?: AbortSignal }): Promise<Blob>;
+}
+/** @internal */
+type Files = {
+  /** Files the tool returned, from a server with the files extension. Their targets are removed from _meta. */
+  downloads?: Download[];
+};
 /** Successful tool result with contract-typed structured content. */
-export type CompleteResult<Output> = Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError?: false; structuredContent: Output };
+export type CompleteResult<Output> = Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & Files & { resultType: "complete"; isError?: false; structuredContent: Output };
 /** Full tool result: successful typed output, an application error, or an input-required continuation. */
 export type ToolResult<Output> =
   | CompleteResult<Output>
-  | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError: true; structuredContent?: unknown })
+  | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & Files & { resultType: "complete"; isError: true; structuredContent?: unknown })
   | InputRequiredResult;
 
 /** Error thrown by the tools convenience methods for error or input_required results. A failure's message carries its text; `data` is what the server said in a form to branch on. Pass elicit to answer questions in place, or continue later through callTool. */
@@ -33,7 +51,7 @@ export declare class ToolCallError extends Error {
   constructor(app: string, tool: string, result: ToolCallError["result"]);
 }
 
-/** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. */
+/** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. A Blob at a file argument (x-mcp-file) is sent with the files extension: inline when the server takes it, else uploaded to the target the server names. A failure before the call completes says whether the tool did not run or the outcome is unknown. */
 export interface ToolClient<I, O, R> {
   /** Close the cached endpoint session. Scoped calls close their own session; a host-owned session is closed by its host. */
   readonly close: () => Promise<void>;
