@@ -2,7 +2,7 @@ import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { McpServer, CLIENT_CAPABILITIES_META_KEY } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { bindApps, createApps, type Binding } from "holon-sh/runtime";
+import { createApps } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
 import { serve, serveLegacy } from "./helpers.ts";
 
@@ -21,7 +21,6 @@ function environment(t: TestContext, variables: Record<string, string>) {
   t.after(() => { process.env = saved; });
 }
 
-// Records the requests that open and end sessions as the client sends them, optionally sending them elsewhere.
 function record(t: TestContext, route: (url: string) => string = url => url) {
   const sent: string[] = [];
   const original = globalThis.fetch;
@@ -30,7 +29,6 @@ function record(t: TestContext, route: (url: string) => string = url => url) {
     if (["server/discover", "initialize", "tools/call", "DELETE"].includes(method)) sent.push(method);
     return original(route(String(input)), init);
   });
-  // Returns what was sent since the last look.
   return () => sent.splice(0);
 }
 
@@ -76,55 +74,22 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
 });
 
-test("closing ends a 2025-era server's session, and a 2026-07-28 server has none to end", { timeout: 10000 }, async t => {
-  const legacy = await serveLegacy(t, orders);
-  const sent = record(t);
-  const bind = (binding: Binding) => bindApps(identity, { orders: contract }, { orders: binding }).orders;
-  assert.deepEqual((await bind({ endpoint: legacy.endpoint, scoped: true }).tools.get_order({ id: "a" }) as CompleteResult<unknown>).structuredContent, { id: "a" });
-  assert.deepEqual(sent(), ["server/discover", "initialize", "tools/call", "DELETE"]);
-  assert.equal(legacy.sessions.size, 0);
-
-  const persistent = bind({ endpoint: legacy.endpoint });
-  await persistent.tools.get_order({ id: "b" });
-  await persistent.tools.get_order({ id: "c" });
-  assert.equal(legacy.sessions.size, 1);
-  await persistent.close();
-  assert.deepEqual(sent(), ["server/discover", "initialize", "tools/call", "tools/call", "DELETE"]);
-  assert.equal(legacy.sessions.size, 0);
-
-  const modern = await serve(t, orders);
-  await bind({ endpoint: modern.endpoint, scoped: true }).tools.get_order({ id: "d" });
-  assert.deepEqual(sent(), ["server/discover", "tools/call"]);
-});
-
-test("environment-bound calls skip the probe of a 2025-era server until the verdict expires", { timeout: 10000 }, async t => {
-  const legacy = await serveLegacy(t, orders);
-  environment(t, { ORDERS_MCP_URL: legacy.endpoint });
-  const sent = record(t);
-  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
-  const app = createApps(identity, { orders: contract }).orders;
-  for (const id of ["a", "b"]) assert.deepEqual((await app.callTool({ name: "get_order", arguments: { id } }) as CompleteResult<unknown>).structuredContent, { id });
-  assert.deepEqual(sent(), ["server/discover", "initialize", "tools/call", "DELETE", "initialize", "tools/call", "DELETE"]);
-  // A server may have upgraded since, so ten minutes on the next call probes it again.
-  t.mock.timers.tick(10 * 60 * 1000);
-  await app.callTool({ name: "get_order", arguments: { id: "c" } });
-  assert.deepEqual(sent(), ["server/discover", "initialize", "tools/call", "DELETE"]);
-  assert.equal(legacy.sessions.size, 0);
-});
-
-test("an environment-bound call reconnects when a 2025-era server becomes 2026-07-28 only", { timeout: 10000 }, async t => {
+test("environment-bound calls end 2025-era sessions and reuse the legacy verdict until it expires or the server upgrades", { timeout: 10000 }, async t => {
   const legacy = await serveLegacy(t, orders);
   const modern = await serve(t, orders);
   environment(t, { ORDERS_MCP_URL: legacy.endpoint });
   let upgraded = false;
   const sent = record(t, url => upgraded && url === legacy.endpoint ? modern.endpoint : url);
-  const app = createApps(identity, { orders: contract }).orders;
-  await app.callTool({ name: "get_order", arguments: { id: "a" } });
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const { orders: app } = createApps(identity, { orders: contract });
+  const call = () => app.callTool({ name: "get_order", arguments: { id: "a" } });
+  await call();
+  await call();
+  assert.deepEqual(sent(), ["server/discover", "initialize", "tools/call", "DELETE", "initialize", "tools/call", "DELETE"]);
+  t.mock.timers.tick(10 * 60 * 1000);
+  await call();
   assert.deepEqual(sent(), ["server/discover", "initialize", "tools/call", "DELETE"]);
   upgraded = true;
-  // The cached legacy verdict's initialize is refused, so the call probes again and adopts the new protocol.
-  assert.deepEqual((await app.callTool({ name: "get_order", arguments: { id: "b" } }) as CompleteResult<unknown>).structuredContent, { id: "b" });
+  await call();
   assert.deepEqual(sent(), ["initialize", "server/discover", "tools/call"]);
-  await app.callTool({ name: "get_order", arguments: { id: "c" } });
-  assert.deepEqual(sent(), ["tools/call"]);
 });

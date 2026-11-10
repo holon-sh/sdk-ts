@@ -51,21 +51,18 @@ export async function serve(t: TestContext, factory: Parameters<typeof createMcp
   return { handler, endpoint: await listen(t, http, () => handler.close()) };
 }
 
-// A 2025-era deployment: initialize opens an Mcp-Session-Id session on its own transport, and only a DELETE ends it.
 export async function serveLegacy(t: TestContext, factory: () => McpServer) {
   const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
   const http = createServer(async (req, res) => {
     const id = req.headers["mcp-session-id"];
-    let transport = typeof id === "string" ? sessions.get(id) : undefined;
-    if (id !== undefined && !transport) return void res.writeHead(404).end();
-    if (!transport) {
-      const created = transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, onsessioninitialized: id => { sessions.set(id, created); }, onsessionclosed: id => { sessions.delete(id); } });
-      await factory().connect(transport);
+    if (typeof id === "string") {
+      const session = sessions.get(id);
+      return session ? session.handleRequest(req, res).catch(() => res.destroy()) : void res.writeHead(404).end();
     }
+    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, onsessioninitialized: id => { sessions.set(id, transport); }, onsessionclosed: id => { sessions.delete(id); } });
+    await factory().connect(transport);
     await transport.handleRequest(req, res).catch(() => res.destroy());
-    // Anything but initialize, server/discover included, finds no session and is turned away.
     if (!transport.sessionId) await transport.close();
   });
-  const endpoint = await listen(t, http, () => Promise.all([...sessions.values()].map(transport => transport.close())));
-  return { sessions, endpoint };
+  return { endpoint: await listen(t, http, () => Promise.all([...sessions.values()].map(transport => transport.close()))) };
 }

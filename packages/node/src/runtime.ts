@@ -48,12 +48,10 @@ export interface CreateOptions<B = Binding> {
   session?: (app: string, binding: B) => ToolSession | undefined;
 }
 
-// Environment-bound calls reuse the last era verdict for the same endpoint and token instead of probing the server with
-// server/discover on every call. A dependency keeps only its latest verdict, so a changed endpoint or token replaces it.
+// Environment-bound calls reuse the last server/discover result for the same endpoint and token instead of discovering
+// the server on every call. A dependency keeps only its latest result, so a changed endpoint or token replaces it.
 const DISCOVERY = Symbol("discovery");
 const discovered = new Map<string, { key: string; prior: PriorDiscovery; expires: number }>();
-// A server that upgrades still answers initialize, so a legacy verdict would hold forever; it expires and the next call
-// probes again. A modern verdict that went stale fails the first request instead, and the call retries without it.
 const LEGACY_VERDICT_MS = 10 * 60 * 1000;
 
 /** A binding the runtime connects to itself. */
@@ -157,13 +155,11 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         await transport.close();
         throw error;
       });
-      let closed: Promise<void> | undefined;
-      const current: Connection = { client, ready, answered: false, close: () => closed ??= (async () => {
-        // A 2025-era server keeps its Mcp-Session-Id session until the client deletes it. Without a session this sends nothing.
+      const current: Connection = { client, ready, answered: false, close: async () => {
         await transport.terminateSession().catch(() => {});
         await transport.close();
         await ready.catch(() => {});
-      })() };
+      } };
       return current;
     };
     // The session hook serves bindings the runtime does not connect to itself.
@@ -184,14 +180,13 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       const active = scoped ? connect(resolved, prior) : (connection ??= connect(resolved));
       try {
         await untilAborted(active.ready, options?.signal);
-        // A verdict dates from the probe that produced it, so reusing one leaves it as it was.
         if (key !== undefined && !prior) {
           const discover = active.client.getDiscoverResult();
-          discovered.set(name, discover ? { key, prior: { kind: "modern", discover }, expires: Infinity } : { key, prior: { kind: "legacy" }, expires: Date.now() + LEGACY_VERDICT_MS });
+          discovered.set(name, { key, prior: discover ? { kind: "modern", discover } : { kind: "legacy" }, expires: discover ? Infinity : Date.now() + LEGACY_VERDICT_MS });
         }
         return await run(active.client);
       } catch (error) {
-        // A server that no longer speaks the cached era's protocol rejects the first request without running it.
+        // A server that no longer speaks the discovered protocol rejects the first request without running it.
         if (!prior || active.answered || !(SdkHttpError.isInstance(error) && error.status === 400)) throw error;
         discovered.delete(name);
         return session(options, run);
