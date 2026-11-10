@@ -336,6 +336,8 @@ export function createApps(identity, contracts, bindings, options) {
         });
         const until = AbortSignal.any([ended, stopped.signal]);
         const target = { name: event, arguments: args, delivery: { mode: "webhook", url: String(webhook.url) } };
+        // Failed refreshes are tried again sooner than the grant ends, a little later each time.
+        let retry = 1000;
         try {
           for (let wait = 0; !until.aborted; await delay(wait, until)) {
             try {
@@ -345,11 +347,13 @@ export function createApps(identity, contracts, bindings, options) {
               established.resolve();
               // Refreshed well before the grant ends. A grant without expiry is still refreshed now and then, for its cursor and status.
               wait = result.refreshBefore == null ? 60 * 60_000 : Math.max(10, (Date.parse(result.refreshBefore) - Date.now()) * 0.8);
+              retry = 1000;
             } catch (error) {
               if (until.aborted) break;
-              // A JSON-RPC error is the server's answer, and ends the subscription. Anything else is tried again.
-              if (!confirmed || refused(error) || Number.isInteger(error?.code) && error.code < 0) throw error;
-              wait = 1000;
+              // The server refusing the subscription ends it. Anything else, a failure inside the server too, is tried again.
+              if (!confirmed || refused(error) || [-32602, -32023, -32024, -32026, -32027].includes(error?.code)) throw error;
+              wait = retry;
+              retry = Math.min(retry * 2, 60_000);
             }
           }
         } finally {

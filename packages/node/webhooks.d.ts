@@ -36,12 +36,16 @@ export interface WebhookOptions {
   attempts?: number;
   /** The wait before the first retry, in milliseconds; each wait is five times the last. Five seconds unless given. */
   backoff?: number;
-  /** How long a callback has to answer, in milliseconds. Five seconds unless given. */
+  /** How long a delivery has, from connecting to its answer, in milliseconds. Five seconds unless given. */
   timeout?: number;
   /** How often a subscription's arguments and authorization are checked again before delivery, in milliseconds. One minute unless given. */
   reverify?: number;
   /** How many events may be in flight to one subscription. Beyond it events are skipped, and the client is told of the gap. A thousand unless given. */
   maxPending?: number;
+  /** How many subscriptions one principal may hold. Beyond it a subscribe is refused with -32025. A hundred unless given. */
+  maxSubscriptions?: number;
+  /** How many deliveries run to one endpoint at once. Four unless given. */
+  concurrency?: number;
   /** For tests only: accepts http callbacks and callbacks at private addresses, such as a receiver on localhost. */
   allowInsecureLocalCallbacksForTesting?: boolean;
 }

@@ -60,6 +60,14 @@ async function subscribed(t, options) {
   return { ...server, subscription, posts };
 }
 
+// A plain MCP client, to send the sketch's messages as they are.
+async function client(t, endpoint) {
+  const mcp = new Client(identity, { versionNegotiation: { mode: "auto" } });
+  await mcp.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
+  t.after(() => mcp.close());
+  return (method, params) => mcp.request({ method, params }, z.looseObject({}));
+}
+
 async function take(subscription, count) {
   const texts = [];
   for await (const { data } of subscription) if (texts.push(data.text) === count) break;
@@ -95,13 +103,23 @@ test("a subscription the server no longer serves ends with the error it was term
   await assert.rejects(take(subscription, 1), error => error.code === -32602 && /ended the subscription to room.said: .*The room is closed/.test(error.message));
 });
 
-test("the server speaks the sketch's webhook messages, and delivers only to an https endpoint that proved it wants them", async t => {
-  const connect = async endpoint => {
-    const client = new Client(identity, { versionNegotiation: { mode: "auto" } });
-    await client.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
-    t.after(() => client.close());
-    return (method, params) => client.request({ method, params }, z.looseObject({}));
+test("a server that restarts with a store delivers to the subscriptions it kept, though no client subscribes again", { timeout: 10_000 }, async t => {
+  const kept = new Map();
+  const store = {
+    load: () => [...kept.values()].map(record => structuredClone(record)),
+    save: record => { kept.set(record.id, structuredClone(record)); },
+    remove: id => { kept.delete(id); },
   };
+  const { subscription } = await subscribed(t, { store });
+  // Another process with the same store. The client still talks to the first, so this one is never subscribed to.
+  const restarted = await rooms(t, { store });
+  await (await client(t, restarted.endpoint))("events/list", {});
+  restarted.say("a", "after the restart");
+  assert.deepEqual(await take(subscription, 1), ["after the restart"]);
+});
+
+test("the server speaks the sketch's webhook messages, and delivers only to an https endpoint that proved it wants them", async t => {
+  const connect = endpoint => client(t, endpoint);
   const secret = `whsec_${randomBytes(32).toString("base64")}`;
   const params = (url, more) => ({ name: "room.said", arguments: { room: "a" }, delivery: { mode: "webhook", url, secret }, ...more });
   const refused = (code, reason) => error => error.code === code && (reason === undefined || error.data?.reason === reason);
@@ -171,14 +189,34 @@ test("the receiver accepts only fresh deliveries signed with its subscription's 
   const event = { eventId: "e1", name: "room.said", timestamp: new Date().toISOString(), data: { text: "one" }, cursor: "c1" };
 
   // The challenge comes before the subscribe response says the subscription's id, and the secret tells whose it is.
+  // Deliveries wait for that response.
   const challenged = await post("sub_1", "msg_verification_1", { type: "verification", challenge: "nonce" });
   assert.deepEqual([challenged.status, await challenged.json()], [200, { challenge: "nonce" }]);
+  assert.equal((await post("sub_1", "e1", event)).status, 503);
+  listening.bind("sub_1");
   assert.equal((await post("sub_1", "e1", event)).status, 204);
   assert.equal((await post("sub_1", "e1", event)).status, 204);
   assert.equal((await post("sub_1", "e2", event, { secret: `whsec_${randomBytes(32).toString("base64")}` })).status, 401);
   assert.equal((await post("sub_1", "e3", event, { age: 600 })).status, 400);
-  assert.equal((await post("sub_2", "e4", event)).status, 503);
   assert.deepEqual(heard, [event]);
   assert.equal(listening.close(), true);
-  assert.equal((await post("sub_1", "e5", event)).status, 410);
+  assert.equal((await post("sub_1", "e4", event)).status, 410);
+});
+
+test("a delivery reaches only the subscription whose secret signed it, whichever subscription it names", async () => {
+  const receiver = createReceiver();
+  const [a, b] = [[], []].map(heard => Object.assign(receiver.listen(message => heard.push(message)), { heard }));
+  const post = (subscription, secret, eventId) => {
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const text = JSON.stringify({ eventId, name: "room.said", timestamp: new Date().toISOString(), data: {} });
+    const signature = createHmac("sha256", Buffer.from(secret.slice(6), "base64")).update(`${eventId}.${timestamp}.${text}`).digest("base64");
+    return receiver(new Request("https://app.example/hooks", { method: "POST", body: text, headers: { "webhook-id": eventId, "webhook-timestamp": timestamp, "webhook-signature": `v1,${signature}`, "x-mcp-subscription-id": subscription } }));
+  };
+  b.bind("sub_b");
+  // A server given a's secret names b's subscription, before a's subscribe response has arrived and after.
+  await post("sub_b", a.secret, "forged before");
+  a.bind("sub_a");
+  await post("sub_b", a.secret, "forged after");
+  await post("sub_a", a.secret, "a's own");
+  assert.deepEqual([a.heard.map(({ eventId }) => eventId), b.heard], [["a's own"], []]);
 });
