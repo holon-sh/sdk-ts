@@ -16,7 +16,12 @@ export type DeliveryModeName = "poll" | "push" | (string & {});
 export interface EventError { code: number; message: string; data?: unknown }
 /** A subscription as it begins: who asked, for what, and by which delivery mode. */
 export interface Subscription<A> {
-  /** Names the subscription to `emit` and `end`. Unique in the process. */
+  /**
+   * Names the subscription to `emit` and `end`. It is the same for the same caller, event type and arguments, so it
+   * survives a reconnect and a poll lease that lapses: the caller is the user, the client acting for them and the
+   * agent acting for the user, as Holon admitted them. Callers without credentials are not told apart, so they share
+   * one id for the same arguments. Two streams with the same id both receive what is emitted to it.
+   */
   readonly id: string;
   readonly name: string;
   readonly delivery: DeliveryModeName;
@@ -36,7 +41,10 @@ export interface CheckedEvent<D> {
 }
 /** What happened after a cursor, as a check function finds it. */
 export interface CheckResult<D> {
-  /** Empty when the cursor was null: a null cursor asks only for the current position. */
+  /**
+   * Empty when the cursor was null: a null cursor asks only for the current position. A source without positions
+   * answers with a null cursor, is asked with null each time, and answers each time with what is new.
+   */
   events: CheckedEvent<D>[];
   /** The position after these events, or null when the source cannot be resumed from a position. */
   cursor: string | null;
@@ -65,19 +73,21 @@ export interface EventDefinition<A, D> {
    * what is emitted. Without it, emitted events are kept in memory and polls and streams are served from there.
    */
   check?: (cursor: string | null, args: A, context: SubscriptionContext) => CheckResult<D> | Promise<CheckResult<D>>;
-  /** How long a poll is told to wait, and how often a stream asks the check function, in milliseconds. */
+  /** How long a poll is told to wait, and how often a stream asks the check function, in milliseconds. The `interval` given to createEvents unless given. */
   interval?: number;
   /** The delivery modes this event type offers. Every mode served unless given. */
   delivery?: DeliveryModeName[];
   /**
    * Whether the caller may subscribe with these arguments. A subscription is refused with Forbidden when it may not,
-   * and one already open is ended when it no longer may: each poll asks, and a stream asks at each heartbeat.
+   * and one already open is ended when it no longer may: each poll asks, and a stream asks at each heartbeat. A
+   * refused poll ends its lease at once.
    */
   authorize?: (args: A, context: SubscriptionContext) => boolean | Promise<boolean>;
   /**
    * Called when a subscription begins, to set up what its events come from. What it returns is called when the
-   * subscription ends: a push stream closes, a poll lease lapses because polls stopped, or the app ends it. Polls
-   * are leased per caller and arguments, so a server that restarts calls it again on the next poll.
+   * subscription ends: its last push stream closes, its poll lease lapses because polls stopped, or the app ends it.
+   * A subscription held by two streams at once is set up once. A server that restarts calls it again on the next
+   * poll or stream, with the same id.
    */
   onSubscribe?: (subscription: Subscription<A>) => void | (() => unknown) | Promise<void | (() => unknown)>;
 }
@@ -85,8 +95,10 @@ export interface EventDefinition<A, D> {
 export interface Emitter<D> {
   /**
    * `eventId` lets a client drop an occurrence it has seen. Give the source's own id when it has one. With
-   * `subscription`, the occurrence goes to that subscription alone, whatever its arguments. An event type with a
-   * check function pushes what it emits to open streams at once, and polls learn of it from the check function.
+   * `subscription`, the occurrence goes to that subscription alone, whatever its arguments; it is kept like any
+   * other, so a subscription that reconnects or polls again from its cursor still has it, or is told of a gap. An
+   * event type with a check function pushes what it emits to open streams at once and does not keep it: polls and
+   * reconnecting streams learn of it from the check function.
    *
    * Emitting is synchronous. Occurrences emitted one after another in the same synchronous run reach each
    * subscription in that order, with no other occurrence of this type between them, whether polled or pushed. So a
@@ -108,28 +120,45 @@ export interface Emitter<D> {
    * with it. Forbidden unless given.
    */
   end(subscription?: string, error?: EventError): void;
-  /** Stops offering this event type: its subscriptions end with NotFound, and clients are told the list changed. */
+  /**
+   * Stops offering this event type: its subscriptions end with NotFound. With `listChanged`, clients are told the list
+   * changed.
+   */
   remove(): void;
 }
 export interface EventsOptions {
-  /** How long an event is kept for polls and reconnecting streams, in milliseconds. Ten minutes unless given. */
-  maxAge?: number;
-  /** How many events of one type are kept. Ten thousand unless given. */
-  maxEvents?: number;
+  /** What each event type without a check function keeps of what it emits, for polls and reconnecting streams. */
+  keep?: {
+    /** How many events. Ten thousand unless given. */
+    events?: number;
+    /** For how long, in milliseconds. Ten minutes unless given. */
+    age?: number;
+  };
+  /**
+   * How long a poll is told to wait before the next, and how often a stream asks a check function, in milliseconds,
+   * for every event type that does not give its own. One second unless given.
+   */
+  interval?: number;
   /** How often a stream hears from the server when nothing happens, in milliseconds. Thirty seconds unless given. */
   heartbeat?: number;
-  /** How long a poll is told to wait before the next, in milliseconds. One second unless given. */
-  nextPollMs?: number;
   /**
    * How long a poll subscription lasts after its last poll, in milliseconds, before it ends. A minute, or three of
    * the type's intervals when that is longer, unless given.
    */
   pollLease?: number;
-  /** How many subscriptions may be open at once, by every delivery mode. Ten thousand unless given. */
+  /**
+   * How many subscriptions may be held at once, by every delivery mode: each stream and each poll lease counts. Ten
+   * thousand unless given. Past it a subscription is refused with ResourceExhausted.
+   */
   maxSubscriptions?: number;
+  /**
+   * How many of those one caller may hold. A thousand unless given. Callers without credentials are not told apart,
+   * so only `maxSubscriptions` holds them.
+   */
+  maxSubscriptionsPerCaller?: number;
   /** How many event types events/list returns at a time. A hundred unless given. */
   pageSize?: number;
-  /** Event types may be removed or declared while the servers run, and clients are told when they are. */
+  /** Clients are told when event types are removed or declared while the servers run, where their connection lasts. */
   listChanged?: boolean;
   /** Delivery modes besides poll and push, each from a module of its own. */
   modes?: DeliveryMode[];

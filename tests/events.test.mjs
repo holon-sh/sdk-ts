@@ -28,6 +28,15 @@ function rooms(options, definition) {
   return { factory, said, say: (room, speaker, text, to) => said.emit({ room, speaker, text }, { eventId: text, subscription: to }) };
 }
 
+// Reads from a subscription without ending it, as take does when it stops.
+const iterators = new WeakMap();
+async function next(subscription, count) {
+  if (!iterators.has(subscription)) iterators.set(subscription, subscription[Symbol.asyncIterator]());
+  const texts = [];
+  while (texts.length < count) texts.push((await iterators.get(subscription).next()).value.data.text);
+  return texts;
+}
+
 async function take(subscription, count) {
   const texts = [];
   for await (const { data } of subscription) if (texts.push(data.text) === count) break;
@@ -236,7 +245,7 @@ test("a stream asks the check function every interval, pushes what is emitted at
   ]);
 });
 
-test("a subscription is told to onSubscribe when it begins and torn down when its stream closes or its polls stop, and can be emitted to alone", async t => {
+test("a subscription keeps its id across streams, reconnects and polls, is set up once while held, and has what was emitted to it", async t => {
   const begun = [];
   const ended = [];
   const onSubscribe = ({ id, delivery, arguments: args }) => {
@@ -244,31 +253,98 @@ test("a subscription is told to onSubscribe when it begins and torn down when it
     return () => ended.push(id);
   };
   const { factory, say } = rooms({ pollLease: 1200 }, { onSubscribe, interval: 100 });
-  const { endpoint } = await serve(t, factory);
+  const { endpoint, http } = await serve(t, factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
 
+  // Two streams of one caller with the same arguments are one subscription, set up once, and both receive.
   const first = await app.events.subscribe("room.said", { room: "a", listener: "bob" });
-  const second = await app.events.subscribe("room.said", { room: "a", listener: "bob" });
-  assert.deepEqual(begun.map(({ delivery, args }) => ({ delivery, args })), [{ delivery: "push", args: { room: "a", listener: "bob" } }, { delivery: "push", args: { room: "a", listener: "bob" } }]);
-  // Emitted to the second subscription alone, and not asked whether bob hears his own words.
-  say("a", "bob", "only for the second", begun[1].id);
-  say("a", "ann", "for both");
-  assert.deepEqual(await take(first, 1), ["for both"]);
-  assert.deepEqual(await take(second, 2), ["only for the second", "for both"]);
+  const second = await app.events.subscribe("room.said", { listener: "bob", room: "a" });
+  const other = await app.events.subscribe("room.said", { room: "a", listener: "cat" });
+  assert.deepEqual(begun.map(({ delivery, args }) => ({ delivery, args })), [{ delivery: "push", args: { room: "a", listener: "bob" } }, { delivery: "push", args: { room: "a", listener: "cat" } }]);
+  const [bob, cat] = begun.map(({ id }) => id);
+  // Emitted to bob's subscription alone, and not asked whether bob hears his own words.
+  say("a", "bob", "for bob", bob);
+  say("a", "ann", "for everyone");
+  assert.deepEqual(await next(first, 2), ["for bob", "for everyone"]);
+  assert.deepEqual(await next(second, 2), ["for bob", "for everyone"]);
+  assert.deepEqual(await next(other, 1), ["for everyone"]);
   first.cancel();
+  other.cancel();
+  await until(() => ended.length === 1);
+  assert.deepEqual(ended, [cat]);
+
+  // What is emitted to it while its stream is down is delivered once the stream is back, under the same id.
+  const heard = next(second, 1);
+  http.closeAllConnections();
+  say("a", "bob", "while away", bob);
+  assert.deepEqual(await heard, ["while away"]);
+  // Its last stream dropped, so it was torn down and set up again when the stream came back, with the same id.
+  assert.deepEqual(begun.map(({ id }) => id), [bob, cat, bob]);
   second.cancel();
-  await until(() => ended.length === 2);
-  assert.deepEqual(new Set(ended), new Set([begun[0].id, begun[1].id]));
+  await until(() => ended.length === 3);
 
   // Polls for the same arguments by the same caller are one subscription, which ends once they stop.
   const polled = await app.events.subscribe("room.said", { room: "b", listener: "bob" }, { delivery: "poll" });
   const again = await app.events.subscribe("room.said", { listener: "bob", room: "b" }, { delivery: "poll" });
-  assert.deepEqual(begun.slice(2).map(({ delivery }) => delivery), ["poll"]);
+  assert.deepEqual(begun.slice(3).map(({ delivery }) => delivery), ["poll"]);
   polled.cancel();
   again.cancel();
-  await until(() => ended.length === 3);
-  assert.equal(ended[2], begun[2].id);
+  await until(() => ended.length === 4);
+  assert.equal(ended[3], begun[3].id);
+});
+
+test("a stream left while its subscription is being set up is torn down and frees its place", async t => {
+  let release;
+  const ended = [];
+  const { factory } = rooms({ maxSubscriptions: 1 }, {
+    onSubscribe: async ({ id }) => {
+      if (!release) await new Promise(resolve => { release = resolve; });
+      return () => ended.push(id);
+    },
+  });
+  const { endpoint } = await serve(t, factory);
+  const { client } = await wire(t, endpoint);
+  const leaving = new AbortController();
+  const stream = client.request({ method: "events/stream", params: { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor: null } }, loose, { signal: leaving.signal });
+  await until(() => release);
+  leaving.abort();
+  await assert.rejects(stream);
+  // The server hears that the request was left before the setup finishes.
+  await new Promise(resolve => setTimeout(resolve, 200));
+  release();
+  await until(() => ended.length === 1);
+  const { request } = await wire(t, endpoint);
+  assert.equal((await request("events/poll", { name: "room.said", arguments: { room: "a", listener: "cat" }, cursor: null })).truncated, false);
+});
+
+test("a stream on a check function is confirmed before anything else is said on it, and a source without positions delivers what is new at each check", async t => {
+  const fresh = [];
+  let slow = true;
+  const events = createEvents({ heartbeat: 10 });
+  events.event("bell.rang", {
+    inputSchema: z.object({}),
+    payloadSchema: z.object({ rings: z.number() }),
+    interval: 20,
+    check: async () => {
+      if (slow) await new Promise(resolve => setTimeout(resolve, 100));
+      slow = false;
+      return { events: fresh.splice(0).map(rings => ({ eventId: String(rings), data: { rings } })), cursor: null };
+    },
+  });
+  const { endpoint } = await serve(t, () => {
+    const server = new McpServer({ name: "bell", version: "1.0.0" });
+    events.serve(server);
+    return server;
+  });
+  const { heard, request } = await wire(t, endpoint);
+  request("events/stream", { name: "bell.rang", arguments: {}, cursor: null }).catch(() => {});
+  await until(() => heard.length);
+  assert.deepEqual(heard[0], { kind: "active", id: heard[0].id, cursor: null, truncated: false });
+  fresh.push(1, 2);
+  await until(() => heard.some(({ eventId }) => eventId === "2"));
+  fresh.push(3);
+  assert.deepEqual((await request("events/poll", { name: "bell.rang", arguments: {}, cursor: null })).events.map(({ eventId }) => eventId), ["3"]);
 });
 
 test("a subscription the caller may not have is refused, and one the app ends is told why on its stream or its next poll", async t => {
@@ -339,7 +415,7 @@ test("events/list pages through the event types, and removing one ends its subsc
 });
 
 test("a stream owed events that are no longer kept is told of the gap, and carries on from what is kept", async t => {
-  const { factory, say } = rooms({ maxEvents: 3 });
+  const { factory, say } = rooms({ keep: { events: 3 } });
   const { endpoint } = await serve(t, factory);
   const { heard, request } = await wire(t, endpoint);
   request("events/stream", { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor: null }).catch(() => {});
@@ -347,8 +423,11 @@ test("a stream owed events that are no longer kept is told of the gap, and carri
   for (const text of ["one", "two", "three", "four", "five"]) say("a", "ann", text);
   await until(() => heard.some(({ eventId }) => eventId === "five"));
   const [active, gap, ...rest] = heard;
-  assert.deepEqual([active.truncated, gap.kind, gap.truncated, typeof gap.cursor], [false, "active", true, "string"]);
+  assert.deepEqual([active.truncated, gap.kind, gap.truncated], [false, "active", true]);
   assert.deepEqual(rest.map(({ eventId }) => eventId), ["three", "four", "five"]);
+  // The gap's cursor is where the stream started again: what follows it is what was sent.
+  const restarted = await request("events/poll", { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor: gap.cursor });
+  assert.deepEqual([restarted.events.map(({ eventId }) => eventId), restarted.truncated], [["three", "four", "five"], false]);
 });
 
 test("a subscription from the cursor read with a snapshot hears every change after the snapshot and none before", async t => {
