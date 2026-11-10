@@ -78,13 +78,11 @@ export interface EventDefinition<A, D> {
   transform?: (data: D, args: A, context: SubscriptionContext) => unknown;
   /**
    * What happened after a cursor, for a source that keeps its own history: polls are answered by it, and streams ask
-   * it every `interval`. The cursor is the source's own, so it outlives the process. A null cursor asks for the
+   * it every second. The cursor is the source's own, so it outlives the process. A null cursor asks for the
    * current position. The function filters and shapes for the arguments itself; `match` and `transform` apply only to
    * what is emitted. Without it, emitted events are kept in memory and polls and streams are served from there.
    */
   check?: (cursor: string | null, args: A, context: SubscriptionContext) => EventResult<D> | Promise<EventResult<D>>;
-  /** How long a poll is told to wait, and how often a stream asks the check function, in milliseconds. The `interval` given to createEvents unless given. */
-  interval?: number;
   /** The delivery modes this event type offers. Every mode served unless given. */
   delivery?: DeliveryModeName[];
   /**
@@ -139,48 +137,11 @@ export interface Emitter<D> {
    */
   terminate(subscriptionId?: string, error?: EventError): void;
   /**
-   * Stops offering this event type: its subscriptions end with NotFound. With `listChanged`, clients are told the list
-   * changed.
+   * Stops offering this event type: its subscriptions end with NotFound.
    */
   remove(): void;
 }
 export interface EventsOptions {
-  /**
-   * The sketch's emit buffer: what each event type without a check function keeps of what it emits, for polls and
-   * reconnecting streams.
-   */
-  emitBuffer?: {
-    /** For how long, in milliseconds. Ten minutes unless given. */
-    maxAge?: number;
-    /** How many events. Ten thousand unless given. */
-    maxEvents?: number;
-  };
-  /**
-   * How long a poll is told to wait before the next, and how often a stream asks a check function, in milliseconds,
-   * for every event type that does not give its own. One second unless given.
-   */
-  interval?: number;
-  /** How often a stream hears from the server when nothing happens, in milliseconds. Thirty seconds unless given. */
-  heartbeat?: number;
-  /**
-   * The sketch's poll subscription TTL: how long a poll subscription lasts after its last poll, in milliseconds,
-   * before it ends. A minute, or three of the type's intervals when that is longer, unless given.
-   */
-  pollSubscriptionTtl?: number;
-  /**
-   * How many subscriptions may be held at once, by every delivery mode: each stream and each poll lease counts. Ten
-   * thousand unless given. Past it a subscription is refused with ResourceExhausted.
-   */
-  maxSubscriptions?: number;
-  /**
-   * How many of those one caller may hold. A thousand unless given. Callers without an identity cannot be told
-   * apart, so they count together as one caller.
-   */
-  maxSubscriptionsPerCaller?: number;
-  /** How many event types events/list returns at a time. A hundred unless given. */
-  pageSize?: number;
-  /** Clients are told when event types are removed or declared while the servers run, where their connection lasts. */
-  listChanged?: boolean;
   /** Delivery modes besides poll and push, each from a module of its own. */
   modes?: DeliveryMode[];
 }
@@ -265,9 +226,6 @@ export const INTERNALS: unique symbol = Symbol.for("holon-sh.events.internals");
 interface Served {
   registerCapabilities(capabilities: object): void;
   setRequestHandler(method: string, schemas: object, handler: (request: any, ctx: Context) => unknown): void;
-  notification(notification: { method: string }): Promise<void>;
-  onclose?: (() => void) | undefined;
-  transport?: unknown;
 }
 interface Context {
   mcpReq: { id: string | number; signal: AbortSignal; notify(notification: { method: string; params: object }): Promise<void> };
@@ -336,27 +294,37 @@ const unique = () => `sub_${hex(crypto.getRandomValues(new Uint8Array(16)))}`;
 const settle = (run: () => unknown) => { Promise.resolve().then(run).catch(() => {}); };
 const integer = (value: unknown, minimum: number) => value === undefined || Number.isInteger(value) && (value as number) >= minimum;
 
+// What each type without a check function keeps of what it emits, for polls and reconnecting streams: the sketch's
+// emit buffer.
+const KEPT_EVENTS = 10_000;
+const KEPT_AGE = 10 * 60_000;
+// How long a poll is told to wait before the next, and how often a stream asks a check function.
+const INTERVAL = 1000;
+// How often a stream hears from the server when nothing happens, as the sketch recommends.
+const HEARTBEAT = 30_000;
+// How long a poll subscription lasts after its last poll: the sketch's poll subscription TTL.
+const POLL_SUBSCRIPTION_TTL = 60_000;
+// How many subscriptions may be held at once, by every delivery mode, and by one caller. Callers without an identity
+// cannot be told apart, so they count together as one caller.
+const MAX_SUBSCRIPTIONS = 10_000;
+const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
+// How many event types events/list returns at a time.
+const PAGE_SIZE = 100;
+
 /**
  * Event types a process emits and the MCP servers it creates serve, in the poll and push delivery modes of MCP Events,
- * the draft extension of the Triggers & Events Working Group. Each type keeps what it emits, as `emitBuffer` bounds it, for
- * polls and for streams that reconnect: those cursors last as long as the process, and after a restart a client is
- * told that events were skipped. A type with a check function uses its source's cursors instead, which outlive the
- * process. A type is asked again, and a poll told to come back, every `interval` milliseconds unless the type says
- * otherwise. A stream hears from the server every `heartbeat` milliseconds.
+ * the draft extension of the Triggers & Events Working Group. Each type keeps the last ten thousand events it emits,
+ * for ten minutes, for polls and for streams that reconnect: those cursors last as long as the process, and after a
+ * restart a client is told that events were skipped. A type with a check function uses its source's cursors instead,
+ * which outlive the process. A type is asked again, and a poll told to come back, every second. A stream hears from
+ * the server every thirty seconds.
  */
-export function createEvents({
-  emitBuffer: { maxAge: keptAge = 10 * 60_000, maxEvents: keptEvents = 10_000 } = {}, interval = 1000, heartbeat = 30_000,
-  pollSubscriptionTtl, maxSubscriptions = 10_000, maxSubscriptionsPerCaller = 1000, pageSize = 100, listChanged = false, modes = [],
-}: EventsOptions = {}): Events {
+export function createEvents({ modes = [] }: EventsOptions = {}): Events {
   const offered = ["poll", "push", ...modes.map(mode => mode.name)];
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
   // without node:crypto, which is not there when a server is evaluated for its contract.
   const epoch = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   const types = new Map<string, Type>();
-  // Servers to tell when the event types change. Some are closed without having been connected, and never say so,
-  // so they are held weakly.
-  const served = new Set<WeakRef<Served>>();
-  const forgotten = new FinalizationRegistry<WeakRef<Served>>(held => served.delete(held));
   let declared = 0;
   let subscribed = 0;
   const callers = new Map<string, number>();
@@ -368,7 +336,7 @@ export function createEvents({
   const owe = (type: Type, id: string) => {
     type.owed.delete(id);
     type.owed.set(id, true);
-    if (type.owed.size > keptEvents) type.owed.delete(type.owed.keys().next().value!);
+    if (type.owed.size > KEPT_EVENTS) type.owed.delete(type.owed.keys().next().value!);
   };
 
   // What a subscription is owed after a cursor from the events emitted: the ones for it, in order, where delivery
@@ -501,8 +469,8 @@ export function createEvents({
     if (types.get(type.name) !== type) throw refusal(removed);
     // Callers without an identity cannot be told apart, so they count together as one.
     const who = caller(context) ?? "anonymous";
-    if (subscribed >= maxSubscriptions) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptions", max: maxSubscriptions } });
-    if ((callers.get(who) ?? 0) >= maxSubscriptionsPerCaller) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptionsPerCaller", max: maxSubscriptionsPerCaller } });
+    if (subscribed >= MAX_SUBSCRIPTIONS) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptions", max: MAX_SUBSCRIPTIONS } });
+    if ((callers.get(who) ?? 0) >= MAX_SUBSCRIPTIONS_PER_CALLER) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptionsPerCaller", max: MAX_SUBSCRIPTIONS_PER_CALLER } });
     subscribed++;
     callers.set(who, (callers.get(who) ?? 0) + 1);
     let entry = type.subscriptions.get(id);
@@ -544,7 +512,7 @@ export function createEvents({
   };
 
   // Poll subscriptions are leased: the first poll of a subscription begins one, each poll renews it, and it ends
-  // when polls stop for `pollSubscriptionTtl`, a few of the intervals the poll was told to wait unless given.
+  // when polls stop for a minute, many of the intervals the poll was told to wait.
   const leases = new Map<string, Lease>();
   const lease = async (type: Type, { lease: key, ...subscribed }: Requested): Promise<Held> => {
     // A lease shared by callers without an identity is nobody's in particular, so nothing is emitted to it alone.
@@ -583,18 +551,9 @@ export function createEvents({
     current.timer = setTimeout(() => {
       if (leases.get(key) === current) leases.delete(key);
       held.close();
-    }, pollSubscriptionTtl ?? Math.max(60_000, 3 * type.interval));
+    }, POLL_SUBSCRIPTION_TTL);
     current.timer.unref?.();
     return held;
-  };
-
-  const changed = () => {
-    if (!listChanged) return;
-    for (const reference of served) {
-      const server = reference.deref();
-      if (!server) served.delete(reference);
-      else if (server.transport) server.notification({ method: "notifications/events/list_changed" }).catch(() => {});
-    }
   };
 
   // What a delivery mode works with: `subscription` checks a request, names its event type and the subscription's
@@ -610,16 +569,15 @@ export function createEvents({
      * event from their arguments, and `transform` shapes its data for each. `check` returns what happened after a
      * cursor, for event types whose source keeps its own history.
      */
-    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, check, interval: every = interval, delivery = offered, authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D> {
+    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, check, delivery = offered, authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D> {
       if (types.has(name)) throw new Error(`Event ${name} is already declared.`);
       const unknown = delivery.filter(mode => !offered.includes(mode));
       if (unknown.length || !delivery.length) throw new Error(`Event ${name} is delivered by ${delivery.join(", ") || "nothing"}, but only ${offered.join(", ")} are served.`);
       const type: Type<A, D> = {
-        name, order: ++declared, description, inputSchema, payloadSchema, _meta, match, transform, check: check as Type["check"], interval: every, delivery, authorize, onSubscribe, onUnsubscribe,
+        name, order: ++declared, description, inputSchema, payloadSchema, _meta, match, transform, check: check as Type["check"], interval: INTERVAL, delivery, authorize, onSubscribe, onUnsubscribe,
         sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(), owed: new Map(),
       };
       types.set(name, type);
-      changed();
       return {
         emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscriptionId: target } = {}) {
           const occurrence = { eventId, name, timestamp, data };
@@ -635,7 +593,7 @@ export function createEvents({
           // An event for one subscription is kept like any other, so the subscription has it when it comes back.
           const kept = { sequence: ++type.sequence, at: Date.now(), target, occurrence };
           type.kept.push(kept);
-          while (type.kept.length > keptEvents || type.kept[0]!.at < kept.at - keptAge) type.dropped = type.kept.shift()!.sequence;
+          while (type.kept.length > KEPT_EVENTS || type.kept[0]!.at < kept.at - KEPT_AGE) type.dropped = type.kept.shift()!.sequence;
           for (const sink of type.sinks) sink(kept);
         },
         cursor() {
@@ -650,7 +608,6 @@ export function createEvents({
           if (types.get(name) !== type) return;
           types.delete(name);
           for (const each of [...type.subscriptions.keys()]) endSubscription(type, each, removed);
-          changed();
         },
       };
     },
@@ -662,17 +619,8 @@ export function createEvents({
       const server = underlying as unknown as Served;
       // The sketch declares capabilities.events. The MCP SDK's client drops top-level capabilities it does not know,
       // so the extension is declared under capabilities.extensions too, where SDK clients read it.
-      server.registerCapabilities({ events: { listChanged }, extensions: { [EVENTS_EXTENSION]: { listChanged } } });
-      if (listChanged) {
-        const reference = new WeakRef(server);
-        served.add(reference);
-        forgotten.register(server, reference);
-        const previous = server.onclose;
-        server.onclose = () => {
-          served.delete(reference);
-          previous?.();
-        };
-      }
+      // Clients are never told the event types changed: over Holon's stateless HTTP, the notification reaches none.
+      server.registerCapabilities({ events: { listChanged: false }, extensions: { [EVENTS_EXTENSION]: { listChanged: false } } });
       const json = (schema: StandardSchemaWithJSON) => schema["~standard"].jsonSchema.input({ target: "draft-2020-12" });
       server.setRequestHandler("events/list", { params }, request => {
         const all = [...types.values()];
@@ -683,7 +631,7 @@ export function createEvents({
           start = all.findIndex(type => type.order > after);
           if (start < 0) start = all.length;
         }
-        const page = all.slice(start, start + pageSize);
+        const page = all.slice(start, start + PAGE_SIZE);
         return {
           events: page.map(type => ({
             name: type.name,
@@ -693,7 +641,7 @@ export function createEvents({
             payloadSchema: json(type.payloadSchema),
             ...(type._meta && { _meta: type._meta }),
           })),
-          ...(start + pageSize < all.length && { nextCursor: String(page.at(-1)!.order) }),
+          ...(start + PAGE_SIZE < all.length && { nextCursor: String(page.at(-1)!.order) }),
         };
       });
       for (const mode of modes) mode.serve(underlying, internals);
@@ -755,7 +703,7 @@ export function createEvents({
         const sink = (kept: Kept) => {
           if (type.check) {
             pushed.push(kept);
-            if (pushed.length > keptEvents) pushed.shift();
+            if (pushed.length > KEPT_EVENTS) pushed.shift();
           } else behind = true;
           wake();
         };
@@ -774,7 +722,7 @@ export function createEvents({
           } finally {
             beating = false;
           }
-        }, heartbeat);
+        }, HEARTBEAT);
         let first = true;
         try {
           let due = 0;
