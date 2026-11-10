@@ -3,18 +3,19 @@ import assert from "node:assert/strict";
 import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/client";
 import { z } from "zod";
-import { createApps, bindApps, ToolCallError } from "holon-sh/runtime";
-import { validator } from "../packages/node/validate.mjs";
-import { serve } from "./helpers.mjs";
+import { createApps, bindApps, ToolCallError, type ToolSession } from "holon-sh/runtime";
+import type { CompleteResult } from "holon-sh/protocol";
+import { serve } from "./helpers.ts";
 
 test("tools return output or throw while callTool preserves MCP results and identity", {timeout: 10000}, async t => {
   const input = z.strictObject({ id: z.string(), limit: z.number().default(5) });
   const output = z.object({ total: z.number() });
-  const identities = [];
+  const identities: string[] = [];
   const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "orders", version: "1" });
     server.registerTool("get_order", { inputSchema: input }, async (args, ctx) => {
-      identities.push(ctx.mcpReq.envelope[CLIENT_INFO_META_KEY].name);
+      // The SDK leaves the request envelope untyped.
+      identities.push((ctx.mcpReq.envelope as Record<string, { name: string }>)[CLIENT_INFO_META_KEY].name);
       if (args.id === "error") return { isError: true, content: [{ type: "text", text: "Unavailable" }], structuredContent: "failure", _meta: { preserved: true } };
       if (args.id === "input") return { resultType: "input_required", requestState: "opaque-state" };
       if (args.id === "text") return { content: [{ type: "text", text: '{"total":5}' }] };
@@ -23,9 +24,9 @@ test("tools return output or throw while callTool preserves MCP results and iden
     return server;
   });
   // No explicit bindings: the resolve hook binds every declared dependency, one connection per call.
-  const resolve = name => name === "orders" ? { endpoint, scoped: true } : undefined;
+  const resolve = (name: string) => name === "orders" ? { endpoint, scoped: true } : undefined;
   const contract = { tools: [{ name: "get_order", inputSchema: z.toJSONSchema(input, { io: "input" }), outputSchema: z.toJSONSchema(output) }] };
-  const make = name => createApps({ name, version: "1", requires: { orders: {} } }, { orders: contract }, undefined, { resolve });
+  const make = (name: string) => createApps({ name, version: "1", requires: { orders: {} } }, { orders: contract }, undefined, { resolve });
   const first = make("first");
   const second = make("second");
   const results = await Promise.all([first.orders.tools.get_order({ id: "valid" }), second.orders.callTool({ name: "get_order", arguments: { id: "valid", limit: 2 } })]);
@@ -35,7 +36,7 @@ test("tools return output or throw while callTool preserves MCP results and iden
   assert.deepEqual(identities.sort(), ["first", "second"]);
   const error = await first.orders.callTool({ name: "get_order", arguments: { id: "error" } });
   assert.equal(error.structuredContent, "failure");
-  assert.equal(error._meta.preserved, true);
+  assert.equal(error._meta?.preserved, true);
   const incomplete = await first.orders.callTool({ name: "get_order", arguments: { id: "input" } });
   assert.equal(incomplete.resultType, "input_required");
   assert.equal(incomplete.requestState, "opaque-state");
@@ -55,9 +56,9 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   const summary = z.object({ total: z.number() });
   const uri = "orders://summary";
   let total = 1;
-  const authorizations = [];
-  const installations = [];
-  const resourceServer = subscribe => serve(t, () => {
+  const authorizations: unknown[] = [];
+  const installations: unknown[] = [];
+  const resourceServer = (subscribe: boolean) => serve(t, () => {
     const server = new McpServer({ name: "orders", version: "1" }, subscribe ? { capabilities: { resources: { subscribe: true } } } : {});
     server.registerResource("summary", uri, { mimeType: "application/json" }, () => ({ ttlMs: 0, cacheScope: "private", contents: [{ uri, mimeType: "application/json", text: JSON.stringify({ total }) }] }));
     return server;
@@ -73,9 +74,9 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   assert.ok(authorizations.length > 0 && authorizations.every(value => value === "Bearer external"), JSON.stringify(authorizations));
   assert.ok(installations.length > 0 && installations.every(value => value === "installation-one"), JSON.stringify(installations));
 
-  const seen = [];
-  const arrivals = [];
-  const next = () => new Promise(resolve => arrivals.push(resolve));
+  const seen: unknown[] = [];
+  const arrivals: Array<() => void> = [];
+  const next = () => new Promise<void>(resolve => arrivals.push(resolve));
   const controller = new AbortController();
   const first = next();
   const watching = bound.orders.resources[uri].watch(value => { seen.push(value); arrivals.shift()?.(); }, { signal: controller.signal });
@@ -97,13 +98,13 @@ test("session hooks serve custom bindings and respect validation and binding bou
   const identity = { name: "checkout", version: "1", requires: { orders: {} } };
 
   // session receives (name, binding) and its return value serves calls and reads.
-  const sessions = [];
-  const calls = [];
+  const sessions: unknown[] = [];
+  const calls: unknown[] = [];
   const binding = { token: "opaque" };
-  const session = (name, value) => {
+  const session = (name: string, value: unknown): ToolSession | undefined => {
     sessions.push([name, value]);
     return value === binding ? {
-      callTool: async (request, options) => { calls.push(["call", request, options?.signal]); return { content: [], structuredContent: { id: request.arguments.id } }; },
+      callTool: async (request, options) => { calls.push(["call", request, options?.signal]); return { content: [], structuredContent: { id: request.arguments?.id } }; },
       readResource: async request => { calls.push(["read", request]); return { contents: [{ uri: request.uri, text: '{"total":7}' }] }; },
       listTools: async () => ({ tools: [] }),
     } : undefined;
@@ -111,7 +112,7 @@ test("session hooks serve custom bindings and respect validation and binding bou
   const signal = new AbortController().signal;
   const hosted = bindApps(identity, { orders: contract }, { orders: binding }, { session });
   assert.deepEqual(sessions, [["orders", binding]]);
-  assert.deepEqual((await hosted.orders.tools.get_order({ id: "s" }, { signal })).structuredContent, { id: "s" });
+  assert.deepEqual((await hosted.orders.tools.get_order({ id: "s" }, { signal }) as CompleteResult<unknown>).structuredContent, { id: "s" });
   assert.deepEqual(await hosted.orders.resources["orders://summary"].read(), { total: 7 });
   assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, signal], ["read", { uri: "orders://summary" }]]);
   await assert.rejects(hosted.orders.resources["orders://summary"].watch(() => {}), /endpoint binding/);
@@ -123,7 +124,7 @@ test("session hooks serve custom bindings and respect validation and binding bou
   await assert.rejects(createApps({ name: "checkout", version: "1" }, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is not declared by this application." });
   // Explicit bindings switch resolve off for every app.
   await assert.rejects(createApps(identity, { orders: contract, other: null }, { other: {} }, { resolve: () => assert.fail("resolve with explicit bindings") }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
-  const validator = schema => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
+  const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
 });
 
@@ -137,6 +138,7 @@ test("a failure carries the server's text and its JSON", { timeout: 10000 }, asy
   const contract = { tools: [{ name: "export", inputSchema: { type: "object" } }] };
   const { files } = bindApps({ name: "script", version: "1" }, { files: contract }, { files: { endpoint, scoped: true } });
   await assert.rejects(files.tools.export({}), error => {
+    assert.ok(error instanceof ToolCallError);
     assert.deepEqual(error.data, problem);
     assert.equal(error.text, JSON.stringify(problem));
     assert.equal(error.message, `files.export: tool failed: ${JSON.stringify(problem)}`);
@@ -145,10 +147,10 @@ test("a failure carries the server's text and its JSON", { timeout: 10000 }, asy
 });
 
 test("a call without a timeout waits past the MCP client's default, and progress restarts a timeout", { timeout: 10000 }, async t => {
-  const checkpoints = [];
-  let arrived;
-  const checkpoint = () => new Promise(resume => { checkpoints.push(resume); arrived?.(); });
-  const reached = async () => { while (!checkpoints.length) await new Promise(resolve => (arrived = resolve)); return checkpoints.shift(); };
+  const checkpoints: Array<() => void> = [];
+  let arrived: (() => void) | undefined;
+  const checkpoint = () => new Promise<void>(resume => { checkpoints.push(resume); arrived?.(); });
+  const reached = async () => { while (!checkpoints.length) await new Promise<void>(resolve => (arrived = resolve)); return checkpoints.shift()!; };
   const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "builds", version: "1" });
     server.registerTool("build", { inputSchema: z.object({ progress: z.boolean() }) }, async ({ progress }, ctx) => {
@@ -173,21 +175,31 @@ test("a call without a timeout waits past the MCP client's default, and progress
   let resume = await reached();
   t.mock.timers.tick(DEFAULT_REQUEST_TIMEOUT_MSEC + 1);
   resume();
-  assert.equal((await unbounded).content[0].text, "built");
+  // build has no output schema, so the tool returns its complete result.
+  assert.deepEqual((await unbounded as CompleteResult<unknown>).content, [{ type: "text", text: "built" }]);
 
-  let progressed;
+  let progressed: () => void;
   const kept = builds.tools.build({ progress: true }, { timeout: 1000, onprogress: () => progressed() });
   resume = await reached();
   t.mock.timers.tick(800);
-  await new Promise(resolve => { progressed = resolve; resume(); });
+  await new Promise<void>(resolve => { progressed = resolve; resume(); });
   resume = await reached();
   t.mock.timers.tick(800);
   resume();
-  assert.equal((await kept).content[0].text, "built");
+  assert.deepEqual((await kept as CompleteResult<unknown>).content, [{ type: "text", text: "built" }]);
 });
 
-test("schemas that share an $id validate independently", () => {
-  const total = validator({ $id: "https://contract.example/result", type: "object", required: ["total"] });
-  const status = validator({ $id: "https://contract.example/result", type: "object", required: ["status"] });
-  assert.deepEqual([total({ total: 1 }), status({ status: "ok" })], [true, true]);
+test("schemas that share an $id validate independently", async () => {
+  const $id = "https://contract.example/result";
+  const contract = { tools: [
+    { name: "total", inputSchema: { type: "object" }, outputSchema: { $id, type: "object", required: ["total"] } },
+    { name: "status", inputSchema: { type: "object" }, outputSchema: { $id, type: "object", required: ["status"] } },
+  ] };
+  const session = (): ToolSession => ({
+    callTool: async request => ({ content: [], structuredContent: request.name === "total" ? { total: 1 } : { status: "ok" } }),
+    readResource: async () => ({ contents: [] }),
+    listTools: async () => ({ tools: [] }),
+  });
+  const { results } = bindApps({ name: "script", version: "1" }, { results: contract }, { results: {} }, { session });
+  assert.deepEqual([await results.tools.total({}), await results.tools.status({})], [{ total: 1 }, { status: "ok" }]);
 });

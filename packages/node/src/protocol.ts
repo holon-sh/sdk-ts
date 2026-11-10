@@ -13,7 +13,6 @@ export type CallOptions = Omit<RequestOptions, "allowInputRequired">;
 export type ToolCallOptions = CallOptions & { elicit?: ElicitHandler };
 /** MCP request metadata and input continuation fields. Pass inputResponses and requestState when continuing an input-required result. */
 export type CallMetadata = Omit<CallToolRequest["params"], "name" | "arguments"> & { inputResponses?: InputResponses; requestState?: string };
-/** @internal */
 type Fields<T> = { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
 /** Successful tool result with contract-typed structured content. */
 export type CompleteResult<Output> = Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError?: false; structuredContent: Output };
@@ -23,14 +22,32 @@ export type ToolResult<Output> =
   | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & { resultType: "complete"; isError: true; structuredContent?: unknown })
   | InputRequiredResult;
 
+function json(text: string | undefined): unknown {
+  try { return text === undefined ? undefined : JSON.parse(text); } catch { return undefined; }
+}
+
 /** Error thrown by the tools convenience methods for error or input_required results. A failure's message carries its text; `data` is what the server said in a form to branch on. Pass elicit to answer questions in place, or continue later through callTool. */
-export declare class ToolCallError extends Error {
+export class ToolCallError extends Error {
   readonly result: Extract<ToolResult<unknown>, { isError: true } | { resultType: "input_required" }>;
   /** The failure's text content, its text blocks joined by newlines. Undefined for questions left unanswered. */
   readonly text?: string;
   /** The failure's structured content, or else its text parsed as JSON when that text is JSON. Its shape is the server's own. */
   readonly data?: unknown;
-  constructor(app: string, tool: string, result: ToolCallError["result"]);
+  constructor(app: string, tool: string, result: ToolCallError["result"]) {
+    const asking = result.resultType === "input_required";
+    const text = (asking ? undefined : result.content?.filter(part => part.type === "text").map(part => part.text).join("\n")) || undefined;
+    // A question says what it asks, and a URL question where to answer it.
+    const detail = asking
+      ? Object.values(result.inputRequests ?? {}).flatMap(question => question.method === "elicitation/create"
+        ? [question.params.message, question.params.mode === "url" ? question.params.url : undefined]
+        : []).filter(Boolean).join(" ")
+      : text;
+    super(`${app}.${tool}: ${asking ? "additional input required" : "tool failed"}${detail ? `: ${detail}` : ""}`);
+    this.name = "ToolCallError";
+    this.result = result;
+    this.text = text;
+    this.data = result.structuredContent ?? json(text);
+  }
 }
 
 /** An event type a server offers, as events/list describes it. */
