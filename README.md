@@ -67,22 +67,6 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 // error TS2339: Property 'hub_search' does not exist on type '{ readonly hf_fs: (input: { operations: { args: string[]; cmd: "attach" | "cat" | "find" | "ls" | "search" | "stat"; }[]; }, options?: ToolCallOptions | undefined) => Promise<{ results: ({ ...; } | { ...; })[]; truncated?: boolean | undefined; truncation_reason?: "output_budget" | undefined; }>; readonly hf_whoami: ...'.
 ```
 
-### Files
-
-The [MCP files extension](https://github.com/modelcontextprotocol/experimental-ext-file-uploads) is a draft, so its types live under `holon-sh/ext/files`, a path that may change. An argument a tool marks `x-mcp-file` takes a `Blob`, and a browser `File` works too. The runtime sends it inline when the server accepts it, otherwise uploads it to the target the server names. Files a tool returns are on the result's `downloads`:
-
-```ts
-import { openAsBlob } from "node:fs";
-import type { Download } from "holon-sh/ext/files";
-
-await apps.storage.tools.save_file({ folder: "inbox", file: await openAsBlob("report.pdf", { type: "application/pdf" }) });
-
-const { downloads = [] } = await apps.storage.tools.export_report({ month: "2026-10" });
-const reports = await Promise.all(downloads.map((file: Download) => file.blob())); // each checks size and digest
-```
-
-`fileOrigins` on a binding limits the origins file bytes may go to and come from.
-
 ## Community
 
 Ask questions and share what you're building on the [Holon Discord](https://discord.gg/jXExyBdy).
