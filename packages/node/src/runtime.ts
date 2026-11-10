@@ -1,7 +1,8 @@
 import { Client, isInputRequiredResult, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, PriorDiscovery, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
-import { setTimeout as sleep } from "node:timers/promises";
+import { EXTENSION } from "./ext/files.js";
+import { acceptUploadRequests, downloads, isUploadRequest, prepare, settings, upload } from "./ext/files.client.js";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
@@ -20,6 +21,8 @@ export interface Binding {
   installationUID?: string;
   /** Close the session after every call instead of keeping one connection open. */
   scoped?: boolean;
+  /** Origins the server may name as file upload or download targets, e.g. "https://storage.example.com". Unset, any https origin on a globally reachable address is allowed; set, only these, which may also be http on loopback or have a non-global address. */
+  fileOrigins?: string[];
 }
 /** Alias for an endpoint binding. */
 export type EndpointBinding = Binding;
@@ -82,6 +85,8 @@ function defaultValidator(schema: object): Check {
 
 interface Connection {
   client: Client;
+  resolved: Endpoint;
+  authorization?: string;
   ready: Promise<void>;
   /** Whether the server answered any request on this connection. */
   answered: boolean;
@@ -99,6 +104,18 @@ function environment(name: string): Endpoint {
 
 function validate(check: Check, value: unknown, label: string): void {
   if (!check(value)) throw new Error(`Invalid ${label}: ${JSON.stringify(check.errors)}`);
+}
+
+function sleep(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, milliseconds);
+    signal?.addEventListener("abort", done, { once: true });
+  });
 }
 
 function untilAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -141,18 +158,20 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     const connect = (resolved: Endpoint, prior?: PriorDiscovery): Connection => {
       // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
-      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} } }, versionNegotiation: { mode: "auto" } });
-      const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: async (input, init) => {
+      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
+      const endpoint = new URL(resolved.endpoint);
+      const transport = acceptUploadRequests(new StreamableHTTPClientTransport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
+        if (String(input) === endpoint.href) current.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
         const response = await (resolved.fetch ?? fetch)(input, init);
         current.answered ||= response.ok;
         return response;
-      }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
+      }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }));
       transport.onclose = () => { if (connection === current) connection = undefined; };
       const ready = client.connect(transport, { prior }).catch(async (error: unknown) => {
         await transport.close();
         throw error;
       });
-      const current: Connection = { client, ready, answered: false, close: async () => {
+      const current: Connection = { client, resolved, ready, answered: false, close: async () => {
         await transport.terminateSession().catch(() => {});
         await transport.close();
         await ready.catch(() => {});
@@ -161,7 +180,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     };
     // The session hook serves bindings the runtime does not connect to itself.
     const host = binding ? hosted?.(name, binding) : undefined;
-    const session = async <T>(options: CallOptions | undefined, run: (client: ToolSession) => Promise<T>): Promise<T> => {
+    const session = async <T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T> => {
       options?.signal?.throwIfAborted();
       if (host) return run(host);
       const resolved = current();
@@ -178,7 +197,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
           const discover = active.client.getDiscoverResult();
           discovered.set(name, { key, prior: discover ? { kind: "modern", discover } : { kind: "legacy" }, expires: discover ? Infinity : Date.now() + LEGACY_VERDICT_MS });
         }
-        return await run(active.client);
+        return await run(active.client, active);
       } catch (error) {
         // A server that no longer speaks the discovered protocol rejects the first request without running it.
         if (!prior || active.answered || !(SdkHttpError.isInstance(error) && error.status === 400)) throw error;
@@ -193,21 +212,41 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
       // A contract's tool is the tool as its server listed it.
       const sent = { ...patient(options), allowInputRequired: true, ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } as Tool }) };
-      const result = await session(options, async client => {
-        let result: CallToolResult | InputRequiredResult = await client.callTool(request, sent);
-        // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
-        for (let round = 0; elicit && isInputRequiredResult(result) && round < 10; round++) {
+      const label = `${name}.${request.name}`;
+      const result = await session(options, async (client, connection) => {
+        const { arguments: args, files } = await prepare(request.arguments, {
+          label, connection,
+          schema: async () => tool?.definition.inputSchema ?? (await client.listTools(undefined, patient(options))).tools.find(({ name }) => name === request.name)?.inputSchema,
+        });
+        // The SDK's request type leaves out the continuation fields the protocol carries.
+        let next: typeof request = files.size ? { ...request, arguments: args } : request;
+        let uploaded = false;
+        for (let round = 0; ;) {
+          let result: CallToolResult | InputRequiredResult;
+          try {
+            result = await client.callTool(next, sent);
+          } catch (error) {
+            if (connection && isUploadRequest(error)) {
+              if (uploaded) throw new Error(`${label}: the server asked for a second upload; the tool did not run.`);
+              const requestState = await upload(error.data, files, connection, options.signal, label);
+              uploaded = true;
+              const { inputResponses, ...retry } = next;
+              next = { ...retry, requestState };
+              continue;
+            }
+            if (uploaded) throw new Error(`${label}: the outcome is unknown; the tool may have run (${(error as { message?: unknown } | null | undefined)?.message ?? error}).`, { cause: error });
+            throw error;
+          }
+          // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
+          if (!elicit || !isInputRequiredResult(result) || round++ === 10) return connection ? downloads(result, connection, settings(connection) !== undefined) : result;
           const inputResponses: InputResponses = {};
           for (const [key, question] of Object.entries(result.inputRequests ?? {})) {
             // Every client declares elicitation alone, so it answers nothing else and such a question reaches the caller.
             if (question.method !== "elicitation/create") return result;
             inputResponses[key] = await elicit(question.params);
           }
-          // The SDK's request type leaves out the continuation fields the protocol carries.
-          const next: typeof request = { ...request, inputResponses, requestState: result.requestState };
-          result = await client.callTool(next, sent);
+          next = { ...next, inputResponses, requestState: result.requestState };
         }
-        return result;
       });
       if (isInputRequiredResult(result)) return result;
       // The server validates arguments; the client checks the output against the contract it was compiled against.
@@ -242,7 +281,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         const resolved = current();
         if (!resolved?.endpoint) throw new Error(`Watching ${name} ${resource.uri} requires an endpoint binding.`);
         // An abort ends the wait between attempts early instead of failing it.
-        for (let established = false; !signal?.aborted; await sleep(1000, undefined, { signal }).catch(() => {})) {
+        for (let established = false; !signal?.aborted; await sleep(1000, signal)) {
           const current = connect(resolved);
           let failure: unknown;
           try {

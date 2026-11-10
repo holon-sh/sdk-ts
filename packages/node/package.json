@@ -30,13 +30,24 @@
     "./protocol": {
       "types": "./dist/protocol.d.ts",
       "import": "./dist/protocol.js"
+    },
+    "./ext/files": {
+      "types": "./dist/ext/files.d.ts",
+      "import": "./dist/ext/files.js"
     }
   },
   "typesVersions": {
     "*": {
       "runtime": ["./dist/runtime.d.ts"],
       "context": ["./dist/context.d.ts"],
-      "protocol": ["./dist/protocol.d.ts"]
+      "protocol": ["./dist/protocol.d.ts"],
+      "ext/files": ["./dist/ext/files.d.ts"]
+    }
+  },
+  "imports": {
+    "#platform": {
+      "node": "./dist/ext/platform.node.js",
+      "default": "./dist/ext/platform.browser.js"
     }
   },
   "files": [
@@ -48,6 +59,8 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "^2.3.1"
+    "@modelcontextprotocol/client": "^2.3.1",
+    "ipaddr.js": "^2.5.0",
+    "undici": "^7.16.0"
   }
 }
