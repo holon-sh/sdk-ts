@@ -124,18 +124,18 @@ const said = events.event("room.said", {
   // ...
   authorize: ({ room }, context) => mayRead(getContext(context).principal, room),
   onSubscribe: ({ id, arguments: { room } }) => {
-    const listener = upstream.join(room, text => said.emit({ room, text }, { subscription: id }));
-    return () => listener.leave();
+    listeners.set(id, upstream.join(room, text => said.emit({ room, text }, { subscriptionId: id })));
   },
+  onUnsubscribe: ({ id }) => listeners.get(id)?.leave(),
 });
 
-said.end(id);   // ends one subscription; said.end() ends them all
-said.remove();  // stops offering the type; createEvents({ listChanged: true }) also tells clients
+said.terminate(id);  // terminates one subscription; said.terminate() terminates them all
+said.remove();       // stops offering the type; createEvents({ listChanged: true }) also tells clients
 ```
 
-Every event a server keeps or queues is bounded. `createEvents` keeps at most `keep.events` and `keep.bytes` of each type, and a stream whose reader stops reading is sent at most `maxQueued` and `maxQueuedBytes` before the server stops; once the reader catches up it is told of a gap, through `onGap`, and goes on from the newest. Over HTTP the MCP SDK does not say how much a reader has read: where the stream can measure it (the transport modern clients reach) it does, and elsewhere it ends each stream cleanly once it has handed over `maxQueuedBytes`, and the client comes back from its cursor at once. All streams together hold at most `maxQueuedTotal`. An event type whose events each hold a whole record can give a `key`, and then the newest event for a key replaces the one before it, so a client that falls behind catches up on records rather than on every change.
+Every event a server keeps or queues is bounded. `createEvents` keeps at most `emitBuffer.maxEvents` and `emitBuffer.maxBytes` of each type, and a stream whose reader stops reading is sent at most `maxQueued` and `maxQueuedBytes` before the server stops; once the reader catches up it is told of a gap, through `onGap`, and goes on from the newest. Over HTTP the MCP SDK does not say how much a reader has read: where the stream can measure it (the transport modern clients reach) it does, and elsewhere it ends each stream cleanly once it has handed over `maxQueuedBytes`, and the client comes back from its cursor at once. All streams together hold at most `maxQueuedTotal`. An event type whose events each hold a whole record can give a `key`, and then the newest event for a key replaces the one before it, so a client that falls behind catches up on records rather than on every change.
 
-A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. `createEvents` takes what each type keeps (`keep: { events, age }`), the `interval` of polls and checks, and limits on subscriptions in all and per caller.
+A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. `createEvents` takes the sketch's `emitBuffer: { maxAge, maxEvents }` and `pollSubscriptionTtl`, the `interval` of polls and checks, and limits on subscriptions in all and per caller. Names follow the design sketch.
 
 Poll and push delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery and typed event names are not. A client learns that the event types changed only on a connection that lasts, such as stdio: over stateless HTTP it lists them again.
 
