@@ -20,28 +20,31 @@
   },
   "exports": {
     "./runtime": {
-      "types": "./runtime.d.ts",
-      "import": "./runtime.mjs"
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
     },
     "./context": {
-      "types": "./context.d.ts",
-      "import": "./context.mjs"
+      "types": "./dist/context.d.ts",
+      "import": "./dist/context.js"
     },
     "./protocol": {
-      "types": "./protocol.d.ts",
-      "import": "./runtime.mjs"
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "runtime": ["./dist/runtime.d.ts"],
+      "context": ["./dist/context.d.ts"],
+      "protocol": ["./dist/protocol.d.ts"]
     }
   },
   "files": [
-    "runtime.mjs",
-    "runtime.d.ts",
-    "validate.mjs",
-    "protocol.d.ts",
-    "context.mjs",
-    "context.d.ts"
+    "dist",
+    "src"
   ],
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/build.ts && tsc",
     "prepack": "npm run build"
   },
   "dependencies": {
