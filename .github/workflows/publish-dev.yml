@@ -36,7 +36,6 @@ jobs:
       - run: npm test
       - name: Set the dev version (not committed)
         run: npm version "$VERSION" --workspaces --no-git-tag-version
-      - run: npm pack --dry-run -w packages/node
       - run: npm run lint:package
       - name: Publish to npm under the dev tag
         env:

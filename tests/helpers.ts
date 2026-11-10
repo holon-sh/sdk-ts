@@ -39,7 +39,7 @@ export async function serve(t: TestContext, factory: Parameters<typeof createMcp
   t.after(async () => {
     await handler.close();
     http.closeAllConnections();
-    await new Promise(resolve => http.close(resolve));
+    await http[Symbol.asyncDispose]();
   });
   http.listen(0, "127.0.0.1");
   await once(http, "listening");

@@ -1,6 +1,7 @@
 name: CI
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -38,7 +39,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm pack -w packages/node
       - run: npm run lint:package
       - uses: actions/upload-artifact@v7
         with:

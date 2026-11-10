@@ -2,7 +2,7 @@ import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { acceptedContent, inputRequired, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApps, ToolCallError, type CallMetadata, type ElicitHandler } from "holon-sh/runtime";
+import { createApps, ToolCallError, type ElicitHandler } from "holon-sh/runtime";
 import { serve } from "./helpers.ts";
 
 const input = z.object({ id: z.string() });
@@ -50,8 +50,7 @@ test("without elicit the question reaches the caller, who continues through call
   assert.ok(thrown instanceof ToolCallError && thrown.result.resultType === "input_required");
   assert.equal(thrown.message, `orders.ship: additional input required: ${question}`);
   const { requestState } = thrown.result;
-  const inputResponses: CallMetadata["inputResponses"] = { size: { action: "accept", content: { size: "small" } } };
-  const continued = await app.callTool({ name: "ship", arguments: { id: "A-1" }, requestState, inputResponses });
+  const continued = await app.callTool({ name: "ship", arguments: { id: "A-1" }, requestState, inputResponses: { size: { action: "accept", content: { size: "small" } } } });
   assert.deepEqual(continued.structuredContent, { shipped: "small" });
 });
 

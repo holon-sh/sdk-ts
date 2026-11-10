@@ -41,11 +41,10 @@
   },
   "files": [
     "dist",
-    "!dist/.tsbuildinfo",
     "src"
   ],
   "scripts": {
-    "build": "node scripts/build.ts",
+    "build": "node scripts/build.ts && tsc",
     "prepack": "npm run build"
   },
   "dependencies": {

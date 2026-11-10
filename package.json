@@ -10,9 +10,9 @@
   },
   "scripts": {
     "build": "npm run build -w packages/node",
-    "typecheck": "tsc --build",
-    "lint:package": "publint packages/node && attw --pack packages/node --ignore-rules cjs-resolves-to-esm",
-    "test": "npm run build && npm run typecheck && node --test \"tests/*.test.ts\""
+    "typecheck": "npm run build && tsc",
+    "lint:package": "tarball=$(npm pack -w packages/node --silent) && publint run \"$tarball\" && attw \"$tarball\" --ignore-rules cjs-resolves-to-esm",
+    "test": "npm run typecheck && node --test \"tests/*.test.ts\""
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",

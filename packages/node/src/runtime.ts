@@ -1,10 +1,9 @@
 import { Client, isInputRequiredResult, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, CallToolResult, DiscoverResult, InputRequiredResult, InputResponses, ReadResourceResult, StreamableHTTPClientTransportOptions, Tool } from "@modelcontextprotocol/client";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
-import { validator as defaultValidator } from "./validate.js";
-import type { Check } from "./validate.js";
 
 export { ToolCallError } from "./protocol.js";
 export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
@@ -60,6 +59,27 @@ type Endpoint = Binding & { [DISCOVERY]?: string };
 type Resolved = Endpoint | { endpoint?: undefined };
 /** The MCP client calls a session serves, whether the runtime's own client or a host's. */
 type Session = Pick<Client, "callTool" | "readResource" | "listTools">;
+/** Checks a value against one JSON Schema; errors describes the last failure. */
+type Check = ReturnType<NonNullable<CreateOptions["validator"]>>;
+
+// Object methods JavaScript calls implicitly; tools with these names stay reachable through callTool.
+const reserved = new Set(["then", "toJSON", "toString", "valueOf", "toLocaleString"]);
+// The MCP client's own Ajv, one engine per schema so contracts that reuse an $id stay apart. Contracts are module
+// constants, so each schema compiles once however often createApps runs.
+const checks = new WeakMap<object, Check>();
+
+function defaultValidator(schema: object): Check {
+  const cached = checks.get(schema);
+  if (cached) return cached;
+  const compiled = new AjvJsonSchemaValidator().getValidator(schema);
+  const check: Check = value => {
+    const { valid, errorMessage } = compiled(value);
+    check.errors = errorMessage;
+    return valid;
+  };
+  checks.set(schema, check);
+  return check;
+}
 
 interface Connection {
   client: Client;
@@ -98,11 +118,6 @@ function patient(options?: CacheableRequestOptions): CacheableRequestOptions {
   return options?.timeout === undefined
     ? { ...options, timeout: 2 ** 31 - 1 }
     : { onprogress: () => {}, resetTimeoutOnProgress: true, ...options };
-}
-
-// An abort ends the wait early instead of failing it.
-function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  return sleep(milliseconds, undefined, { signal }).catch(() => {});
 }
 
 /** Construct only the explicitly bound dependencies. Unknown names throw; an empty binding map selects none. Used by generated createApps factories. */
@@ -178,13 +193,10 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     const callTool = async (request: CallMetadata & { name: string; arguments?: Record<string, unknown> }, { elicit, ...options }: ToolCallOptions = {}): Promise<ToolResult<unknown>> => {
       const tool = definitions.get(request.name);
       if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
+      // A contract's tool is the tool as its server listed it.
+      const sent = { ...patient(options), allowInputRequired: true, ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } as Tool }) };
       const result = await session(options, async client => {
-        const send = (request: CallMetadata & { name: string; arguments?: Record<string, unknown> }): Promise<CallToolResult | InputRequiredResult> => client.callTool(request, {
-          ...patient(options), allowInputRequired: true,
-          // A contract's tool is the tool as its server listed it.
-          ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } as Tool }),
-        });
-        let result = await send(request);
+        let result: CallToolResult | InputRequiredResult = await client.callTool(request, sent);
         // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
         for (let round = 0; elicit && isInputRequiredResult(result) && round < 10; round++) {
           const inputResponses: InputResponses = {};
@@ -193,7 +205,9 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             if (question.method !== "elicitation/create") return result;
             inputResponses[key] = await elicit(question.params);
           }
-          result = await send({ ...request, inputResponses, requestState: result.requestState });
+          // The SDK's request type leaves out the continuation fields the protocol carries.
+          const next: typeof request = { ...request, inputResponses, requestState: result.requestState };
+          result = await client.callTool(next, sent);
         }
         return result;
       });
@@ -206,7 +220,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       return { ...result, resultType: "complete" } as ToolResult<unknown>;
     };
     const listTools = (options?: CallOptions) => session(options, client => client.listTools(undefined, patient(options)));
-    for (const tool of contract?.tools ?? []) if (!["then", "toJSON", "toString", "valueOf", "toLocaleString"].includes(tool.name)) {
+    for (const tool of contract?.tools ?? []) if (!reserved.has(tool.name)) {
       tools[tool.name] = async (input, options) => {
         const result = await callTool({ name: tool.name, arguments: input }, options);
         if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, tool.name, result);
@@ -229,7 +243,8 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       const watch = async (onChange: (value: unknown) => void | Promise<void>, { signal }: { signal?: AbortSignal } = {}) => {
         const resolved = current();
         if (!resolved?.endpoint) throw new Error(`Watching ${name} ${resource.uri} requires an endpoint binding.`);
-        for (let established = false; !signal?.aborted; await delay(1000, signal)) {
+        // An abort ends the wait between attempts early instead of failing it.
+        for (let established = false; !signal?.aborted; await sleep(1000, undefined, { signal }).catch(() => {})) {
           const current = connect(resolved);
           let failure: unknown;
           try {

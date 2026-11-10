@@ -3,10 +3,9 @@ import { test } from "node:test";
 import { mkdirSync, readFileSync, writeFileSync, cpSync, copyFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { temporary, typecheck } from "./helpers.ts";
 
-const repository = dirname(dirname(fileURLToPath(import.meta.url)));
+const repository = dirname(import.meta.dirname);
 const manifest = JSON.parse(readFileSync(join(repository, "package.json"), "utf8"));
 
 test("clients generated into a CommonJS project run on the packed package in NodeNext and Bundler", t => {

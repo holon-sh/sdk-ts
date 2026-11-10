@@ -5,6 +5,5 @@
     "allowImportingTsExtensions": true
   },
   "include": ["tests", "packages/node/scripts"],
-  "exclude": ["tests/fixtures"],
-  "references": [{ "path": "packages/node" }]
+  "exclude": ["tests/fixtures"]
 }
