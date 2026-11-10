@@ -1,9 +1,8 @@
-import type { CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, RequestOptions } from "@modelcontextprotocol/client";
+import type { AuthProvider as BearerAuthProvider, CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, OAuthClientProvider, RequestOptions } from "@modelcontextprotocol/client";
+import type { Download } from "./ext/files.js";
 
 /** Bearer-token or OAuth provider accepted by the MCP transport. */
-export type AuthProvider =
-  | { token(): Promise<string | undefined>; onUnauthorized?(context: unknown): Promise<void> }
-  | { tokens(): unknown; redirectUrl: unknown; clientMetadata: unknown };
+export type AuthProvider = BearerAuthProvider | OAuthClientProvider;
 /** Answers a server's question so the call that asked can complete. `params.mode` tells a form from a URL to open. */
 export type ElicitHandler = (params: ElicitRequestParams) => ElicitResult | Promise<ElicitResult>;
 
@@ -13,22 +12,7 @@ export type CallOptions = Omit<RequestOptions, "allowInputRequired">;
 export type ToolCallOptions = CallOptions & { elicit?: ElicitHandler };
 /** MCP request metadata and input continuation fields. Pass inputResponses and requestState when continuing an input-required result. */
 export type CallMetadata = Omit<CallToolRequest["params"], "name" | "arguments"> & { inputResponses?: InputResponses; requestState?: string };
-/** @internal */
 type Fields<T> = { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
-/** A file a tool returned for the caller to fetch. Its fields come from the server and are untrusted. */
-export interface Download {
-  readonly name?: string;
-  readonly mimeType: string;
-  /** Size in bytes. */
-  readonly size: number;
-  /** SHA-256 of the file, base64url without padding. */
-  readonly digest?: { algorithm: "sha-256"; value: string };
-  /** RFC 3339 time after which the file can no longer be fetched. */
-  readonly expiresAt?: string;
-  /** Fetch the file. Rejects, keeping no bytes, when it has expired, its target breaks the extension's rules, or the bytes do not match size or digest. */
-  blob(options?: { signal?: AbortSignal }): Promise<Blob>;
-}
-/** @internal */
 type Files = {
   /** Files the tool returned, from a server with the files extension. Their targets are removed from _meta. */
   downloads?: Download[];
@@ -41,14 +25,32 @@ export type ToolResult<Output> =
   | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & Files & { resultType: "complete"; isError: true; structuredContent?: unknown })
   | InputRequiredResult;
 
+function json(text: string | undefined): unknown {
+  try { return text === undefined ? undefined : JSON.parse(text); } catch { return undefined; }
+}
+
 /** Error thrown by the tools convenience methods for error or input_required results. A failure's message carries its text; `data` is what the server said in a form to branch on. Pass elicit to answer questions in place, or continue later through callTool. */
-export declare class ToolCallError extends Error {
+export class ToolCallError extends Error {
   readonly result: Extract<ToolResult<unknown>, { isError: true } | { resultType: "input_required" }>;
   /** The failure's text content, its text blocks joined by newlines. Undefined for questions left unanswered. */
   readonly text?: string;
   /** The failure's structured content, or else its text parsed as JSON when that text is JSON. Its shape is the server's own. */
   readonly data?: unknown;
-  constructor(app: string, tool: string, result: ToolCallError["result"]);
+  constructor(app: string, tool: string, result: ToolCallError["result"]) {
+    const asking = result.resultType === "input_required";
+    const text = (asking ? undefined : result.content?.filter(part => part.type === "text").map(part => part.text).join("\n")) || undefined;
+    // A question says what it asks, and a URL question where to answer it.
+    const detail = asking
+      ? Object.values(result.inputRequests ?? {}).flatMap(question => question.method === "elicitation/create"
+        ? [question.params.message, question.params.mode === "url" ? question.params.url : undefined]
+        : []).filter(Boolean).join(" ")
+      : text;
+    super(`${app}.${tool}: ${asking ? "additional input required" : "tool failed"}${detail ? `: ${detail}` : ""}`);
+    this.name = "ToolCallError";
+    this.result = result;
+    this.text = text;
+    this.data = result.structuredContent ?? json(text);
+  }
 }
 
 /** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. A Blob at a file argument (x-mcp-file) is sent with the files extension: inline when the server takes it, else uploaded to the target the server names. A failure before the call completes says whether the tool did not run or the outcome is unknown. */
