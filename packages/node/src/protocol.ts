@@ -1,9 +1,7 @@
-import type { CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, RequestOptions } from "@modelcontextprotocol/client";
+import type { AuthProvider as BearerAuthProvider, CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, OAuthClientProvider, RequestOptions } from "@modelcontextprotocol/client";
 
 /** Bearer-token or OAuth provider accepted by the MCP transport. */
-export type AuthProvider =
-  | { token(): Promise<string | undefined>; onUnauthorized?(context: unknown): Promise<void> }
-  | { tokens(): unknown; redirectUrl: unknown; clientMetadata: unknown };
+export type AuthProvider = BearerAuthProvider | OAuthClientProvider;
 /** Answers a server's question so the call that asked can complete. `params.mode` tells a form from a URL to open. */
 export type ElicitHandler = (params: ElicitRequestParams) => ElicitResult | Promise<ElicitResult>;
 
@@ -90,15 +88,18 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
   readonly close: () => Promise<void>;
   /** Fetch the live tool catalog. */
   readonly listTools: (options?: CallOptions) => Promise<ListToolsResult>;
-  /**
-   * MCP Events, the draft extension of the Triggers & Events Working Group. subscribe requires an endpoint binding. It
-   * resolves once the server has confirmed the subscription, then reconnects and resumes from its cursor by itself,
-   * and rejects when the server offers no such event. A contract types an event's arguments and data by its name, and
-   * its data is checked against the contract. Without one, the data is unknown.
-   */
-  readonly events: {
-    readonly list: (options?: CallOptions) => Promise<EventType[]>;
-    readonly subscribe: <K extends keyof E & string>(name: K, args: E[K]["arguments"], options?: SubscribeOptions) => Promise<Subscription<E[K]["data"]>>;
+  /** Experimental MCP extensions. They follow drafts that are still changing, so what is here may change with them. */
+  readonly ext: {
+    /**
+     * MCP Events, the draft extension of the Triggers & Events Working Group. subscribe requires an endpoint binding.
+     * It resolves once the server has confirmed the subscription, then reconnects and resumes from its cursor by
+     * itself, and rejects when the server offers no such event. A contract types an event's arguments and data by its
+     * name, and its data is checked against the contract. Without one, the data is unknown.
+     */
+    readonly events: {
+      readonly list: (options?: CallOptions) => Promise<EventType[]>;
+      readonly subscribe: <K extends keyof E & string>(name: K, args: E[K]["arguments"], options?: SubscribeOptions) => Promise<Subscription<E[K]["data"]>>;
+    };
   };
   /** Contracted JSON resources. read validates the first text content as JSON. watch requires an endpoint binding to a server that supports subscriptions; it reads the initial value, then listens for updates until aborted. */
   readonly resources: { readonly [U in keyof R]: {

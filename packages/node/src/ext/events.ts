@@ -1,5 +1,6 @@
 // The server side of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
+// The draft is experimental, so this lives under ext and may change with it.
 // It serves the poll and push delivery modes. Another delivery mode is a module of its own, given to createEvents,
 // which reaches the event types through the internals below.
 import { ProtocolError } from "@modelcontextprotocol/server";
@@ -516,7 +517,7 @@ export function createEvents({
     return { ...occurrence, data, ...(sequence !== undefined && { cursor: position(type, sequence) }) };
   };
   const skipped = (type: Type, eventId: string, error: any, failed?: (error: EventError) => void) => {
-    console.error(`holon-sh/events: event ${eventId} of ${type.name} was skipped for a subscription:`, error);
+    console.error(`holon-sh/ext/events: event ${eventId} of ${type.name} was skipped for a subscription:`, error);
     failed?.({ code: INTERNAL_ERROR, message: `Event ${eventId} could not be delivered and was skipped`, data: { eventId, reason: String(error?.message ?? error) } });
   };
   // What a check function found is skipped in the same way when it cannot be sent as JSON.
