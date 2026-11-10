@@ -103,15 +103,16 @@ export function createEvents({
     const recent = later.filter(kept => kept.at >= floor);
     const truncated = sequence < type.dropped || recent.length < later.length;
     const events = [];
+    const failures = [];
     let reached = recent.length ? recent[0].sequence - 1 : type.sequence;
     const start = position(type, reached);
     for (const kept of recent) {
-      if (events.length === limit) return { events, start, cursor: position(type, reached), truncated, hasMore: true };
+      if (events.length === limit) return { events, failures, start, cursor: position(type, reached), truncated, hasMore: true };
       reached = kept.sequence;
-      const event = shape(type, kept, subscription);
+      const event = shape(type, kept, subscription, error => failures.push(error));
       if (event) events.push(event);
     }
-    return { events, start, cursor: position(type), truncated, hasMore: false };
+    return { events, failures, start, cursor: position(type), truncated, hasMore: false };
   };
 
   // What a subscription is owed after a cursor from the type's check function. The cursor is the author's own. Each
@@ -127,15 +128,16 @@ export function createEvents({
     const floor = maxAgeMs === undefined || cursor == null ? -Infinity : Date.now() - maxAgeMs;
     let truncated = next !== null && Boolean(result.truncated);
     const events = [];
+    const failures = [];
     let reached = cursor ?? null;
     let cuttable = false;
-    const answer = (end, hasMore) => ({ events, start: truncated || !events.length ? end : cursor, cursor: end, truncated, hasMore });
+    const answer = (end, hasMore) => ({ events, failures, start: truncated || !events.length ? end : cursor, cursor: end, truncated, hasMore });
     for (const [index, item] of items.entries()) {
       if (events.length === limit && cuttable) return answer(reached, true);
       const after = index === items.length - 1 ? next : item.cursor ?? reached;
       const { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), data, _meta } = item;
       if (Date.parse(timestamp) < floor) truncated = next !== null;
-      else events.push({ eventId, name: type.name, timestamp, data, ...(_meta && { _meta }), cursor: after });
+      else if (serialisable(type, eventId, { data, _meta }, error => failures.push(error))) events.push({ eventId, name: type.name, timestamp, data, ...(_meta && { _meta }), cursor: after });
       reached = after;
       cuttable = item.cursor != null;
     }
@@ -148,10 +150,34 @@ export function createEvents({
 
   // The occurrence a subscription receives, or nothing when it is not for it. An event emitted to one subscription
   // is for that one alone, and its arguments are not asked.
-  const shape = (type, { sequence, target, occurrence }, { id, untargetable, arguments: args, context }) => {
-    if (target !== undefined ? untargetable || target !== id : type.match && !type.match(occurrence.data, args, context)) return undefined;
-    const data = type.transform ? type.transform(occurrence.data, args, context) : occurrence.data;
+  // An event that cannot be shaped for a subscription, because `match` or `transform` throws or what `transform`
+  // returns cannot be sent as JSON, is skipped for that subscription alone, so its cursor moves past it. It is
+  // logged, and `failed` hears of it so a stream can say so once.
+  const shape = (type, { sequence, target, occurrence }, { id, untargetable, arguments: args, context }, failed) => {
+    let data;
+    try {
+      if (target !== undefined ? untargetable || target !== id : type.match && !type.match(occurrence.data, args, context)) return undefined;
+      data = type.transform ? type.transform(occurrence.data, args, context) : occurrence.data;
+      if (type.transform) JSON.stringify(data);
+    } catch (error) {
+      skipped(type, occurrence.eventId, error, failed);
+      return undefined;
+    }
     return { ...occurrence, data, ...(sequence !== undefined && { cursor: position(type, sequence) }) };
+  };
+  const skipped = (type, eventId, error, failed) => {
+    console.error(`holon-sh/events: event ${eventId} of ${type.name} was skipped for a subscription:`, error);
+    failed?.({ code: INTERNAL_ERROR, message: `Event ${eventId} could not be delivered and was skipped`, data: { eventId, reason: String(error?.message ?? error) } });
+  };
+  // What a check function found is skipped in the same way when it cannot be sent as JSON.
+  const serialisable = (type, eventId, value, failed) => {
+    try {
+      JSON.stringify(value);
+      return true;
+    } catch (error) {
+      skipped(type, eventId, error, failed);
+      return false;
+    }
   };
 
   // The event type and arguments a request names, checked as the sketch's errors require, in its order: the type,
@@ -413,7 +439,7 @@ export function createEvents({
         const { type, subscription: subscribed } = await subscription(request, ctx.http, "poll");
         const held = await lease(type, subscribed);
         // Each poll is answered for its own caller, with the lease's id.
-        const { events, start, truncated, ...rest } = await read(type, { ...subscribed, id: held.id, untargetable: held.untargetable }, request.cursor, request);
+        const { events, start, failures, truncated, ...rest } = await read(type, { ...subscribed, id: held.id, untargetable: held.untargetable }, request.cursor, request);
         const lost = !held.untargetable && type.owed.delete(held.id);
         // A poll carries its cursor once, for the whole response.
         return { events: events.map(({ cursor, ...event }) => event), ...rest, truncated: truncated || lost, nextPollMs: type.interval };
@@ -558,6 +584,7 @@ export function createEvents({
                 if (first || truncated && !after) await notify("active", { cursor: type.check && result.truncated ? cursor : result.start, truncated });
                 if (first) beat = heartbeats();
                 first = false;
+                for (const error of result.failures ?? []) await notify("error", { error });
                 let sent = true;
                 for (const event of result.events) if (done || !(sent = await send(event))) break;
                 if (done) break;
@@ -578,7 +605,9 @@ export function createEvents({
             while (pushed.length && !done && !overflowed) {
               const kept = pushed.shift();
               pushedBytes -= kept.size;
-              const event = shape(type, kept, held);
+              let failure;
+              const event = shape(type, kept, held, error => { failure = error; });
+              if (failure) await notify("error", { error: failure });
               if (event && !(await send({ ...event, cursor }))) break;
             }
             if (done) break;

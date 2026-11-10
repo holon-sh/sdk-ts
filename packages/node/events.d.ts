@@ -64,7 +64,12 @@ export interface EventDefinition<A, D> {
   payloadSchema: EventSchema;
   /** Listed with the event type, as `_meta` is on a tool. */
   _meta?: Record<string, unknown>;
-  /** Whether a subscription with these arguments receives an emitted event. Without it, every subscription does. */
+  /**
+   * Whether a subscription with these arguments receives an emitted event. Without it, every subscription does. When
+   * it or `transform` throws, or `transform` returns what cannot be sent as JSON, that event is skipped for that
+   * subscription: its cursor moves past it, a stream is told once with `notifications/events/error`, and the failure
+   * is logged.
+   */
   match?: (data: D, args: A, context: SubscriptionContext) => boolean;
   /** The data a subscription with these arguments receives of an emitted event. Without it, the data as emitted. */
   transform?: (data: D, args: A, context: SubscriptionContext) => unknown;
@@ -121,8 +126,8 @@ export interface Emitter<D> {
    * type with a check function the order holds among what is emitted, but not between what is emitted and what the
    * check function finds, which may arrive later or again.
    *
-   * The data is measured as JSON when it is emitted, so data that cannot be serialised throws here, before anything
-   * is kept or sent.
+   * The data is serialised when it is emitted, so data that cannot be sent as JSON throws here, before anything is
+   * kept or sent.
    */
   emit(data: D, options?: { eventId?: string; timestamp?: string; subscription?: string }): void;
   /**
