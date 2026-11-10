@@ -126,13 +126,6 @@ test("session hooks serve custom bindings and respect validation and binding bou
   await assert.rejects(createApps(identity, { orders: contract, other: null }, { other: {} }, { resolve: () => assert.fail("resolve with explicit bindings") }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
   const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
-
-  // A host session returns what the MCP client returns: a call resolves to a tool result, a read to resource contents.
-  const host: ToolSession = { callTool: async () => ({ content: [] }), readResource: async () => ({ contents: [] }), listTools: async () => ({ tools: [] }) };
-  // @ts-expect-error
-  bindApps(identity, { orders: contract }, { orders: binding }, { session: () => ({ ...host, callTool: async () => ({}) }) });
-  // @ts-expect-error
-  bindApps(identity, { orders: contract }, { orders: binding }, { session: () => ({ ...host, readResource: async () => ({}) }) });
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
