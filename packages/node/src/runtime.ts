@@ -388,7 +388,12 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         }
       };
       const stream = async () => {
+        // A server ends a stream with its result to shed what its reader left unread, and the stream is reopened
+        // from the cursor at once. Streams that end that way with no event, several in a row, wait as an error does.
+        let immediate = 0;
         while (!ended.aborted) {
+          let clean = false;
+          let received = 0;
           const quiet = new AbortController();
           // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
           // Only the stream's own response is watched: a 2025 server answers its initialization as a stream too.
@@ -421,6 +426,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             const on = (method: string, handle: (params: any) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything }, params => { heard(); handle(params); });
             on("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
             on("event", occurrence => {
+              received++;
               try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
               reach(occurrence.cursor);
             });
@@ -430,6 +436,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             on("terminated", ({ error }) => { terminated = error; quiet.abort(); });
             heard();
             await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, anything, { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
+            clean = true;
           } catch (error) {
             if (!terminated && !ended.aborted && (!confirmed || refused(error))) throw error;
           } finally {
@@ -437,7 +444,8 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             await connection.close();
           }
           if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated.message}`), { code: terminated.code, data: terminated.data });
-          await sleep(1000, ended);
+          immediate = clean && !received ? immediate + 1 : 0;
+          if (!clean || immediate >= 3) await sleep(1000, ended);
         }
       };
       void (delivery === "push" ? stream() : poll())

@@ -170,7 +170,7 @@ export interface Events {
 }
 
 /** An emitted event: kept, at a sequence, for a type without a check function; pushed only, for one with. */
-export interface Kept { sequence?: number; at?: number; target?: string | undefined; occurrence: EventOccurrence }
+export interface Kept { sequence?: number; at?: number; target?: string | undefined; occurrence: EventOccurrence; /** Its length as JSON. */ size?: number }
 /** What a subscription is owed after a cursor. */
 export interface Owed {
   events: EventOccurrence[];
@@ -240,8 +240,10 @@ interface Served {
 }
 interface Context {
   mcpReq: { id: string | number; signal: AbortSignal; notify(notification: { method: string; params: object }): Promise<void> };
-  http?: SubscriptionContext & object;
+  http?: SubscriptionContext & { req?: Request | undefined };
 }
+/** What a stream has handed to its transport and its reader has not taken, as the process's budget charges it. */
+interface Backlog { bytes: number; measure(): void }
 interface Type<A = any, D = any> extends EventTypeState {
   readonly order: number;
   readonly description?: string | undefined;
@@ -304,6 +306,23 @@ const unique = () => `sub_${hex(crypto.getRandomValues(new Uint8Array(16)))}`;
 // A teardown that fails has nobody to tell, and must not take the process down.
 const settle = (run: () => unknown) => { Promise.resolve().then(run).catch(() => {}); };
 const integer = (value: unknown, minimum: number) => value === undefined || Number.isInteger(value) && (value as number) >= minimum;
+const encoder = new TextEncoder();
+const bytes = (value: unknown) => encoder.encode(JSON.stringify(value)).byteLength;
+// Over HTTP the MCP SDK queues what a stream sends on the response without waiting for its reader, and has no public
+// way to say how much waits. This finds the response's queue in the private fields of its HTTP transports: the
+// per-request one, and the one it serves 2025 clients with, bare or wrapped for Node. Its desiredSize falls by one for
+// each frame waiting, and is checked to be a number each time it is read. Where the queue is not found, as after an
+// SDK release that renames these fields, a stream counts everything it hands over instead.
+type Queue = { readonly desiredSize: unknown };
+const queueOf = (transport: any, requestId: unknown): Queue | undefined => {
+  try {
+    const inner = transport?._webStandardTransport ?? transport;
+    const controller = inner?._sse?.controller ?? inner?._streamMapping?.get?.(inner._requestToStreamMapping?.get?.(requestId))?.controller;
+    return controller && typeof controller === "object" && "desiredSize" in controller ? controller : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 // What each type without a check function keeps of what it emits, for polls and reconnecting streams: the sketch's
 // emit buffer.
@@ -321,6 +340,15 @@ const MAX_SUBSCRIPTIONS = 10_000;
 const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
 // How many event types events/list returns at a time.
 const PAGE_SIZE = 100;
+// How many bytes one stream may have handed to its transport that its reader has not taken, and every stream of the
+// process together. Past the first the stream ends with its result, and its client reconnects from its cursor; past
+// the second, streams with an event waiting end the same way; a new stream is refused with ResourceExhausted unless
+// the process has room for its budget.
+const STREAM_BACKLOG = 2 ** 20;
+const BACKLOG = 16 * 2 ** 20;
+// How long a stream whose waiting frames cannot be seen stays charged after it ends, when nothing says its
+// connection closed.
+const LINGER = 10 * HEARTBEAT;
 
 /**
  * Event types a process emits and the MCP servers it creates serve, in the poll and push delivery modes of MCP Events,
@@ -329,6 +357,14 @@ const PAGE_SIZE = 100;
  * restart a client is told that events were skipped. A type with a check function uses its source's cursors instead,
  * which outlive the process. A type is asked again, and a poll told to come back, every second. A stream hears from
  * the server every thirty seconds.
+ *
+ * A stream whose reader stops taking what it is sent holds at most 1 MiB of it, and the process's streams 16 MiB
+ * together, counting ended streams until their readers take what was left or their connections close. A stream past
+ * either ends with its result, and its client reconnects from its cursor, so nothing is lost that is still kept; a
+ * stream opened while the process's budget is spent is refused with ResourceExhausted. Over HTTP the MCP SDK queues a
+ * stream's frames without waiting for its reader, and its queue is found in private fields of its transports, checked
+ * each time; where it cannot be found, a stream counts everything it hands over as waiting, so it is ended after 1 MiB
+ * and its charge is released when its connection closes, or five minutes after it ends when nothing says so.
  */
 export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Events {
   const modes = webhookTtl === undefined ? [] : [webhooks({ ...webhook, ttl: webhookTtl, heartbeat: HEARTBEAT })];
@@ -568,6 +604,96 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
     return held;
   };
 
+  // What every stream has handed to its transport and its reader has not taken, open or ended: each is charged to
+  // the process until its reader takes it or its connection closes. A stream measures its own as it sends; the rest
+  // are measured again when a stream is opened while the budget looks spent, and at most every tenth of a second
+  // while a stream finds it spent.
+  const backlogs = new Set<Backlog>();
+  let backlogged = 0;
+  let measured = 0;
+  const remeasure = (now = false) => {
+    if (!now && Date.now() - measured < 100) return;
+    measured = Date.now();
+    for (const each of backlogs) each.measure();
+  };
+  // A stream's backlog: `hand` counts a frame once it is handed over, `room` says whether an event may follow it, and
+  // `end` says the stream is over, after which what waits stays charged until it is taken. Where the queue cannot be
+  // seen, everything handed over counts as waiting, until the connection closes or, when nothing says so, LINGER
+  // after the stream ends. Over stdio the transport waits for the reader, so nothing is charged.
+  const backlog = (transport: unknown, requestId: unknown, req: Request | undefined) => {
+    let queue: Queue | undefined;
+    // The frames handed over and perhaps not taken, from `head`, newest last: their bytes and how many are events.
+    const frames: Array<{ size: number; event: boolean }> = [];
+    let head = 0;
+    let waiting = 0;
+    let events = 0;
+    // Everything handed over, for a queue that cannot be seen.
+    let handed = 0;
+    let handedEvents = 0;
+    let ended = false;
+    let until = Infinity;
+    const seen = () => typeof queue?.desiredSize === "number";
+    const self: Backlog = {
+      bytes: 0,
+      measure() {
+        const size = queue?.desiredSize;
+        let charge: number;
+        // A queue that errored holds nothing.
+        if (size === null) charge = 0;
+        else if (typeof size === "number") {
+          // The queue reports itself full with one frame in it. Once the stream has ended, one frame left is its
+          // result, which reads the same as a queue the reader emptied or the connection cancelled.
+          let count = Math.max(0, 1 - size);
+          if (ended && count <= 1) count = 0;
+          // What waits is the newest of what this stream handed over; the transport's own keep-alives are small.
+          while (frames.length - head > count) {
+            const frame = frames[head++]!;
+            waiting -= frame.size;
+            if (frame.event) events--;
+          }
+          if (head > 64 && head * 2 > frames.length) {
+            frames.splice(0, head);
+            head = 0;
+          }
+          charge = waiting;
+        } else charge = !req || ended && (req.signal.aborted || Date.now() > until) ? 0 : handed;
+        backlogged += charge - self.bytes;
+        self.bytes = charge;
+        if (ended && !charge) backlogs.delete(self);
+      },
+    };
+    backlogs.add(self);
+    return {
+      hand(size: number, event: boolean) {
+        frames.push({ size, event });
+        waiting += size;
+        handed += size;
+        if (event) {
+          events++;
+          handedEvents++;
+        }
+        // The per-request transport makes its queue when the first frame is written.
+        queue ??= queueOf(transport, requestId);
+        self.measure();
+      },
+      // An event goes when it fits the stream's budget and the process's, and alone, whatever it weighs, when no
+      // other event waits. Under the process's budget, too, only a stream with an event waiting is stopped.
+      room(size: number) {
+        self.measure();
+        if (!self.bytes || !(seen() ? events : handedEvents)) return true;
+        if (self.bytes + size > STREAM_BACKLOG) return false;
+        if (backlogged + size > BACKLOG) remeasure();
+        return backlogged + size <= BACKLOG;
+      },
+      end() {
+        ended = true;
+        until = Date.now() + LINGER;
+        self.measure();
+      },
+    };
+  };
+  const exhausted = (): EventError => ({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "backlog", max: BACKLOG } });
+
   // What a delivery mode works with: `subscription` checks a request, names its event type and the subscription's
   // id, `open` begins holding a subscription, `read` gives a subscription what it is owed after a cursor (`since` and
   // `shape` for emitted events alone), `position` is a type's cursor, a type's `sinks` hear what is emitted, and its
@@ -596,12 +722,12 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
         emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscriptionId: target } = {}) {
           const occurrence = { eventId, name, timestamp, data };
           // Data that cannot be sent as JSON is refused here, before anything is kept or sent.
-          JSON.stringify(occurrence);
+          const size = JSON.stringify(occurrence).length;
           // A type with a check function is asked for what polls are owed, so what it emits is pushed and not kept.
           if (type.check) {
             // An event for one subscription that has no stream to take it is lost.
             if (target !== undefined && ![...type.subscriptions.get(target)?.held ?? []].some(held => held.delivery !== "poll")) owe(type, target);
-            for (const sink of type.sinks) sink({ target, occurrence });
+            for (const sink of type.sinks) sink({ target, occurrence, size });
             return;
           }
           // An event for one subscription is kept like any other, so the subscription has it when it comes back.
@@ -673,6 +799,10 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
       server.setRequestHandler("events/stream", { params }, async (request, ctx) => {
         const { type: state, subscription: subscribed } = await subscription(request, ctx.http, "push");
         const type = state as Type;
+        // A new stream needs room for its own budget. What ended streams left unread may have been taken since they
+        // were last measured.
+        if (backlogged + STREAM_BACKLOG > BACKLOG) remeasure(true);
+        if (backlogged + STREAM_BACKLOG > BACKLOG) throw refusal(exhausted());
         const { signal } = ctx.mcpReq;
         const meta = { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id };
         let done = false;
@@ -697,27 +827,44 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
           throw refusal(ending);
         }
         signal.addEventListener("abort", finish, { once: true });
-        // A stream that cannot be written to is over.
+        // A reader that stops taking what the stream sends holds it in memory, up to the stream's budget and the
+        // process's. Past them the stream ends with its result, before the event that did not fit, and its client
+        // reconnects from its cursor: what it missed comes from what is kept, or is told as a gap.
+        const queued = backlog((underlying as { transport?: unknown }).transport, ctx.mcpReq.id, ctx.http?.req);
+        // A stream that cannot be written to is over. An event that does not fit ends it, and is not sent.
         const notify = async (method: string, body: object) => {
-          if (signal.aborted) return;
+          if (signal.aborted) return false;
+          const params = { ...body, _meta: meta };
+          const size = bytes(params);
+          const event = method === "event";
+          if (event && !queued.room(size)) {
+            finish();
+            return false;
+          }
           try {
-            await ctx.mcpReq.notify({ method: `notifications/events/${method}`, params: { ...body, _meta: meta } });
+            await ctx.mcpReq.notify({ method: `notifications/events/${method}`, params });
           } catch {
             finish();
+            return false;
           }
+          queued.hand(size, event);
+          return true;
         };
         // The stream follows its cursor: emitted events wake it, and a type with a check function is asked again
         // every interval. What it is owed waits in the buffer or the source, not here, so a slow client is not owed
         // more memory than one batch; when what it is owed is no longer kept, it is told of the gap.
         let cursor: string | null = request.cursor ?? null;
         let behind = true;
-        // What a type with a check function emitted and the stream has yet to send. The check function finds it
-        // too, so when too much waits the oldest is let go.
+        // What a type with a check function emitted and the stream has yet to send, which waits only where sending
+        // waits for the reader, as over stdio. The check function finds it too, so when more than the stream's budget
+        // waits the stream ends, and its client reconnects from its cursor.
         const pushed: Kept[] = [];
+        let pushedSize = 0;
         const sink = (kept: Kept) => {
           if (type.check) {
             pushed.push(kept);
-            if (pushed.length > KEPT_EVENTS) pushed.shift();
+            pushedSize += kept.size ?? 0;
+            if (pushedSize > STREAM_BACKLOG) finish();
           } else behind = true;
           wake();
         };
@@ -763,8 +910,7 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
                 first = false;
                 for (const error of result.failures ?? []) await notify("error", { error });
                 for (const event of result.events) {
-                  if (done) break;
-                  await notify("event", event);
+                  if (done || !(await notify("event", event))) break;
                   cursor = event.cursor ?? null;
                 }
                 if (done) break;
@@ -778,10 +924,13 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
             }
             // What a type with a check function emits is sent at once, at the cursor the stream has reached.
             while (pushed.length && !done) {
+              const kept = pushed[0]!;
               let failure: EventError | undefined;
-              const event = shape(type, pushed.shift()!, held, error => { failure = error; });
+              const event = shape(type, kept, held, error => { failure = error; });
               if (failure) await notify("error", { error: failure });
-              if (event) await notify("event", { ...event, cursor });
+              if (event && !(await notify("event", { ...event, cursor }))) break;
+              pushed.shift();
+              pushedSize -= kept.size ?? 0;
             }
             if (done) break;
             let timer: ReturnType<typeof setTimeout> | undefined;
@@ -799,6 +948,7 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
           }
         } finally {
           clearInterval(beat);
+          queued.end();
           type.sinks.delete(sink);
           // What was emitted to this subscription alone and not sent is owed to it as a gap when it comes back.
           if (held.id === subscribed.lease && pushed.some(kept => kept.target === held.id)) owe(type, held.id);
