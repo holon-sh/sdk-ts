@@ -27,11 +27,10 @@ const secret = `whsec_${randomBytes(32).toString("base64")}`;
 // A server whose rooms say things, by webhook too. A room can be closed to its subscribers, and whether one is open
 // can become impossible to tell.
 async function rooms(t: TestContext, options?: WebhookOptions & { webhookTtl?: number }) {
-  // Access is checked again at each heartbeat, made short here.
   const closed = new Set<string>();
   const unknown = new Set<string>();
   const { webhookTtl = 30 * 60_000, ...webhook } = options ?? {};
-  const events = createEvents({ webhookTtl, heartbeat: 20, webhook: { allowInsecureLocalCallbacksForTesting: true, ...webhook } });
+  const events = createEvents({ webhookTtl, webhook: { allowInsecureLocalCallbacksForTesting: true, ...webhook } });
   const said = events.event("room.said", {
     inputSchema: z.object({ room: z.string() }),
     authorize: ({ room }) => {
@@ -126,6 +125,8 @@ test("a subscription is delivered its events while it is refreshed, lapses when 
 });
 
 test("a subscription whose caller loses access is terminated while nothing is emitted, though a check of another one keeps failing", { timeout: 10_000 }, async t => {
+  // Access is checked again every thirty seconds, which the test's clock jumps to.
+  t.mock.timers.enable({ apis: ["setInterval"] });
   const server = await rooms(t);
   const { url, ended } = await callback(t);
   const { subscribe } = await subscriber(t, server.endpoint, url);
@@ -134,7 +135,7 @@ test("a subscription whose caller loses access is terminated while nothing is em
   const closing = await subscribe("a");
   server.lose("b");
   server.close("a");
-  await until(() => ended(closing.id) && ended(failing.id));
+  await until(() => { t.mock.timers.tick(30_000); return ended(closing.id) && ended(failing.id); });
   assert.deepEqual([ended(closing.id).code, ended(closing.id).message], [-32024, "Forbidden"]);
   // Access that cannot be told for a few checks in a row ends the subscription with why.
   assert.equal(ended(failing.id).message, "The directory is down.");
@@ -149,7 +150,6 @@ test("a subscription its type ends while it is being set up is refused, delivers
   const tick = events.event("tick", {
     inputSchema: z.object({}),
     payloadSchema: z.object({}),
-    interval: 10,
     // The first check, which setting up the subscription waits for, takes until the test lets it go.
     check: async cursor => {
       if (cursor === null) { checking.resolve(); await reading.promise; return { events: [], cursor: "0" }; }

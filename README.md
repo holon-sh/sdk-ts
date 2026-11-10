@@ -102,13 +102,12 @@ The client is pushed each event on a stream where the server offers one and poll
 
 To hand a page its state and then its changes, a tool returns the state together with `said.cursor()`, read in the same synchronous run, and the page subscribes from that cursor: it hears every change after the state, and none twice. Occurrences emitted one after another in one run reach each subscriber in that order with nothing of the same type between them, so a group of changes is emitted together or sent as one occurrence holding a list.
 
-A source that keeps its own history is read through a check function instead. Its cursor is the source's own, so a client resumes across restarts with nothing skipped. Polls are answered by it, streams ask it every `interval`, and the type can still `emit` to push at once:
+A source that keeps its own history is read through a check function instead. Its cursor is the source's own, so a client resumes across restarts with nothing skipped. Polls are answered by it, streams ask it every second, and the type can still `emit` to push at once:
 
 ```ts
 events.event("email.received", {
   inputSchema: z.object({ from: z.string() }),
   payloadSchema: z.object({ subject: z.string() }),
-  interval: 30_000,
   check: async (cursor, { from }) => {
     if (cursor === null) return { events: [], cursor: await mailbox.head() };
     const { messages, head } = await mailbox.since(cursor, from);
@@ -130,12 +129,12 @@ const said = events.event("room.said", {
 });
 
 said.terminate(subscriptionId);  // terminates one subscription; said.terminate() terminates them all
-said.remove();                   // stops offering the type; createEvents({ listChanged: true }) also tells clients
+said.remove();                   // stops offering the type
 ```
 
-A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. `createEvents` takes the sketch's `emitBuffer: { maxAge, maxEvents }` and `pollSubscriptionTtl`, the `interval` of polls and checks, and limits on subscriptions in all and per caller. Names follow the design sketch.
+A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. Each type keeps its last ten thousand events for ten minutes, polls are told to come back every second, a poll subscription ends a minute after its last poll, and subscriptions are limited to ten thousand in all and a thousand per caller. Names follow the design sketch.
 
-Poll, push and webhook delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Typed event names are not. A client learns that the event types changed only on a connection that lasts, such as stdio: over stateless HTTP it lists them again.
+Poll, push and webhook delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Typed event names are not. Clients are not told when the event types change: they list them again.
 
 ### Webhook delivery
 
@@ -145,7 +144,7 @@ A server delivers by webhook too when `createEvents` is given the sketch's `webh
 const events = createEvents({ webhookTtl: 30 * 60_000 });
 ```
 
-The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `terminate`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again at each `heartbeat`. Subscriptions are kept in memory, so after a restart each comes back when its client next refreshes it.
+The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `terminate`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again every thirty seconds, at each heartbeat. Subscriptions are kept in memory, so after a restart each comes back when its client next refreshes it.
 
 Every subscription expires unless its client refreshes it: one that never expires would need storage the server does not have. On Holon, an app that delivers webhooks leaves `egress` undeclared in `holon.yaml`, since declared hosts are the only ones it can reach.
 
