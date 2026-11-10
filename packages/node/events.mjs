@@ -1,7 +1,6 @@
 // The server side of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 // It serves the poll and push delivery modes of emit-only event types. Webhook delivery and check functions are not here.
-import { randomUUID } from "node:crypto";
 import { ProtocolError } from "@modelcontextprotocol/server";
 
 /** The extension's identifier, under which a server declares it in capabilities.extensions. */
@@ -20,8 +19,9 @@ const params = { "~standard": { version: 1, vendor: "holon-sh", validate: value 
  * from the server every `heartbeat` milliseconds, and a poll is told to come back after `nextPollMs`.
  */
 export function createEvents({ maxAge = 10 * 60_000, maxEvents = 10_000, heartbeat = 30_000, nextPollMs = 1000 } = {}) {
-  // Cursors are positions in this process's memory. One from another process names nothing here.
-  const epoch = randomUUID();
+  // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
+  // without node:crypto, which is not there when a server is evaluated for its contract.
+  const epoch = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   const types = new Map();
 
   const position = (type, sequence = type.sequence) => `${epoch}.${sequence}`;
@@ -74,7 +74,7 @@ export function createEvents({ maxAge = 10 * 60_000, maxEvents = 10_000, heartbe
       const type = { name, description, inputSchema, payloadSchema, match, transform, sequence: 0, dropped: 0, kept: [], streams: new Set() };
       types.set(name, type);
       return {
-        emit(data, { eventId = randomUUID(), timestamp = new Date().toISOString() } = {}) {
+        emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString() } = {}) {
           const kept = { sequence: ++type.sequence, at: Date.now(), occurrence: { eventId, name, timestamp, data } };
           type.kept.push(kept);
           while (type.kept.length > maxEvents || type.kept[0].at < kept.at - maxAge) type.dropped = type.kept.shift().sequence;
