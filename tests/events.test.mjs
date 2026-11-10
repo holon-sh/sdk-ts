@@ -468,7 +468,7 @@ test("a subscription from the cursor read with a snapshot hears every change aft
 });
 
 test("a stream whose reader stops reading is sent no more than its queue holds, and is told of a gap once it reads again", async t => {
-  const { factory, say } = rooms({ maxQueued: 20, heartbeat: 60_000 });
+  const { factory, say } = rooms({ maxQueued: 20, heartbeat: 60_000, keep: { bytes: 64 * 2 ** 20 } });
   const { endpoint } = await serve(t, factory);
   // A reader that stops pulling the response, as a page whose tab is frozen does.
   let stalled = false;
