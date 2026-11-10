@@ -1,11 +1,14 @@
 // The server side of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 // The draft is experimental, so this lives under ext and may change with it.
-// It serves the poll and push delivery modes. Another delivery mode is a module of its own, given to createEvents,
-// which reaches the event types through the internals below. Names follow the sketch, and types are the MCP SDK's
-// own wherever it has them.
+// It serves the poll and push delivery modes, and webhook delivery when given a webhookTtl, from a module of its own
+// that reaches the event types through the internals below. Names follow the sketch, and types are the MCP SDK's own
+// wherever it has them.
 import { ProtocolError, ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import type { AuthInfo, JSONRPCErrorResponse, McpServer, Server, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
+import { webhooks, type WebhookOptions } from "./webhooks.js";
+
+export type { WebhookOptions } from "./webhooks.js";
 
 /** The request a subscription came in, as Holon admitted it: read its caller with getContext. */
 export type SubscriptionContext = { authInfo?: AuthInfo | undefined } | undefined;
@@ -83,7 +86,7 @@ export interface EventDefinition<A, D> {
    * what is emitted. Without it, emitted events are kept in memory and polls and streams are served from there.
    */
   check?: (cursor: string | null, args: A, context: SubscriptionContext) => EventResult<D> | Promise<EventResult<D>>;
-  /** The delivery modes this event type offers. Every mode served unless given. */
+  /** The delivery modes this event type offers. Every mode served unless given, except webhook for a type with a check function, which webhook delivery does not read. */
   delivery?: DeliveryModeName[];
   /**
    * Whether the caller may subscribe with these arguments. A subscription is refused with Forbidden when it may not,
@@ -142,10 +145,16 @@ export interface Emitter<D> {
   remove(): void;
 }
 export interface EventsOptions {
-  /** Delivery modes besides poll and push, each from a module of its own. */
-  modes?: DeliveryMode[];
+  /**
+   * The sketch's webhook_ttl, which turns webhook delivery on: the longest lifetime granted to a webhook
+   * subscription, in milliseconds. A client's suggestion is held to it, and every grant expires. Without it, webhook
+   * delivery is not offered.
+   */
+  webhookTtl?: number;
+  /** For tests of webhook delivery. */
+  webhook?: WebhookOptions;
 }
-/** A delivery mode besides poll and push. It registers its requests on each server and is listed by events/list. */
+/** A delivery mode besides poll and push: webhook. It registers its requests on each server and is listed by events/list. Not for applications. */
 export interface DeliveryMode {
   readonly name: string;
   serve(server: object, internals: Internals): void;
@@ -195,6 +204,8 @@ export interface EventTypeState {
   readonly delivery: DeliveryModeName[];
   readonly interval: number;
   readonly check?: EventDefinition<unknown, unknown>["check"];
+  /** Whether the caller may hold the subscription, which a mode that holds subscriptions long asks again. */
+  authorize?(args: unknown, context: SubscriptionContext): boolean | Promise<boolean>;
   /** Told each event as it is emitted: a push stream is one, and a delivery mode adds its own. */
   readonly sinks: Set<(kept: Kept) => void>;
   /** The subscriptions held by every mode, by id. */
@@ -319,7 +330,8 @@ const PAGE_SIZE = 100;
  * which outlive the process. A type is asked again, and a poll told to come back, every second. A stream hears from
  * the server every thirty seconds.
  */
-export function createEvents({ modes = [] }: EventsOptions = {}): Events {
+export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Events {
+  const modes = webhookTtl === undefined ? [] : [webhooks({ ...webhook, ttl: webhookTtl, heartbeat: HEARTBEAT })];
   const offered = ["poll", "push", ...modes.map(mode => mode.name)];
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
   // without node:crypto, which is not there when a server is evaluated for its contract.
@@ -569,10 +581,12 @@ export function createEvents({ modes = [] }: EventsOptions = {}): Events {
      * event from their arguments, and `transform` shapes its data for each. `check` returns what happened after a
      * cursor, for event types whose source keeps its own history.
      */
-    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, check, delivery = offered, authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D> {
+    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, check, delivery = offered.filter(mode => !check || mode !== "webhook"), authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D> {
       if (types.has(name)) throw new Error(`Event ${name} is already declared.`);
       const unknown = delivery.filter(mode => !offered.includes(mode));
       if (unknown.length || !delivery.length) throw new Error(`Event ${name} is delivered by ${delivery.join(", ") || "nothing"}, but only ${offered.join(", ")} are served.`);
+      // Webhook delivery sends what is emitted, and does not ask a check function.
+      if (check && delivery.includes("webhook")) throw new Error(`Event ${name} has a check function, which webhook delivery does not read.`);
       const type: Type<A, D> = {
         name, order: ++declared, description, inputSchema, payloadSchema, _meta, match, transform, check: check as Type["check"], interval: INTERVAL, delivery, authorize, onSubscribe, onUnsubscribe,
         sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(), owed: new Map(),

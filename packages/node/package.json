@@ -66,6 +66,7 @@
   "dependencies": {
     "@modelcontextprotocol/client": "^2.3.1",
     "ipaddr.js": "^2.5.0",
+    "standardwebhooks": "^1.1.1",
     "undici": "^7.16.0"
   },
   "peerDependencies": {

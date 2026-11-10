@@ -134,7 +134,21 @@ said.remove();                   // stops offering the type
 
 A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. Each type keeps its last ten thousand events for ten minutes, polls are told to come back every second, a poll subscription ends a minute after its last poll, and subscriptions are limited to ten thousand in all and a thousand per caller. Names follow the design sketch.
 
-Poll and push delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery and typed event names are not. Clients are not told when the event types change: they list them again.
+Poll, push and webhook delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Typed event names are not. Clients are not told when the event types change: they list them again.
+
+### Webhook delivery
+
+A server delivers by webhook too when `createEvents` is given the sketch's `webhookTtl`, the longest lifetime it grants a webhook subscription. Nothing else changes: `emit` reaches webhook subscribers as it does the others. A type with a check function is offered by poll and push only, since webhook delivery sends what is emitted.
+
+```ts
+const events = createEvents({ webhookTtl: 30 * 60_000 });
+```
+
+The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `terminate`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again every thirty seconds, at each heartbeat. Subscriptions are kept in memory, so after a restart each comes back when its client next refreshes it.
+
+Every subscription expires unless its client refreshes it: one that never expires would need storage the server does not have. On Holon, an app that delivers webhooks leaves `egress` undeclared in `holon.yaml`, since declared hosts are the only ones it can reach.
+
+Subscribing by webhook is for clients that can be reached at an `https` URL. This client does not subscribe by webhook yet: a Holon app cannot serve the route a receiver needs, so it subscribes by push or poll.
 
 ## Community
 
