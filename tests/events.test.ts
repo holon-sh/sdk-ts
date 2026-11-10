@@ -5,7 +5,7 @@ import { Client, InMemoryTransport, StreamableHTTPClientTransport } from "@model
 import { McpServer, ProtocolError } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps, type Subscription } from "holon-sh/runtime";
-import { createEvents, type EventDefinition, type EventsOptions } from "holon-sh/events";
+import { createEvents, type EventDefinition, type EventsOptions } from "holon-sh/ext/events";
 import { serve, serveLegacy } from "./helpers.ts";
 
 const identity = { name: "test", version: "1.0.0" };
@@ -55,10 +55,10 @@ test("a subscription is pushed the events its arguments match, and resumes from 
   const { endpoint, http } = await serve(t, factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
-  assert.deepEqual((await app.events.list()).map(({ name, delivery }) => ({ name, delivery })), [{ name: "room.said", delivery: ["poll", "push"] }]);
+  assert.deepEqual((await app.ext.events.list()).map(({ name, delivery }) => ({ name, delivery })), [{ name: "room.said", delivery: ["poll", "push"] }]);
 
   say("a", "ann", "before the subscription");
-  const subscription = await app.events.subscribe("room.said", { room: "a", listener: "bob" });
+  const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
   assert.equal(subscription.delivery, "push");
   say("a", "ann", "one");
   say("a", "bob", "bob's own words");
@@ -71,8 +71,8 @@ test("a subscription is pushed the events its arguments match, and resumes from 
   say("a", "cat", "three");
   assert.deepEqual(await heard, ["one", "two", "three"]);
 
-  await assert.rejects(app.events.subscribe("room.left", {}), /no event room.left/);
-  await assert.rejects(app.events.subscribe("room.said", { room: 1 }), /Invalid arguments|status|400/);
+  await assert.rejects(app.ext.events.subscribe("room.left", {}), /no event room.left/);
+  await assert.rejects(app.ext.events.subscribe("room.said", { room: 1 }), /Invalid arguments|status|400/);
 });
 
 test("a subscription to a 2025 server is pushed its events, and ending it ends its session", async t => {
@@ -96,7 +96,7 @@ test("a subscription to a 2025 server is pushed its events, and ending it ends i
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint, fetch: counting } });
   t.after(() => app!.close());
   // A 2025 server answers its initialization as a stream too, which is not the subscription's.
-  const subscription = await app!.events.subscribe("room.said", { room: "a" });
+  const subscription = await app!.ext.events.subscribe("room.said", { room: "a" });
   said.emit({ text: "one" }, { eventId: "one" });
   assert.deepEqual(await take(subscription, 1), ["one"]);
   await until(() => ended.length === 1 && methods.includes("DELETE"));
@@ -107,7 +107,7 @@ test("a poll returns what happened since its cursor, and says when events were s
   const { endpoint } = await serve(t, first.factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
-  const subscription = await app.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
+  const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
   first.say("a", "ann", "one");
   first.say("a", "ann", "two");
   assert.deepEqual(await take(subscription, 2), ["one", "two"]);
@@ -118,7 +118,7 @@ test("a poll returns what happened since its cursor, and says when events were s
   const { rooms: restarted } = createApps(identity, { rooms: null }, { rooms: { endpoint: later.endpoint } });
   t.after(() => restarted.close());
   let gaps = 0;
-  const resumed = await restarted.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll", cursor: subscription.cursor, onGap: () => gaps++ });
+  const resumed = await restarted.ext.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll", cursor: subscription.cursor, onGap: () => gaps++ });
   second.say("a", "ann", "three");
   assert.deepEqual(await take(resumed, 1), ["three"]);
   assert.equal(gaps, 1);
@@ -127,7 +127,7 @@ test("a poll returns what happened since its cursor, and says when events were s
   const contract = { tools: [], events: [{ name: "room.said", payloadSchema: { type: "object", required: ["volume"] } }] };
   const { rooms: typed } = createApps(identity, { rooms: contract }, { rooms: { endpoint: later.endpoint } });
   t.after(() => typed.close());
-  const strict = await typed.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
+  const strict = await typed.ext.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
   second.say("a", "ann", "four");
   await assert.rejects(take(strict, 1), /Invalid data of rooms room.said/);
 });
@@ -292,9 +292,9 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   t.after(() => app.close());
 
   // Two streams of one caller with the same arguments are one subscription, set up once, and both receive.
-  const first = await app.events.subscribe("room.said", { room: "a", listener: "bob" });
-  const second = await app.events.subscribe("room.said", { listener: "bob", room: "a" });
-  const other = await app.events.subscribe("room.said", { room: "a", listener: "cat" });
+  const first = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
+  const second = await app.ext.events.subscribe("room.said", { listener: "bob", room: "a" });
+  const other = await app.ext.events.subscribe("room.said", { room: "a", listener: "cat" });
   assert.deepEqual(begun.map(({ delivery, args }) => ({ delivery, args })), [{ delivery: "push", args: { room: "a", listener: "bob" } }, { delivery: "push", args: { room: "a", listener: "cat" } }]);
   const [bob, cat] = begun.map(({ id }) => id);
   // Emitted to bob's subscription alone, and not asked whether bob hears his own words.
@@ -319,8 +319,8 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   await until(() => ended.length === 3);
 
   // Polls for the same arguments by the same caller are one subscription, which ends once they stop.
-  const polled = await app.events.subscribe("room.said", { room: "b", listener: "bob" }, { delivery: "poll" });
-  const again = await app.events.subscribe("room.said", { listener: "bob", room: "b" }, { delivery: "poll" });
+  const polled = await app.ext.events.subscribe("room.said", { room: "b", listener: "bob" }, { delivery: "poll" });
+  const again = await app.ext.events.subscribe("room.said", { listener: "bob", room: "b" }, { delivery: "poll" });
   assert.deepEqual(begun.slice(3).map(({ delivery }) => delivery), ["poll"]);
   polled.cancel();
   again.cancel();
@@ -442,13 +442,13 @@ test("a subscription the caller may not have is refused, and one the app ends is
   const { endpoint } = await serve(t, factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
-  await assert.rejects(app.events.subscribe("room.said", { room: "a", listener: "eve" }), refusedWith(-32024));
+  await assert.rejects(app.ext.events.subscribe("room.said", { room: "a", listener: "eve" }), refusedWith(-32024));
 
-  const bob = await app.events.subscribe("room.said", { room: "a", listener: "bob" });
-  const cat = await app.events.subscribe("room.said", { room: "a", listener: "cat" });
-  const dan = await app.events.subscribe("room.said", { room: "a", listener: "dan" }, { delivery: "poll" });
+  const bob = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
+  const cat = await app.ext.events.subscribe("room.said", { room: "a", listener: "cat" });
+  const dan = await app.ext.events.subscribe("room.said", { room: "a", listener: "dan" }, { delivery: "poll" });
   // Every delivery mode counts against the limit.
-  await assert.rejects(app.events.subscribe("room.said", { room: "a", listener: "fay" }, { delivery: "poll" }), refusedWith(-32025, { limit: "subscriptions", max: 3 }));
+  await assert.rejects(app.ext.events.subscribe("room.said", { room: "a", listener: "fay" }, { delivery: "poll" }), refusedWith(-32025, { limit: "subscriptions", max: 3 }));
 
   said.end(subscriptions.get("bob"), { code: -32024, message: "Forbidden", data: { reason: "Left the room" } });
   await assert.rejects(take(bob, 1), refusedWith(-32024, { reason: "Left the room" }));
@@ -527,7 +527,7 @@ test("a subscription from the cursor read with a snapshot hears every change aft
   const snapshot = { state: [...state], cursor: said.cursor() };
   tell("after the snapshot");
   tell("later still");
-  const subscription = await app.events.subscribe("room.said", { room: "a", listener: "bob" }, { cursor: snapshot.cursor });
+  const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" }, { cursor: snapshot.cursor });
   tell("once subscribed");
   assert.deepEqual([...snapshot.state, ...await take(subscription, 3)], state);
 });

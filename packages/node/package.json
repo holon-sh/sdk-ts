@@ -27,9 +27,9 @@
       "types": "./dist/context.d.ts",
       "import": "./dist/context.js"
     },
-    "./events": {
-      "types": "./dist/events.d.ts",
-      "import": "./dist/events.js"
+    "./ext/events": {
+      "types": "./dist/ext/events.d.ts",
+      "import": "./dist/ext/events.js"
     },
     "./protocol": {
       "types": "./dist/protocol.d.ts",
@@ -40,7 +40,7 @@
     "*": {
       "runtime": ["./dist/runtime.d.ts"],
       "context": ["./dist/context.d.ts"],
-      "events": ["./dist/events.d.ts"],
+      "ext/events": ["./dist/ext/events.d.ts"],
       "protocol": ["./dist/protocol.d.ts"]
     }
   },

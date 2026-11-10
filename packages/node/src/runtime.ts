@@ -427,7 +427,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       };
     };
     // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
-    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, events: Object.freeze({ list, subscribe: subscribe as RuntimeClient["events"]["subscribe"] }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
+    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, ext: Object.freeze({ events: Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] }) }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
   }
   return Object.freeze(apps);
 }
