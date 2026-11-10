@@ -161,10 +161,30 @@ export interface EventsOptions {
   /**
    * How many notifications a stream sends that its reader has not read, before it stops sending. Once the reader has
    * read them, it is told of a gap and goes on from the newest. A thousand unless given.
+   *
+   * Over HTTP the MCP SDK queues what a stream sends without waiting for its reader, and has no public way to say how
+   * much waits. On its per-request transport, the one modern clients reach, the stream measures its queue by reading a
+   * private field of the SDK: it stops at this limit and at `maxQueuedBytes`, and a reader that takes nothing for two
+   * heartbeats has its stream closed, which frees its place. On any transport that cannot be measured, such as the
+   * one the handler serves 2025 clients with, the stream is recycled instead: it ends cleanly once it has handed over
+   * `maxQueuedBytes`, and its client comes back from its cursor, losing nothing if it was keeping up. A public
+   * backpressure signal in the SDK would remove the private read. Over stdio the SDK waits for the reader, so nothing
+   * is queued.
    */
   maxQueued?: number;
-  /** How many bytes those notifications take, as JSON. An event is sent alone when nothing waits, whatever it weighs. 1 MiB unless given. */
+  /**
+   * How many bytes those notifications take, as JSON; on a stream that is recycled, how many it hands over in its
+   * life. An event is sent alone when nothing waits, whatever it weighs. 1 MiB unless given.
+   */
   maxQueuedBytes?: number;
+  /**
+   * How many bytes every stream over HTTP may hold for readers that have not read them: what is measured waiting,
+   * and a whole `maxQueuedBytes` for each stream that cannot be measured (and each new stream, until its first frame
+   * shows which it is). Past it, new streams are refused with ResourceExhausted and measured ones stop growing. 16 MiB
+   * unless given. With the defaults, an app that sets nothing holds at most 16 MiB queued and 4 MiB kept per event
+   * type.
+   */
+  maxQueuedTotal?: number;
   /**
    * How long a poll is told to wait before the next, and how often a stream asks a check function, in milliseconds,
    * for every event type that does not give its own. One second unless given.

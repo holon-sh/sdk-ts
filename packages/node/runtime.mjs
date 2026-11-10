@@ -272,8 +272,11 @@ export function createApps(identity, contracts, bindings, options) {
         }
       };
       const stream = async () => {
+        let quick = 0;
         while (!ended.aborted) {
           const quiet = new AbortController();
+          const opened = Date.now();
+          let answered = false;
           // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
           const watched = async (input, init) => {
             const response = await (resolved.fetch ?? fetch)(input, init);
@@ -312,6 +315,7 @@ export function createApps(identity, contracts, bindings, options) {
             on("terminated", ({ error }) => { terminated = error; quiet.abort(); });
             heard();
             await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, anything, { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
+            answered = true;
           } catch (error) {
             if (!terminated && !ended.aborted && (!confirmed || refused(error))) throw error;
           } finally {
@@ -319,7 +323,9 @@ export function createApps(identity, contracts, bindings, options) {
             await connection.close();
           }
           if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated?.message}`), { code: terminated?.code, data: terminated?.data });
-          await delay(1000, ended);
+          // A stream the server ended with its answer is come back to at once, unless that keeps happening at once.
+          quick = answered && Date.now() - opened < 1000 ? quick + 1 : 0;
+          await delay(answered && quick < 3 ? 0 : 1000, ended);
         }
       };
       void (delivery === "push" ? stream() : poll())

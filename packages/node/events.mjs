@@ -50,12 +50,15 @@ const identify = async (who, name, args) => {
 // How many bytes a message takes as JSON, as the limits on what is kept and queued count them.
 const encoder = new TextEncoder();
 const bytes = value => encoder.encode(JSON.stringify(value)).byteLength;
-// The MCP SDK queues a notification on an HTTP response without waiting for the reader, and does not say how much
-// waits. Its per-request transport keeps the response's stream controller, whose desiredSize falls by one for each
-// frame waiting. Over stdio the SDK waits for the pipe to drain instead, so nothing waits there.
-const waiting = server => {
+// The MCP SDK queues a notification on an HTTP response without waiting for the reader, and has no public way to say
+// how much waits. This reads a private field of its per-request HTTP transport: the response's stream controller,
+// whose desiredSize falls by one for each frame waiting. Where it is absent (the handler's fallback transport, or a
+// release that renames it), it answers undefined and a stream is bounded by what it hands over in its lifetime
+// instead. A public backpressure signal in the SDK would replace this. Over stdio the SDK waits for the pipe to
+// drain, so nothing waits there.
+const probe = server => {
   const size = server.transport?._sse?.controller?.desiredSize;
-  return typeof size === "number" ? Math.max(0, 1 - size) : 0;
+  return typeof size === "number" ? Math.max(0, 1 - size) : undefined;
 };
 // A caller without an identity gets an id of its own for each stream.
 const unique = () => `sub_${hex(crypto.getRandomValues(new Uint8Array(16)))}`;
@@ -71,7 +74,7 @@ const integer = (value, minimum) => value === undefined || Number.isInteger(valu
  */
 export function createEvents({
   keep: { events: keptEvents = 10_000, age: keptAge = 10 * 60_000, bytes: keptBytes = 4 * 2 ** 20 } = {},
-  maxQueued = 1000, maxQueuedBytes = 2 ** 20, interval = 1000, heartbeat = 30_000,
+  maxQueued = 1000, maxQueuedBytes = 2 ** 20, maxQueuedTotal = 16 * 2 ** 20, interval = 1000, heartbeat = 30_000,
   pollLease, maxSubscriptions = 10_000, maxSubscriptionsPerCaller = 100, pageSize = 100, listChanged = false, modes = [],
 } = {}) {
   const offered = ["poll", "push", ...modes.map(mode => mode.name)];
@@ -296,6 +299,23 @@ export function createEvents({
     return held;
   };
 
+  // What every stream over HTTP may hold for readers that have not read it: the bytes measured waiting, and a whole
+  // budget for each stream that cannot be measured.
+  let queued = 0;
+  const exhausted = () => refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "queuedBytes", max: maxQueuedTotal } });
+  // Streams that are measured are looked at by one coarse timer for the process, not a timer each.
+  const watched = new Set();
+  let ticking;
+  const watch = look => {
+    watched.add(look);
+    ticking ??= setInterval(() => {
+      for (const each of watched) each();
+      if (!watched.size) ticking = void clearInterval(ticking);
+    }, 1000);
+    ticking.unref?.();
+    return () => watched.delete(look);
+  };
+
   const changed = () => {
     if (!listChanged) return;
     for (const reference of served) {
@@ -449,6 +469,20 @@ export function createEvents({
         const { type, subscription: subscribed } = await subscription(request, ctx.http, "push");
         const { signal } = ctx.mcpReq;
         const meta = { [SUBSCRIPTION]: ctx.mcpReq.id };
+        // How what a reader has not read is bounded. Over HTTP the SDK queues without waiting: a stream is measured
+        // where the probe can see its queue, and otherwise recycled, ended cleanly once it has handed over its budget
+        // so its client reconnects from its cursor. Elsewhere, as over stdio, sending waits for the reader. The SDK
+        // makes the queue when the first frame is written, so which it is is known only then; until then the stream
+        // holds a whole budget, as one that cannot be measured does for its life, and the process admits no more
+        // streams than it has budgets for.
+        const http = ctx.http !== undefined;
+        let measured = false;
+        let recycled = http;
+        let decided = !http;
+        let reserved = http ? maxQueuedBytes : 0;
+        if (http && queued + reserved > maxQueuedTotal) throw exhausted();
+        queued += reserved;
+        let held;
         let done = false;
         let ending;
         let wake = () => {};
@@ -456,42 +490,73 @@ export function createEvents({
           done = true;
           wake();
         };
-        const held = await open(type, { ...subscribed, delivery: "push" }, error => {
-          ending = error;
-          finish();
-        });
+        try {
+          held = await open(type, { ...subscribed, delivery: "push" }, error => {
+            ending = error;
+            finish();
+          });
+        } catch (error) {
+          queued -= reserved;
+          throw error;
+        }
         // A client that left while the subscription was being set up is not waited for.
-        if (signal.aborted) {
+        if (signal.aborted || ending) {
           held.close();
+          queued -= reserved;
+          // Ended while it was being set up: no stream is opened, and the request is refused.
+          if (ending) throw refusal(ending);
           return { _meta: {} };
         }
-        // Ended while it was being set up: no stream is opened, and the request is refused.
-        if (ending) {
-          held.close();
-          throw refusal(ending);
-        }
         signal.addEventListener("abort", finish, { once: true });
-        // A stream that cannot be written to is over.
+        // The sizes of the frames handed over and, where measured, not yet read, newest last.
+        let unread = [];
+        let unreadBytes = 0;
+        let handed = 0;
+        let eventsHanded = 0;
+        const account = () => {
+          const count = probe(server) ?? 0;
+          if (count < unread.length) unread = unread.slice(unread.length - count);
+          const now = unread.reduce((sum, each) => sum + each, 0);
+          queued += now - unreadBytes;
+          unreadBytes = now;
+          return count;
+        };
+        // A stream that cannot be written to is over. Every frame is counted, whatever it says.
         const notify = async (method, body) => {
           if (signal.aborted) return;
+          const params = { ...body, _meta: meta };
+          const size = bytes(params);
+          if (measured) {
+            unread.push(size);
+            unreadBytes += size;
+            queued += size;
+          } else handed += size;
           try {
-            await ctx.mcpReq.notify({ method: `notifications/events/${method}`, params: { ...body, _meta: meta } });
+            await ctx.mcpReq.notify({ method: `notifications/events/${method}`, params });
           } catch {
             finish();
+          }
+          if (!decided) {
+            decided = true;
+            if (probe(server) !== undefined) {
+              measured = true;
+              recycled = false;
+              queued -= reserved;
+              reserved = 0;
+              unwatch = watch(look);
+            }
           }
         };
         // The stream follows its cursor: emitted events wake it, and a type with a check function is asked again
         // every interval. What it is owed waits in the buffer or the source, and is read a queue's worth at a time.
-        // What it has sent but its reader has not read is bounded: past the bound, the stream stops sending, and once
-        // the reader has caught up it is told of a gap and carries on from the newest.
         let cursor = request.cursor ?? null;
         let behind = true;
         let overflowed = false;
-        // What a type with a check function emitted and the stream has yet to send. The check function finds it
-        // too, so when too much waits the oldest is let go.
+        let recycling = false;
+        // What a type with a check function emitted and the stream has yet to send. Past the bound the oldest is let
+        // go, and the reader is told of the gap.
         const pushed = [];
         let pushedBytes = 0;
-        // Some of it was let go, and the stream owes its reader word of the gap.
         let lost = false;
         const sink = kept => {
           if (type.check) {
@@ -506,22 +571,39 @@ export function createEvents({
           } else behind = true;
           wake();
         };
-        // The sizes of the frames sent and not yet read, newest last.
-        let unread = [];
+        // Whether an event may be handed over now. An event is sent alone when nothing waits, whatever it weighs.
         const room = size => {
-          const count = waiting(server);
-          unread = count ? unread.slice(-count) : [];
-          // An event is sent alone when nothing waits, whatever it weighs.
-          return count === 0 || count < maxQueued && unread.reduce((sum, each) => sum + each, size) <= maxQueuedBytes;
+          if (recycled) return eventsHanded === 0 || handed + size <= maxQueuedBytes;
+          if (!measured) return true;
+          const count = account();
+          return count === 0 || count < maxQueued && unreadBytes + size <= maxQueuedBytes && queued + size <= maxQueuedTotal;
         };
         const send = async event => {
-          const size = bytes(event);
-          if (!room(size)) return !(overflowed = true);
-          unread.push(size);
+          if (!room(bytes(event))) {
+            // A stream that cannot be measured ends here, and its client comes back from its cursor.
+            if (recycled) {
+              recycling = true;
+              finish();
+            } else overflowed = true;
+            return false;
+          }
+          eventsHanded++;
           await notify("event", event);
           cursor = event.cursor;
           return true;
         };
+        // A measured stream whose reader takes nothing for two heartbeats is closed, which frees its place; its
+        // client reconnects from its cursor if it is still there.
+        let progress = Date.now();
+        let seen = 0;
+        const look = () => {
+          const count = account();
+          if (count < seen || count === 0) progress = Date.now();
+          seen = count;
+          if (count && Date.now() - progress > 2 * heartbeat) finish();
+          else if (overflowed && !count) wake();
+        };
+        let unwatch = () => {};
         type.sinks.add(sink);
         let beat;
         let beating = false;
@@ -531,6 +613,11 @@ export function createEvents({
           try {
             // Access is checked again while the subscription lasts, and one that is lost ends it.
             if (type.authorize && !(await type.authorize(subscribed.arguments, subscribed.context))) return endSubscription(type, held.id, forbidden);
+            // A stream that cannot be measured is recycled before its heartbeats outgrow its budget too.
+            if (recycled && handed + bytes({ cursor, _meta: meta }) > maxQueuedBytes) {
+              recycling = true;
+              return finish();
+            }
             await notify("heartbeat", { cursor });
           } catch (error) {
             await notify("error", { error: described(error) });
@@ -543,8 +630,9 @@ export function createEvents({
           let due = 0;
           while (!done) {
             if (overflowed) {
-              // Nothing more is sent until the reader has read what waits.
-              while (!done && waiting(server)) await new Promise(resolve => setTimeout(resolve, 50));
+              // Nothing more is sent until the reader has read what waits; the process's timer says when.
+              while (!done && account()) await new Promise(resolve => { wake = resolve; });
+              wake = () => {};
               if (done) break;
               let head = cursor;
               try {
@@ -556,7 +644,6 @@ export function createEvents({
               cursor = head;
               pushed.length = 0;
               pushedBytes = 0;
-              unread = [];
               overflowed = false;
               lost = false;
               behind = false;
@@ -603,12 +690,13 @@ export function createEvents({
               if (cursor !== null) await notify("active", { cursor, truncated: true });
             }
             while (pushed.length && !done && !overflowed) {
-              const kept = pushed.shift();
-              pushedBytes -= kept.size;
+              const kept = pushed[0];
               let failure;
               const event = shape(type, kept, held, error => { failure = error; });
               if (failure) await notify("error", { error: failure });
               if (event && !(await send({ ...event, cursor }))) break;
+              pushed.shift();
+              pushedBytes -= kept.size;
             }
             if (done) break;
             if (overflowed) continue;
@@ -621,14 +709,22 @@ export function createEvents({
             clearTimeout(timer);
             wake = () => {};
           }
+          // What a type with a check function emitted and a recycled stream did not send is owed as a gap to the
+          // subscription when it comes back.
+          if (recycling && pushed.length && held.id === subscribed.lease) {
+            type.owed.delete(held.id);
+            type.owed.set(held.id, true);
+          }
           if (ending) {
             if (first) throw refusal(ending);
             await notify("terminated", { error: ending });
           }
         } finally {
           clearInterval(beat);
+          unwatch();
           type.sinks.delete(sink);
           held.close();
+          queued -= reserved + unreadBytes;
         }
         // The final frame, sent when the server ends the stream; when the client did, nobody is listening.
         return { _meta: {} };

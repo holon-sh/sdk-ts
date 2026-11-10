@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Client, InMemoryTransport, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { McpServer, ProtocolError } from "@modelcontextprotocol/server";
+import { McpServer, ProtocolError, createMcpHandler } from "@modelcontextprotocol/server";
+import { toNodeHandler } from "@modelcontextprotocol/node";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import { z } from "zod";
 import { createApps } from "holon-sh/runtime";
 import { createEvents } from "holon-sh/events";
@@ -543,6 +546,75 @@ test("a stream whose reader stops reading is sent no more than its queue holds, 
   assert.deepEqual(sent, sent.map((_, index) => index));
   assert.ok(sent.length < 400 / 2, `${sent.length} events were sent to a reader that was not reading`);
   assert.deepEqual(heard.slice(gap + 1).map(({ eventId }) => eventId), ["after the gap"]);
+});
+
+test("on the transport that cannot be measured, a stream is recycled once it has handed over its budget: a reader that keeps up loses nothing, and one that stalls holds no more", async t => {
+  const budget = 16_000;
+  const { factory, say } = rooms({ maxQueuedBytes: budget, maxQueuedTotal: 2 * budget, heartbeat: 60_000 });
+  // The handler serves clients of the 2025 protocol with a transport of its own, which the stream cannot see into.
+  const handler = createMcpHandler(factory, { legacy: "stateless" });
+  const dispatch = toNodeHandler(handler);
+  const http = createServer((req, res) => void dispatch(req, res).catch(() => res.destroy()));
+  t.after(async () => {
+    await handler.close();
+    http.closeAllConnections();
+    await new Promise(resolve => http.close(resolve));
+  });
+  http.listen(0, "127.0.0.1");
+  await once(http, "listening");
+  const endpoint = new URL(`http://127.0.0.1:${http.address().port}/mcp`);
+  let stalled = false;
+  let resume = () => {};
+  const stalling = async (input, init) => {
+    const response = await fetch(input, init);
+    if (!response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
+    const reader = response.body.getReader();
+    return new Response(new ReadableStream({
+      async pull(controller) {
+        if (stalled) await new Promise(resolve => { resume = resolve; });
+        const { done, value } = await reader.read();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      },
+    }, { highWaterMark: 0 }), response);
+  };
+  const client = new Client(identity);
+  await client.connect(new StreamableHTTPClientTransport(endpoint, { fetch: stalling }));
+  t.after(() => client.close());
+  const heard = [];
+  for (const kind of ["active", "event"]) client.setNotificationHandler(`notifications/events/${kind}`, { params: loose }, params => heard.push({ kind, ...params }));
+  const stream = cursor => client.request({ method: "events/stream", params: { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor } }, loose);
+
+  // A reader that keeps up comes back from its cursor each time the server ends its stream, and misses nothing.
+  let cursor = null;
+  let streams = 0;
+  let ending = stream(cursor);
+  await until(() => heard.length);
+  cursor = heard[0].cursor;
+  const words = "x".repeat(1000);
+  for (let index = 0; index < 40; index++) say("a", "ann", `${index} ${words}`);
+  while (heard.filter(({ kind }) => kind === "event").length < 40) {
+    // The last stream holds less than its budget and stays open.
+    if (await Promise.race([ending.then(() => "ended"), new Promise(resolve => setTimeout(resolve, 20))]) !== "ended") continue;
+    streams++;
+    cursor = heard.findLast(({ cursor }) => cursor)?.cursor ?? cursor;
+    ending = stream(cursor);
+  }
+  const events = heard.filter(({ kind }) => kind === "event");
+  assert.deepEqual(events.map(({ eventId }) => Number.parseInt(eventId)), [...Array(40).keys()]);
+  assert.ok(streams >= 2, `the stream was recycled ${streams} times`);
+  assert.equal(heard.some(({ truncated }) => truncated), false);
+
+  // A reader that stalls is handed at most its budget before its stream ends, whatever is emitted meanwhile.
+  const before = heard.length;
+  stalled = true;
+  for (let index = 0; index < 400; index++) say("a", "ann", `stalled ${index} ${words}`);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  stalled = false;
+  resume();
+  await ending;
+  const handed = heard.slice(before).filter(({ kind }) => kind === "event").length;
+  assert.ok(handed * words.length <= budget + words.length * 2, `${handed} events were handed to a reader that was not reading`);
 });
 
 test("a keyed event replaces the one before it with the same key without a gap, and events past the byte limit are skipped with one", async t => {
