@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdirSync, writeFileSync, cpSync, copyFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, cpSync, copyFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { temporary, typecheck } from "./helpers.mjs";
+import { temporary, typecheck } from "./helpers.ts";
 
-const repository = dirname(dirname(fileURLToPath(import.meta.url)));
+const repository = dirname(import.meta.dirname);
+const manifest = JSON.parse(readFileSync(join(repository, "package.json"), "utf8"));
 
 test("clients generated into a CommonJS project run on the packed package in NodeNext and Bundler", t => {
   const root = temporary(t);
@@ -15,7 +15,8 @@ test("clients generated into a CommonJS project run on the packed package in Nod
   const [tarball] = JSON.parse(packed.stdout);
   const consumer = join(root, "consumer");
   mkdirSync(consumer);
-  const dependencies = { "holon-sh": `file:${join(root, tarball.filename)}` };
+  // A Node.js project: its declarations, like the MCP SDK's, use Node's types.
+  const dependencies = { "holon-sh": `file:${join(root, tarball.filename)}`, "@types/node": manifest.devDependencies["@types/node"] };
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ type: "commonjs", private: true, imports: { "#holon-sh": "./generated/holon-sh/index.mjs" }, dependencies }));
   // Runtime dependencies come from the npm cache or registry.
   const installed = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: consumer, encoding: "utf8" });

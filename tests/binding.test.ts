@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { McpServer, CLIENT_CAPABILITIES_META_KEY } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps } from "holon-sh/runtime";
-import { serve } from "./helpers.mjs";
+import type { CompleteResult } from "holon-sh/protocol";
+import { serve } from "./helpers.ts";
 
 function orders() {
   const server = new McpServer({ name: "orders", version: "1" });
@@ -24,7 +25,7 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   const connections = { orders: 0, payments: 0 };
   const capabilities = { orders: new Set(), payments: new Set() };
   const originalFetch = globalThis.fetch;
-  const counting = app => async (input, init) => {
+  const counting = (app: keyof typeof connections): typeof fetch => async (input, init) => {
     if (typeof init?.body === "string") {
       const { method, params } = JSON.parse(init.body);
       if (method === "server/discover") connections[app] += 1;
@@ -32,13 +33,14 @@ test("a resolved binding keeps one session and reconnects after close, clients d
     }
     return originalFetch(input, init);
   };
+  // get_order has no output schema, so the tool returns its complete result.
   const resolved = createApps(identity, { orders: contract }, undefined, { resolve: app => app === "orders" ? { endpoint, fetch: counting("orders") } : undefined });
-  assert.deepEqual((await resolved.orders.tools.get_order({ id: "a" })).structuredContent, { id: "a" });
-  assert.deepEqual((await resolved.orders.tools.get_order({ id: "b" })).structuredContent, { id: "b" });
+  assert.deepEqual((await resolved.orders.tools.get_order({ id: "a" }) as CompleteResult<unknown>).structuredContent, { id: "a" });
+  assert.deepEqual((await resolved.orders.tools.get_order({ id: "b" }) as CompleteResult<unknown>).structuredContent, { id: "b" });
   assert.equal(connections.orders, 1);
   assert.deepEqual([...capabilities.orders], ['{"elicitation":{"form":{},"url":{}}}']);
   await resolved.orders.close();
-  assert.deepEqual((await resolved.orders.tools.get_order({ id: "c" })).structuredContent, { id: "c" });
+  assert.deepEqual((await resolved.orders.tools.get_order({ id: "c" }) as CompleteResult<unknown>).structuredContent, { id: "c" });
   assert.equal(connections.orders, 2);
   await resolved.orders.close();
   const apps = createApps(identity, { orders: contract });

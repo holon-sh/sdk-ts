@@ -1,0 +1,926 @@
+{
+  "pages": [
+    {
+      "id": "sdk/typescript/index",
+      "title": "TypeScript SDK",
+      "headings": [
+        {
+          "id": "sdk/typescript/index/section-typescript-sdk",
+          "title": "TypeScript SDK"
+        }
+      ],
+      "markdown": "# TypeScript SDK\n\nThe `holon-sh` package provides typed MCP clients and server-side HTML views for Node.js 22 or later.\n\n| Import | Purpose |\n| --- | --- |\n| `holon-sh` | Generated `apps`, `createApps`, and project types |\n| `holon-sh/runtime` | Low-level client construction and binding resolution |\n| `holon-sh/view` | Server registration of built HTML views |\n| `holon-sh/protocol` | Shared client/result types and `ToolCallError` |\n\nThe root exports named values: `import { apps, createApps } from \"holon-sh\"`.\nThe root re-exports your project's generated `Apps`, `Inputs`, `Outputs`, and\n`Resources` from `.holon/generated/holon-sh/`, so install `holon-sh` in the\nproject's own `node_modules` and generate clients before importing it.\n\nRun `holon types generate` from your project directory to use its `server.json`\ndependencies, or pass explicit dependencies with\n`holon types generate --server orders=https://orders.example.com/mcp`.\nThen run `holon types check --no-generate` to check calls against the generated types.\n\nGenerated clients accept endpoint bindings. Hosts such as `holon-ui` can use the\nlow-level runtime's `CreateOptions.session` hook to serve custom bindings.\nUse `appView` to register built HTML with a Node MCP server.\n\nSee [generate clients](https://holon-labs.dev/docs/#generate-clients),\n[bind and authenticate clients](https://holon-labs.dev/docs/#bind-sdk-clients),\nand [handle tool results](https://holon-labs.dev/docs/#handle-tool-results).\n\n[Source](https://github.com/holon-sh/sdk-ts/blob/ec243a7a925a65e86be2d14b1a1df35082d7fcb4/packages/node/package.json)\n"
+    },
+    {
+      "id": "sdk/typescript/modules",
+      "title": "TypeScript entrypoints",
+      "headings": [
+        {
+          "id": "sdk/typescript/modules/section-typescript-entrypoints",
+          "title": "TypeScript entrypoints"
+        },
+        {
+          "id": "sdk/typescript/modules/section-modules",
+          "title": "Modules"
+        }
+      ],
+      "markdown": "# TypeScript entrypoints\n\n## Modules\n\n- [docs/root](#sdk/typescript/root)\n- [protocol](#sdk/typescript/protocol)\n- [runtime](#sdk/typescript/runtime)\n- [src/view](#sdk/typescript/view)\n\n[Source](https://github.com/holon-sh/sdk-ts/blob/ec243a7a925a65e86be2d14b1a1df35082d7fcb4/packages/node/package.json)\n"
+    },
+    {
+      "id": "sdk/typescript/root",
+      "title": "holon-sh",
+      "headings": [
+        {
+          "id": "sdk/typescript/root/section-holon-sh",
+          "title": "holon-sh"
+        },
+        {
+          "id": "sdk/typescript/root/section-type-aliases",
+          "title": "Type Aliases"
+        },
+        {
+          "id": "sdk/typescript/root/apps",
+          "title": "Apps"
+        },
+        {
+          "id": "sdk/typescript/root/inputs",
+          "title": "Inputs"
+        },
+        {
+          "id": "sdk/typescript/root/inputtypes",
+          "title": "InputTypes"
+        },
+        {
+          "id": "sdk/typescript/root/outputs",
+          "title": "Outputs"
+        },
+        {
+          "id": "sdk/typescript/root/outputtypes",
+          "title": "OutputTypes"
+        },
+        {
+          "id": "sdk/typescript/root/resources",
+          "title": "Resources"
+        },
+        {
+          "id": "sdk/typescript/root/section-variables",
+          "title": "Variables"
+        },
+        {
+          "id": "sdk/typescript/root/apps-1",
+          "title": "apps"
+        },
+        {
+          "id": "sdk/typescript/root/section-functions",
+          "title": "Functions"
+        },
+        {
+          "id": "sdk/typescript/root/createapps",
+          "title": "createApps()"
+        },
+        {
+          "id": "sdk/typescript/root/section-parameters",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/root/section-bindings",
+          "title": "bindings"
+        },
+        {
+          "id": "sdk/typescript/root/section-options",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/root/section-returns",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/root/section-references",
+          "title": "References"
+        },
+        {
+          "id": "sdk/typescript/root/binding",
+          "title": "Binding"
+        },
+        {
+          "id": "sdk/typescript/root/createoptions",
+          "title": "CreateOptions"
+        },
+        {
+          "id": "sdk/typescript/root/endpointbinding",
+          "title": "EndpointBinding"
+        },
+        {
+          "id": "sdk/typescript/root/toolcallerror",
+          "title": "ToolCallError"
+        }
+      ],
+      "markdown": "[Holon TypeScript SDK](#sdk/typescript/modules) / docs/root\n\n# holon-sh\n\n## Type Aliases\n\n\n### Apps\n\n> **Apps** = `Record`\\<`never`, `never`\\>\n\n***\n\n\n### Inputs\n\n> **Inputs** = `Record`\\<`never`, `never`\\>\n\n***\n\n\n### InputTypes\n\n> **InputTypes** = [`Inputs`](#sdk/typescript/root/inputs)\n\n***\n\n\n### Outputs\n\n> **Outputs** = `Record`\\<`never`, `never`\\>\n\n***\n\n\n### OutputTypes\n\n> **OutputTypes** = [`Outputs`](#sdk/typescript/root/outputs)\n\n***\n\n\n### Resources\n\n> **Resources** = `Record`\\<`never`, `never`\\>\n\n## Variables\n\n\n### apps\n\n> `const` **apps**: [`Apps`](#sdk/typescript/root/apps)\n\n## Functions\n\n\n### createApps()\n\n> **createApps**(`bindings`, `options?`): [`Apps`](#sdk/typescript/root/apps)\n\n#### Parameters\n\n##### bindings\n\n`Record`\\<`string`, `never`\\>\n\n##### options?\n\n[`CreateOptions`](#sdk/typescript/runtime/createoptions)\\<[`Binding`](#sdk/typescript/runtime/binding)\\>\n\n#### Returns\n\n[`Apps`](#sdk/typescript/root/apps)\n\n## References\n\n\n### Binding\n\nRe-exports [Binding](#sdk/typescript/runtime/binding)\n\n***\n\n\n### CreateOptions\n\nRe-exports [CreateOptions](#sdk/typescript/runtime/createoptions)\n\n***\n\n\n### EndpointBinding\n\nRe-exports [EndpointBinding](#sdk/typescript/runtime/endpointbinding)\n\n***\n\n\n### ToolCallError\n\nRe-exports [ToolCallError](#sdk/typescript/protocol/toolcallerror)\n\n[Source](https://github.com/holon-sh/sdk-ts/blob/ec243a7a925a65e86be2d14b1a1df35082d7fcb4/packages/node/docs/root.d.ts)\n"
+    },
+    {
+      "id": "sdk/typescript/protocol",
+      "title": "holon-sh/protocol",
+      "headings": [
+        {
+          "id": "sdk/typescript/protocol/section-holon-sh-protocol",
+          "title": "holon-sh/protocol"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-classes",
+          "title": "Classes"
+        },
+        {
+          "id": "sdk/typescript/protocol/toolcallerror",
+          "title": "ToolCallError"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-extends",
+          "title": "Extends"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-constructors",
+          "title": "Constructors"
+        },
+        {
+          "id": "sdk/typescript/protocol/constructor",
+          "title": "Constructor"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-parameters",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-app",
+          "title": "app"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-tool",
+          "title": "tool"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-result",
+          "title": "result"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-returns",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-overrides",
+          "title": "Overrides"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-properties",
+          "title": "Properties"
+        },
+        {
+          "id": "sdk/typescript/protocol/data",
+          "title": "data?"
+        },
+        {
+          "id": "sdk/typescript/protocol/result",
+          "title": "result"
+        },
+        {
+          "id": "sdk/typescript/protocol/text",
+          "title": "text?"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-interfaces",
+          "title": "Interfaces"
+        },
+        {
+          "id": "sdk/typescript/protocol/toolclient",
+          "title": "ToolClient"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-type-parameters",
+          "title": "Type Parameters"
+        },
+        {
+          "id": "sdk/typescript/protocol/i",
+          "title": "I"
+        },
+        {
+          "id": "sdk/typescript/protocol/o",
+          "title": "O"
+        },
+        {
+          "id": "sdk/typescript/protocol/r",
+          "title": "R"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-properties-1",
+          "title": "Properties"
+        },
+        {
+          "id": "sdk/typescript/protocol/calltool",
+          "title": "callTool"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-type-parameters-1",
+          "title": "Type Parameters"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-k",
+          "title": "K"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-parameters-1",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-request",
+          "title": "request"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-options",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-returns-1",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/protocol/close",
+          "title": "close"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-returns-2",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/protocol/listtools",
+          "title": "listTools"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-parameters-2",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-options-1",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-returns-3",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/protocol/resources",
+          "title": "resources"
+        },
+        {
+          "id": "sdk/typescript/protocol/tools",
+          "title": "tools"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-type-aliases",
+          "title": "Type Aliases"
+        },
+        {
+          "id": "sdk/typescript/protocol/authprovider",
+          "title": "AuthProvider"
+        },
+        {
+          "id": "sdk/typescript/protocol/callmetadata",
+          "title": "CallMetadata"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-type-declaration",
+          "title": "Type Declaration"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-inputresponses",
+          "title": "inputResponses?"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-requeststate",
+          "title": "requestState?"
+        },
+        {
+          "id": "sdk/typescript/protocol/calloptions",
+          "title": "CallOptions"
+        },
+        {
+          "id": "sdk/typescript/protocol/completeresult",
+          "title": "CompleteResult"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-type-parameters-2",
+          "title": "Type Parameters"
+        },
+        {
+          "id": "sdk/typescript/protocol/output",
+          "title": "Output"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-type-declaration-1",
+          "title": "Type Declaration"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-iserror",
+          "title": "isError?"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-resulttype",
+          "title": "resultType"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-structuredcontent",
+          "title": "structuredContent"
+        },
+        {
+          "id": "sdk/typescript/protocol/elicithandler",
+          "title": "ElicitHandler"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-parameters-3",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-params",
+          "title": "params"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-returns-4",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/protocol/toolcalloptions",
+          "title": "ToolCallOptions"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-type-declaration-2",
+          "title": "Type Declaration"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-elicit",
+          "title": "elicit?"
+        },
+        {
+          "id": "sdk/typescript/protocol/toolresult",
+          "title": "ToolResult"
+        },
+        {
+          "id": "sdk/typescript/protocol/section-type-parameters-3",
+          "title": "Type Parameters"
+        },
+        {
+          "id": "sdk/typescript/protocol/output-1",
+          "title": "Output"
+        }
+      ],
+      "markdown": "[Holon TypeScript SDK](#sdk/typescript/modules) / protocol\n\n# holon-sh/protocol\n\n## Classes\n\n\n### ToolCallError\n\nError thrown by the tools convenience methods for error or input_required results. A failure's message carries its text; `data` is what the server said in a form to branch on. Pass elicit to answer questions in place, or continue later through callTool.\n\n#### Extends\n\n- `Error`\n\n#### Constructors\n\n\n##### Constructor\n\n> **new ToolCallError**(`app`, `tool`, `result`): [`ToolCallError`](#sdk/typescript/protocol/toolcallerror)\n\n###### Parameters\n\n###### app\n\n`string`\n\n###### tool\n\n`string`\n\n###### result\n\n`InputRequiredResult` \\| `Omit`\\<`Fields`\\<\\{\\[`key`: `string`\\]: `unknown`; \\}\\>, `\"structuredContent\"` \\| `\"isError\"`\\> & `object`\n\n###### Returns\n\n[`ToolCallError`](#sdk/typescript/protocol/toolcallerror)\n\n###### Overrides\n\n`Error.constructor`\n\n#### Properties\n\n\n##### data?\n\n> `readonly` `optional` **data?**: `unknown`\n\nThe failure's structured content, or else its text parsed as JSON when that text is JSON. Its shape is the server's own.\n\n\n##### result\n\n> `readonly` **result**: `InputRequiredResult` \\| `Omit`\\<`Fields`\\<\\{\\[`key`: `string`\\]: `unknown`; \\}\\>, `\"structuredContent\"` \\| `\"isError\"`\\> & `object`\n\n\n##### text?\n\n> `readonly` `optional` **text?**: `string`\n\nThe failure's text content, its text blocks joined by newlines. Undefined for questions left unanswered.\n\n## Interfaces\n\n\n### ToolClient\n\nClient operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises.\n\n#### Type Parameters\n\n\n##### I\n\n`I`\n\n\n##### O\n\n`O`\n\n\n##### R\n\n`R`\n\n#### Properties\n\n\n##### callTool\n\n> `readonly` **callTool**: \\<`K`\\>(`request`, `options?`) => `Promise`\\<[`ToolResult`](#sdk/typescript/protocol/toolresult)\\<`K` *extends* keyof `O` ? `O`\\[`K`\\] : `unknown`\\>\\>\n\nReturn the full MCP result, preserving error results and questions left unanswered. Arguments and successful output are contract-validated.\n\n###### Type Parameters\n\n###### K\n\n`K` *extends* `string`\n\n###### Parameters\n\n###### request\n\n`Omit`\\<\\{ \\}, `\"name\"` \\| `\"arguments\"`\\> & `object` & `object`\n\n###### options?\n\n[`ToolCallOptions`](#sdk/typescript/protocol/toolcalloptions)\n\n###### Returns\n\n`Promise`\\<[`ToolResult`](#sdk/typescript/protocol/toolresult)\\<`K` *extends* keyof `O` ? `O`\\[`K`\\] : `unknown`\\>\\>\n\n\n##### close\n\n> `readonly` **close**: () => `Promise`\\<`void`\\>\n\nClose the cached endpoint session. Scoped calls close their own session; a host-owned session is closed by its host.\n\n###### Returns\n\n`Promise`\\<`void`\\>\n\n\n##### listTools\n\n> `readonly` **listTools**: (`options?`) => `Promise`\\<\\{\\[`key`: `string`\\]: `unknown`; \\}\\>\n\nFetch the live tool catalog.\n\n###### Parameters\n\n###### options?\n\n[`CallOptions`](#sdk/typescript/protocol/calloptions)\n\n###### Returns\n\n`Promise`\\<\\{\\[`key`: `string`\\]: `unknown`; \\}\\>\n\n\n##### resources\n\n> `readonly` **resources**: \\{ readonly \\[U in string \\| number \\| symbol\\]: \\{ read: (options?: CallOptions) =\\> Promise\\<R\\[U\\]\\>; watch: (onChange: (value: R\\[U\\]) =\\> void \\| Promise\\<void\\>, options?: \\{ signal?: AbortSignal \\}) =\\> Promise\\<void\\> \\} \\}\n\nContracted JSON resources. read validates the first text content as JSON. watch requires an endpoint binding to a server that supports subscriptions; it reads the initial value, then listens for updates until aborted.\n\n\n##### tools\n\n> `readonly` **tools**: \\{ readonly \\[K in string \\| number \\| symbol\\]: (input: I\\[K\\], options?: ToolCallOptions) =\\> Promise\\<K extends keyof O ? O\\[K\\] : CompleteResult\\<unknown\\>\\> \\}\n\nConvenience methods returning structured output, or the complete MCP result, with its content blocks typed, for a tool without an output schema. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool.\n\n## Type Aliases\n\n\n### AuthProvider\n\n> **AuthProvider** = \\{ `onUnauthorized?`(`context`): `Promise`\\<`void`\\>; `token`(): `Promise`\\<`string` \\| `undefined`\\>; \\} \\| \\{ `clientMetadata`: `unknown`; `redirectUrl`: `unknown`; `tokens`(): `unknown`; \\}\n\nBearer-token or OAuth provider accepted by the MCP transport.\n\n***\n\n\n### CallMetadata\n\n> **CallMetadata** = `Omit`\\<`CallToolRequest`\\[`\"params\"`\\], `\"name\"` \\| `\"arguments\"`\\> & `object`\n\nMCP request metadata and input continuation fields. Pass inputResponses and requestState when continuing an input-required result.\n\n#### Type Declaration\n\n##### inputResponses?\n\n> `optional` **inputResponses?**: `InputResponses`\n\n##### requestState?\n\n> `optional` **requestState?**: `string`\n\n***\n\n\n### CallOptions\n\n> **CallOptions** = `Omit`\\<`RequestOptions`, `\"allowInputRequired\"`\\>\n\nMCP request options, including AbortSignal and timeout in milliseconds. A request without a timeout waits for its answer; progress from the server restarts a timeout. Input-required responses are enabled by the runtime.\n\n***\n\n\n### CompleteResult\n\n> **CompleteResult**\\<`Output`\\> = `Omit`\\<`Fields`\\<`CallToolResult`\\>, `\"structuredContent\"` \\| `\"isError\"`\\> & `object`\n\nSuccessful tool result with contract-typed structured content.\n\n#### Type Parameters\n\n\n##### Output\n\n`Output`\n\n#### Type Declaration\n\n##### isError?\n\n> `optional` **isError?**: `false`\n\n##### resultType\n\n> **resultType**: `\"complete\"`\n\n##### structuredContent\n\n> **structuredContent**: `Output`\n\n***\n\n\n### ElicitHandler\n\n> **ElicitHandler** = (`params`) => `ElicitResult` \\| `Promise`\\<`ElicitResult`\\>\n\nAnswers a server's question so the call that asked can complete. `params.mode` tells a form from a URL to open.\n\n#### Parameters\n\n##### params\n\n`ElicitRequestParams`\n\n#### Returns\n\n`ElicitResult` \\| `Promise`\\<`ElicitResult`\\>\n\n***\n\n\n### ToolCallOptions\n\n> **ToolCallOptions** = [`CallOptions`](#sdk/typescript/protocol/calloptions) & `object`\n\nCall options for a tool. `elicit` answers its questions in place, so the call returns the completed result.\n\n#### Type Declaration\n\n##### elicit?\n\n> `optional` **elicit?**: [`ElicitHandler`](#sdk/typescript/protocol/elicithandler)\n\n***\n\n\n### ToolResult\n\n> **ToolResult**\\<`Output`\\> = [`CompleteResult`](#sdk/typescript/protocol/completeresult)\\<`Output`\\> \\| `Omit`\\<`Fields`\\<`CallToolResult`\\>, `\"structuredContent\"` \\| `\"isError\"`\\> & `object` \\| `InputRequiredResult`\n\nFull tool result: successful typed output, an application error, or an input-required continuation.\n\n#### Type Parameters\n\n\n##### Output\n\n`Output`\n\n[Source](https://github.com/holon-sh/sdk-ts/blob/ec243a7a925a65e86be2d14b1a1df35082d7fcb4/packages/node/protocol.d.ts)\n"
+    },
+    {
+      "id": "sdk/typescript/runtime",
+      "title": "holon-sh/runtime",
+      "headings": [
+        {
+          "id": "sdk/typescript/runtime/section-holon-sh-runtime",
+          "title": "holon-sh/runtime"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-interfaces",
+          "title": "Interfaces"
+        },
+        {
+          "id": "sdk/typescript/runtime/binding",
+          "title": "Binding"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-properties",
+          "title": "Properties"
+        },
+        {
+          "id": "sdk/typescript/runtime/authprovider",
+          "title": "authProvider?"
+        },
+        {
+          "id": "sdk/typescript/runtime/endpoint",
+          "title": "endpoint"
+        },
+        {
+          "id": "sdk/typescript/runtime/fetch",
+          "title": "fetch?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-call-signature",
+          "title": "Call Signature"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-input",
+          "title": "input"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-init",
+          "title": "init?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-call-signature-1",
+          "title": "Call Signature"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-1",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-input-1",
+          "title": "input"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-init-1",
+          "title": "init?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-1",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/installationuid",
+          "title": "installationUID?"
+        },
+        {
+          "id": "sdk/typescript/runtime/scoped",
+          "title": "scoped?"
+        },
+        {
+          "id": "sdk/typescript/runtime/contract",
+          "title": "Contract"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-properties-1",
+          "title": "Properties"
+        },
+        {
+          "id": "sdk/typescript/runtime/resources",
+          "title": "resources?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-outputschema",
+          "title": "outputSchema"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-uri",
+          "title": "uri"
+        },
+        {
+          "id": "sdk/typescript/runtime/tools",
+          "title": "tools"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-inputschema",
+          "title": "inputSchema"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-name",
+          "title": "name"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-outputschema-1",
+          "title": "outputSchema?"
+        },
+        {
+          "id": "sdk/typescript/runtime/createoptions",
+          "title": "CreateOptions"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-type-parameters",
+          "title": "Type Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/b",
+          "title": "B"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-properties-2",
+          "title": "Properties"
+        },
+        {
+          "id": "sdk/typescript/runtime/resolve",
+          "title": "resolve?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-2",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-app",
+          "title": "app"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-2",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/session",
+          "title": "session?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-3",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-app-1",
+          "title": "app"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-binding-1",
+          "title": "binding"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-3",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/validator",
+          "title": "validator?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-4",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-schema",
+          "title": "schema"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-4",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/identity",
+          "title": "Identity"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-properties-3",
+          "title": "Properties"
+        },
+        {
+          "id": "sdk/typescript/runtime/name",
+          "title": "name"
+        },
+        {
+          "id": "sdk/typescript/runtime/requires",
+          "title": "requires?"
+        },
+        {
+          "id": "sdk/typescript/runtime/version",
+          "title": "version"
+        },
+        {
+          "id": "sdk/typescript/runtime/toolsession",
+          "title": "ToolSession"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-methods",
+          "title": "Methods"
+        },
+        {
+          "id": "sdk/typescript/runtime/calltool",
+          "title": "callTool()"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-5",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-request",
+          "title": "request"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-arguments",
+          "title": "arguments?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-name-2",
+          "title": "name"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-options",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-5",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/listtools",
+          "title": "listTools()"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-6",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-params",
+          "title": "params?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-options-1",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-6",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/readresource",
+          "title": "readResource()"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-7",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-request-1",
+          "title": "request"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-uri-1",
+          "title": "uri"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-options-2",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-7",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-type-aliases",
+          "title": "Type Aliases"
+        },
+        {
+          "id": "sdk/typescript/runtime/endpointbinding",
+          "title": "EndpointBinding"
+        },
+        {
+          "id": "sdk/typescript/runtime/runtimeclient",
+          "title": "RuntimeClient"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-functions",
+          "title": "Functions"
+        },
+        {
+          "id": "sdk/typescript/runtime/bindapps",
+          "title": "bindApps()"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-type-parameters-1",
+          "title": "Type Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/b-1",
+          "title": "B"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-8",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-identity-1",
+          "title": "identity"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-contracts",
+          "title": "contracts"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-bindings",
+          "title": "bindings"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-options-3",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-8",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/createapps",
+          "title": "createApps()"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-type-parameters-2",
+          "title": "Type Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/b-2",
+          "title": "B"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-9",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-identity-2",
+          "title": "identity"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-contracts-1",
+          "title": "contracts"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-bindings-1",
+          "title": "bindings?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-options-4",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-9",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/setdefaultbinding",
+          "title": "setDefaultBinding()"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-parameters-10",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-resolve-1",
+          "title": "resolve"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-returns-10",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/runtime/section-references",
+          "title": "References"
+        },
+        {
+          "id": "sdk/typescript/runtime/authprovider-1",
+          "title": "AuthProvider"
+        },
+        {
+          "id": "sdk/typescript/runtime/callmetadata",
+          "title": "CallMetadata"
+        },
+        {
+          "id": "sdk/typescript/runtime/calloptions",
+          "title": "CallOptions"
+        },
+        {
+          "id": "sdk/typescript/runtime/elicithandler",
+          "title": "ElicitHandler"
+        },
+        {
+          "id": "sdk/typescript/runtime/toolcallerror",
+          "title": "ToolCallError"
+        },
+        {
+          "id": "sdk/typescript/runtime/toolcalloptions",
+          "title": "ToolCallOptions"
+        },
+        {
+          "id": "sdk/typescript/runtime/toolclient",
+          "title": "ToolClient"
+        },
+        {
+          "id": "sdk/typescript/runtime/toolresult",
+          "title": "ToolResult"
+        }
+      ],
+      "markdown": "[Holon TypeScript SDK](#sdk/typescript/modules) / runtime\n\n# holon-sh/runtime\n\n## Interfaces\n\n\n### Binding\n\nConnection settings for an MCP endpoint.\n\n#### Properties\n\n\n##### authProvider?\n\n> `optional` **authProvider?**: [`AuthProvider`](#sdk/typescript/protocol/authprovider)\n\nAuthentication provider; use application-owned credentials.\n\n\n##### endpoint\n\n> **endpoint**: `string` \\| `URL`\n\nStreamable HTTP MCP endpoint.\n\n\n##### fetch?\n\n> `optional` **fetch?**: \\{(`input`, `init?`): `Promise`\\<`Response`\\>; (`input`, `init?`): `Promise`\\<`Response`\\>; \\}\n\nCustom fetch implementation, for example for an in-process transport.\n\n###### Call Signature\n\n> (`input`, `init?`): `Promise`\\<`Response`\\>\n\n[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)\n\n###### Parameters\n\n###### input\n\n`URL` \\| `RequestInfo`\n\n###### init?\n\n`RequestInit`\n\n###### Returns\n\n`Promise`\\<`Response`\\>\n\n###### Call Signature\n\n> (`input`, `init?`): `Promise`\\<`Response`\\>\n\n[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)\n\n###### Parameters\n\n###### input\n\n`string` \\| `URL` \\| `Request`\n\n###### init?\n\n`RequestInit`\n\n###### Returns\n\n`Promise`\\<`Response`\\>\n\n\n##### installationUID?\n\n> `optional` **installationUID?**: `string`\n\nOptional X-Holon-Installation-UID routing header.\n\n\n##### scoped?\n\n> `optional` **scoped?**: `boolean`\n\nClose the session after every call instead of keeping one connection open.\n\n***\n\n\n### Contract\n\nGeneration-time tool and JSON resource schemas. A null contract permits unvalidated callTool requests.\n\n#### Properties\n\n\n##### resources?\n\n> `optional` **resources?**: `object`[]\n\n###### outputSchema\n\n> **outputSchema**: `Record`\\<`string`, `unknown`\\>\n\n###### uri\n\n> **uri**: `string`\n\n\n##### tools\n\n> **tools**: `object`[]\n\n###### inputSchema\n\n> **inputSchema**: `Record`\\<`string`, `unknown`\\>\n\n###### name\n\n> **name**: `string`\n\n###### outputSchema?\n\n> `optional` **outputSchema?**: `Record`\\<`string`, `unknown`\\>\n\n***\n\n\n### CreateOptions\n\nOptional validation, binding resolution, and host-session hooks.\n\n#### Type Parameters\n\n\n##### B\n\n`B` = [`Binding`](#sdk/typescript/runtime/binding)\n\n#### Properties\n\n\n##### resolve?\n\n> `optional` **resolve?**: (`app`) => [`Binding`](#sdk/typescript/runtime/binding) \\| `undefined`\n\nBinding of an app created without explicit bindings; consulted on every call.\n\n###### Parameters\n\n###### app\n\n`string`\n\n###### Returns\n\n[`Binding`](#sdk/typescript/runtime/binding) \\| `undefined`\n\n\n##### session?\n\n> `optional` **session?**: (`app`, `binding`) => [`ToolSession`](#sdk/typescript/runtime/toolsession) \\| `undefined`\n\nSession for a binding the runtime does not connect to itself (anything without an endpoint).\n\n###### Parameters\n\n###### app\n\n`string`\n\n###### binding\n\n`B`\n\n###### Returns\n\n[`ToolSession`](#sdk/typescript/runtime/toolsession) \\| `undefined`\n\n\n##### validator?\n\n> `optional` **validator?**: (`schema`) => (`value`) => `boolean`\n\nJSON Schema validator factory. The default uses Ajv.\n\n###### Parameters\n\n###### schema\n\n`object`\n\n###### Returns\n\n(`value`) => `boolean`\n\n***\n\n\n### Identity\n\nCalling application identity and its declared dependencies.\n\n#### Properties\n\n\n##### name\n\n> **name**: `string`\n\n\n##### requires?\n\n> `optional` **requires?**: `Record`\\<`string`, \\{ `name?`: `string`; `version?`: `string`; \\}\\>\n\n\n##### version\n\n> **version**: `string`\n\n***\n\n\n### ToolSession\n\nThe subset of an MCP client a session must provide.\n\n#### Methods\n\n\n##### callTool()\n\n> **callTool**(`request`, `options?`): `Promise`\\<`any`\\>\n\n###### Parameters\n\n###### request\n\n###### arguments?\n\n`Record`\\<`string`, `unknown`\\>\n\n###### name\n\n`string`\n\n###### options?\n\n`Record`\\<`string`, `unknown`\\>\n\n###### Returns\n\n`Promise`\\<`any`\\>\n\n\n##### listTools()\n\n> **listTools**(`params?`, `options?`): `Promise`\\<`any`\\>\n\n###### Parameters\n\n###### params?\n\n`undefined`\n\n###### options?\n\n`Record`\\<`string`, `unknown`\\>\n\n###### Returns\n\n`Promise`\\<`any`\\>\n\n\n##### readResource()\n\n> **readResource**(`request`, `options?`): `Promise`\\<`any`\\>\n\n###### Parameters\n\n###### request\n\n###### uri\n\n`string`\n\n###### options?\n\n`Record`\\<`string`, `unknown`\\>\n\n###### Returns\n\n`Promise`\\<`any`\\>\n\n## Type Aliases\n\n\n### EndpointBinding\n\n> **EndpointBinding** = [`Binding`](#sdk/typescript/runtime/binding)\n\nAlias for an endpoint binding.\n\n***\n\n\n### RuntimeClient\n\n> **RuntimeClient** = [`ToolClient`](#sdk/typescript/protocol/toolclient)\\<`Record`\\<`string`, `Record`\\<`string`, `unknown`\\>\\>, `Record`\\<`string`, `unknown`\\>, `Record`\\<`string`, `unknown`\\>\\>\n\nUntyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources.\n\n## Functions\n\n\n### bindApps()\n\n> **bindApps**\\<`B`\\>(`identity`, `contracts`, `bindings`, `options?`): `Readonly`\\<`Record`\\<`string`, [`RuntimeClient`](#sdk/typescript/runtime/runtimeclient)\\>\\>\n\nConstruct only the explicitly bound dependencies. Unknown names throw; an empty binding map selects none. Used by generated createApps factories.\n\n#### Type Parameters\n\n\n##### B\n\n`B` = [`Binding`](#sdk/typescript/runtime/binding)\n\n#### Parameters\n\n##### identity\n\n[`Identity`](#sdk/typescript/runtime/identity)\n\n##### contracts\n\n`Record`\\<`string`, [`Contract`](#sdk/typescript/runtime/contract) \\| `null`\\>\n\n##### bindings\n\n`Record`\\<`string`, `B`\\>\n\n##### options?\n\n[`CreateOptions`](#sdk/typescript/runtime/createoptions)\\<`B`\\>\n\n#### Returns\n\n`Readonly`\\<`Record`\\<`string`, [`RuntimeClient`](#sdk/typescript/runtime/runtimeclient)\\>\\>\n\n***\n\n\n### createApps()\n\n> **createApps**\\<`B`\\>(`identity`, `contracts`, `bindings?`, `options?`): `Readonly`\\<`Record`\\<`string`, [`RuntimeClient`](#sdk/typescript/runtime/runtimeclient)\\>\\>\n\nConstruct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated package root.\n\n#### Type Parameters\n\n\n##### B\n\n`B` = [`Binding`](#sdk/typescript/runtime/binding)\n\n#### Parameters\n\n##### identity\n\n[`Identity`](#sdk/typescript/runtime/identity)\n\n##### contracts\n\n`Record`\\<`string`, [`Contract`](#sdk/typescript/runtime/contract) \\| `null`\\>\n\n##### bindings?\n\n`Record`\\<`string`, `B`\\>\n\n##### options?\n\n[`CreateOptions`](#sdk/typescript/runtime/createoptions)\\<`B`\\>\n\n#### Returns\n\n`Readonly`\\<`Record`\\<`string`, [`RuntimeClient`](#sdk/typescript/runtime/runtimeclient)\\>\\>\n\n***\n\n\n### setDefaultBinding()\n\n> **setDefaultBinding**(`resolve`): `void`\n\nFor hosts: register a process-wide resolver for clients created without explicit bindings. Explicit bindings take precedence; return undefined to fall back to the <NAME>_MCP_URL environment variable. Register during startup.\n\n#### Parameters\n\n##### resolve\n\n(`app`) => [`Binding`](#sdk/typescript/runtime/binding) \\| `undefined`\n\n#### Returns\n\n`void`\n\n## References\n\n\n### AuthProvider\n\nRe-exports [AuthProvider](#sdk/typescript/protocol/authprovider)\n\n***\n\n\n### CallMetadata\n\nRe-exports [CallMetadata](#sdk/typescript/protocol/callmetadata)\n\n***\n\n\n### CallOptions\n\nRe-exports [CallOptions](#sdk/typescript/protocol/calloptions)\n\n***\n\n\n### ElicitHandler\n\nRe-exports [ElicitHandler](#sdk/typescript/protocol/elicithandler)\n\n***\n\n\n### ToolCallError\n\nRe-exports [ToolCallError](#sdk/typescript/protocol/toolcallerror)\n\n***\n\n\n### ToolCallOptions\n\nRe-exports [ToolCallOptions](#sdk/typescript/protocol/toolcalloptions)\n\n***\n\n\n### ToolClient\n\nRe-exports [ToolClient](#sdk/typescript/protocol/toolclient)\n\n***\n\n\n### ToolResult\n\nRe-exports [ToolResult](#sdk/typescript/protocol/toolresult)\n\n[Source](https://github.com/holon-sh/sdk-ts/blob/ec243a7a925a65e86be2d14b1a1df35082d7fcb4/packages/node/runtime.d.ts)\n"
+    },
+    {
+      "id": "sdk/typescript/view",
+      "title": "holon-sh/view",
+      "headings": [
+        {
+          "id": "sdk/typescript/view/section-holon-sh-view",
+          "title": "holon-sh/view"
+        },
+        {
+          "id": "sdk/typescript/view/section-interfaces",
+          "title": "Interfaces"
+        },
+        {
+          "id": "sdk/typescript/view/viewoptions",
+          "title": "ViewOptions"
+        },
+        {
+          "id": "sdk/typescript/view/section-properties",
+          "title": "Properties"
+        },
+        {
+          "id": "sdk/typescript/view/csp",
+          "title": "csp?"
+        },
+        {
+          "id": "sdk/typescript/view/section-connectdomains",
+          "title": "connectDomains?"
+        },
+        {
+          "id": "sdk/typescript/view/section-resourcedomains",
+          "title": "resourceDomains?"
+        },
+        {
+          "id": "sdk/typescript/view/section-variables",
+          "title": "Variables"
+        },
+        {
+          "id": "sdk/typescript/view/view_mime_type",
+          "title": "VIEW\\_MIME\\_TYPE"
+        },
+        {
+          "id": "sdk/typescript/view/section-functions",
+          "title": "Functions"
+        },
+        {
+          "id": "sdk/typescript/view/appview",
+          "title": "appView()"
+        },
+        {
+          "id": "sdk/typescript/view/section-parameters",
+          "title": "Parameters"
+        },
+        {
+          "id": "sdk/typescript/view/section-name",
+          "title": "name"
+        },
+        {
+          "id": "sdk/typescript/view/section-uri",
+          "title": "uri"
+        },
+        {
+          "id": "sdk/typescript/view/section-file",
+          "title": "file"
+        },
+        {
+          "id": "sdk/typescript/view/section-options",
+          "title": "options?"
+        },
+        {
+          "id": "sdk/typescript/view/section-returns",
+          "title": "Returns"
+        },
+        {
+          "id": "sdk/typescript/view/section-example",
+          "title": "Example"
+        }
+      ],
+      "markdown": "[Holon TypeScript SDK](#sdk/typescript/modules) / src/view\n\n# holon-sh/view\n\n## Interfaces\n\n\n### ViewOptions\n\nAllowed network and asset domains for the view content security policy.\n\n#### Properties\n\n\n##### csp?\n\n> `optional` **csp?**: `object`\n\n###### connectDomains?\n\n> `optional` **connectDomains?**: `string`[]\n\n###### resourceDomains?\n\n> `optional` **resourceDomains?**: `string`[]\n\n## Variables\n\n\n### VIEW\\_MIME\\_TYPE\n\n> `const` **VIEW\\_MIME\\_TYPE**: `\"text/html;profile=mcp-app\"` = `\"text/html;profile=mcp-app\"`\n\nMIME type of an MCP App HTML resource.\n\n## Functions\n\n\n### appView()\n\n> **appView**(`name`, `uri`, `file`, `options?`): `ViewRegistration`\n\nCreate a registration tuple for server.registerResource(...appView(...)).\nNode only: the HTML file is read once when this helper is called.\nResource reads reuse that promise; file read failures reject resource requests.\n\n#### Parameters\n\n##### name\n\n`string`\n\nHuman-readable resource name.\n\n##### uri\n\n`string`\n\nResource URI, usually starting with ui://.\n\n##### file\n\n`string` \\| `URL`\n\nBuilt HTML file path or file URL.\n\n##### options?\n\n[`ViewOptions`](#sdk/typescript/view/viewoptions) = `{}`\n\nView content security policy.\n\n#### Returns\n\n`ViewRegistration`\n\nName, URI, metadata, and resource-read callback.\n\n#### Example\n\n```ts\nserver.registerResource(...appView(\"App\", \"ui://app/index.html\", new URL(\"./index.html\", import.meta.url)));\n```\n\n[Source](https://github.com/holon-sh/sdk-ts/blob/ec243a7a925a65e86be2d14b1a1df35082d7fcb4/packages/node/src/view.ts)\n"
+    }
+  ],
+  "symbols": {
+    "holon-sh.Apps": "sdk/typescript/root/apps",
+    "holon-sh.Inputs": "sdk/typescript/root/inputs",
+    "holon-sh.InputTypes": "sdk/typescript/root/inputtypes",
+    "holon-sh.Outputs": "sdk/typescript/root/outputs",
+    "holon-sh.OutputTypes": "sdk/typescript/root/outputtypes",
+    "holon-sh.Resources": "sdk/typescript/root/resources",
+    "holon-sh.apps": "sdk/typescript/root/apps-1",
+    "holon-sh.createApps": "sdk/typescript/root/createapps",
+    "holon-sh.Binding": "sdk/typescript/root/binding",
+    "holon-sh.CreateOptions": "sdk/typescript/root/createoptions",
+    "holon-sh.EndpointBinding": "sdk/typescript/root/endpointbinding",
+    "holon-sh.ToolCallError": "sdk/typescript/root/toolcallerror",
+    "holon-sh/protocol.ToolCallError": "sdk/typescript/protocol/toolcallerror",
+    "holon-sh/protocol.ToolClient": "sdk/typescript/protocol/toolclient",
+    "holon-sh/protocol.AuthProvider": "sdk/typescript/protocol/authprovider",
+    "holon-sh/protocol.CallMetadata": "sdk/typescript/protocol/callmetadata",
+    "holon-sh/protocol.CallOptions": "sdk/typescript/protocol/calloptions",
+    "holon-sh/protocol.CompleteResult": "sdk/typescript/protocol/completeresult",
+    "holon-sh/protocol.ElicitHandler": "sdk/typescript/protocol/elicithandler",
+    "holon-sh/protocol.ToolCallOptions": "sdk/typescript/protocol/toolcalloptions",
+    "holon-sh/protocol.ToolResult": "sdk/typescript/protocol/toolresult",
+    "holon-sh/runtime.Binding": "sdk/typescript/runtime/binding",
+    "holon-sh/runtime.Contract": "sdk/typescript/runtime/contract",
+    "holon-sh/runtime.CreateOptions": "sdk/typescript/runtime/createoptions",
+    "holon-sh/runtime.Identity": "sdk/typescript/runtime/identity",
+    "holon-sh/runtime.ToolSession": "sdk/typescript/runtime/toolsession",
+    "holon-sh/runtime.EndpointBinding": "sdk/typescript/runtime/endpointbinding",
+    "holon-sh/runtime.RuntimeClient": "sdk/typescript/runtime/runtimeclient",
+    "holon-sh/runtime.bindApps": "sdk/typescript/runtime/bindapps",
+    "holon-sh/runtime.createApps": "sdk/typescript/runtime/createapps",
+    "holon-sh/runtime.setDefaultBinding": "sdk/typescript/runtime/setdefaultbinding",
+    "holon-sh/runtime.AuthProvider": "sdk/typescript/runtime/authprovider-1",
+    "holon-sh/runtime.CallMetadata": "sdk/typescript/runtime/callmetadata",
+    "holon-sh/runtime.CallOptions": "sdk/typescript/runtime/calloptions",
+    "holon-sh/runtime.ElicitHandler": "sdk/typescript/runtime/elicithandler",
+    "holon-sh/runtime.ToolCallError": "sdk/typescript/runtime/toolcallerror",
+    "holon-sh/runtime.ToolCallOptions": "sdk/typescript/runtime/toolcalloptions",
+    "holon-sh/runtime.ToolClient": "sdk/typescript/runtime/toolclient",
+    "holon-sh/runtime.ToolResult": "sdk/typescript/runtime/toolresult",
+    "holon-sh/view.ViewOptions": "sdk/typescript/view/viewoptions",
+    "holon-sh/view.VIEW_MIME_TYPE": "sdk/typescript/view/view_mime_type",
+    "holon-sh/view.appView": "sdk/typescript/view/appview"
+  }
+}

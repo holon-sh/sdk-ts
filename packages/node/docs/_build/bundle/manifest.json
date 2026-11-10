@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "language": "typescript",
+  "package": "holon-sh",
+  "version": "0.0.1",
+  "source": {
+    "repository": "holon-sh/sdk-ts",
+    "sha": "ec243a7a925a65e86be2d14b1a1df35082d7fcb4",
+    "ref": "local",
+    "runId": "",
+    "runNumber": 0,
+    "dirty": true
+  },
+  "files": {
+    "reference.json": "cd8bf20a6f721295863cd4a41668c3d0f02d4429070f1c7544b348c162ffaad2"
+  }
+}

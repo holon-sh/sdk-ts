@@ -1,0 +1,6196 @@
+{
+	"schemaVersion": "2.0",
+	"id": 0,
+	"name": "Holon TypeScript SDK",
+	"variant": "project",
+	"kind": 1,
+	"flags": {},
+	"children": [
+		{
+			"id": 1,
+			"name": "docs/root",
+			"variant": "declaration",
+			"kind": 2,
+			"flags": {},
+			"children": [
+				{
+					"id": 6,
+					"name": "Apps",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"type": {
+						"type": "reference",
+						"target": {
+							"packageName": "typescript",
+							"packagePath": "lib/lib.es5.d.ts",
+							"qualifiedName": "Record"
+						},
+						"typeArguments": [
+							{
+								"type": "intrinsic",
+								"name": "never"
+							},
+							{
+								"type": "intrinsic",
+								"name": "never"
+							}
+						],
+						"name": "Record",
+						"package": "typescript"
+					}
+				},
+				{
+					"id": 7,
+					"name": "Inputs",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"type": {
+						"type": "reference",
+						"target": {
+							"packageName": "typescript",
+							"packagePath": "lib/lib.es5.d.ts",
+							"qualifiedName": "Record"
+						},
+						"typeArguments": [
+							{
+								"type": "intrinsic",
+								"name": "never"
+							},
+							{
+								"type": "intrinsic",
+								"name": "never"
+							}
+						],
+						"name": "Record",
+						"package": "typescript"
+					}
+				},
+				{
+					"id": 9,
+					"name": "InputTypes",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"type": {
+						"type": "reference",
+						"target": 7,
+						"name": "Inputs",
+						"package": "holon-sh"
+					}
+				},
+				{
+					"id": 8,
+					"name": "Outputs",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"type": {
+						"type": "reference",
+						"target": {
+							"packageName": "typescript",
+							"packagePath": "lib/lib.es5.d.ts",
+							"qualifiedName": "Record"
+						},
+						"typeArguments": [
+							{
+								"type": "intrinsic",
+								"name": "never"
+							},
+							{
+								"type": "intrinsic",
+								"name": "never"
+							}
+						],
+						"name": "Record",
+						"package": "typescript"
+					}
+				},
+				{
+					"id": 10,
+					"name": "OutputTypes",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"type": {
+						"type": "reference",
+						"target": 8,
+						"name": "Outputs",
+						"package": "holon-sh"
+					}
+				},
+				{
+					"id": 11,
+					"name": "Resources",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"type": {
+						"type": "reference",
+						"target": {
+							"packageName": "typescript",
+							"packagePath": "lib/lib.es5.d.ts",
+							"qualifiedName": "Record"
+						},
+						"typeArguments": [
+							{
+								"type": "intrinsic",
+								"name": "never"
+							},
+							{
+								"type": "intrinsic",
+								"name": "never"
+							}
+						],
+						"name": "Record",
+						"package": "typescript"
+					}
+				},
+				{
+					"id": 12,
+					"name": "apps",
+					"variant": "declaration",
+					"kind": 32,
+					"flags": {
+						"isConst": true
+					},
+					"type": {
+						"type": "reference",
+						"target": 6,
+						"name": "Apps",
+						"package": "holon-sh"
+					}
+				},
+				{
+					"id": 2,
+					"name": "createApps",
+					"variant": "declaration",
+					"kind": 64,
+					"flags": {},
+					"signatures": [
+						{
+							"id": 3,
+							"name": "createApps",
+							"variant": "signature",
+							"kind": 4096,
+							"flags": {},
+							"parameters": [
+								{
+									"id": 4,
+									"name": "bindings",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"type": {
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Record"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "intrinsic",
+												"name": "never"
+											}
+										],
+										"name": "Record",
+										"package": "typescript"
+									}
+								},
+								{
+									"id": 5,
+									"name": "options",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {
+										"isOptional": true
+									},
+									"type": {
+										"type": "reference",
+										"target": 84,
+										"typeArguments": [
+											{
+												"type": "reference",
+												"target": 34,
+												"name": "Binding",
+												"package": "holon-sh"
+											}
+										],
+										"name": "CreateOptions",
+										"package": "holon-sh"
+									}
+								}
+							],
+							"type": {
+								"type": "reference",
+								"target": 6,
+								"name": "Apps",
+								"package": "holon-sh"
+							}
+						}
+					]
+				},
+				{
+					"id": 226,
+					"name": "Binding",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 34
+				},
+				{
+					"id": 228,
+					"name": "CreateOptions",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 84
+				},
+				{
+					"id": 227,
+					"name": "EndpointBinding",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 47
+				},
+				{
+					"id": 225,
+					"name": "ToolCallError",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 154
+				}
+			],
+			"groups": [
+				{
+					"title": "Type Aliases",
+					"children": [
+						6,
+						7,
+						9,
+						8,
+						10,
+						11
+					]
+				},
+				{
+					"title": "Variables",
+					"children": [
+						12
+					]
+				},
+				{
+					"title": "Functions",
+					"children": [
+						2
+					]
+				},
+				{
+					"title": "References",
+					"children": [
+						226,
+						228,
+						227,
+						225
+					]
+				}
+			]
+		},
+		{
+			"id": 115,
+			"name": "protocol",
+			"variant": "declaration",
+			"kind": 2,
+			"flags": {},
+			"children": [
+				{
+					"id": 154,
+					"name": "ToolCallError",
+					"variant": "declaration",
+					"kind": 128,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Error thrown by the tools convenience methods for error or input_required results. A failure's message carries its text; "
+							},
+							{
+								"kind": "code",
+								"text": "`data`"
+							},
+							{
+								"kind": "text",
+								"text": " is what the server said in a form to branch on. Pass elicit to answer questions in place, or continue later through callTool."
+							}
+						]
+					},
+					"children": [
+						{
+							"id": 155,
+							"name": "constructor",
+							"variant": "declaration",
+							"kind": 512,
+							"flags": {},
+							"signatures": [
+								{
+									"id": 156,
+									"name": "ToolCallError",
+									"variant": "signature",
+									"kind": 16384,
+									"flags": {},
+									"parameters": [
+										{
+											"id": 157,
+											"name": "app",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {},
+											"type": {
+												"type": "intrinsic",
+												"name": "string"
+											}
+										},
+										{
+											"id": 158,
+											"name": "tool",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {},
+											"type": {
+												"type": "intrinsic",
+												"name": "string"
+											}
+										},
+										{
+											"id": 159,
+											"name": "result",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {},
+											"type": {
+												"type": "union",
+												"types": [
+													{
+														"type": "reference",
+														"target": {
+															"packageName": "@modelcontextprotocol/client",
+															"packagePath": "../core-internal/src/auth/errors.ts",
+															"qualifiedName": "InputRequiredResult"
+														},
+														"name": "InputRequiredResult",
+														"package": "@modelcontextprotocol/client"
+													},
+													{
+														"type": "intersection",
+														"types": [
+															{
+																"type": "reference",
+																"target": {
+																	"packageName": "typescript",
+																	"packagePath": "lib/lib.es5.d.ts",
+																	"qualifiedName": "Omit"
+																},
+																"typeArguments": [
+																	{
+																		"type": "reference",
+																		"target": -1,
+																		"typeArguments": [
+																			{
+																				"type": "reflection",
+																				"declaration": {
+																					"id": 160,
+																					"name": "__type",
+																					"variant": "declaration",
+																					"kind": 65536,
+																					"flags": {},
+																					"indexSignatures": [
+																						{
+																							"id": 161,
+																							"name": "__index",
+																							"variant": "signature",
+																							"kind": 8192,
+																							"flags": {},
+																							"parameters": [
+																								{
+																									"id": 162,
+																									"name": "key",
+																									"variant": "param",
+																									"kind": 32768,
+																									"flags": {},
+																									"type": {
+																										"type": "intrinsic",
+																										"name": "string"
+																									}
+																								}
+																							],
+																							"type": {
+																								"type": "intrinsic",
+																								"name": "unknown"
+																							}
+																						}
+																					]
+																				}
+																			}
+																		],
+																		"name": "Fields",
+																		"package": "holon-sh"
+																	},
+																	{
+																		"type": "union",
+																		"types": [
+																			{
+																				"type": "literal",
+																				"value": "structuredContent"
+																			},
+																			{
+																				"type": "literal",
+																				"value": "isError"
+																			}
+																		]
+																	}
+																],
+																"name": "Omit",
+																"package": "typescript"
+															},
+															{
+																"type": "reflection",
+																"declaration": {
+																	"id": 163,
+																	"name": "__type",
+																	"variant": "declaration",
+																	"kind": 65536,
+																	"flags": {},
+																	"children": [
+																		{
+																			"id": 165,
+																			"name": "isError",
+																			"variant": "declaration",
+																			"kind": 1024,
+																			"flags": {},
+																			"type": {
+																				"type": "literal",
+																				"value": true
+																			}
+																		},
+																		{
+																			"id": 164,
+																			"name": "resultType",
+																			"variant": "declaration",
+																			"kind": 1024,
+																			"flags": {},
+																			"type": {
+																				"type": "literal",
+																				"value": "complete"
+																			}
+																		},
+																		{
+																			"id": 166,
+																			"name": "structuredContent",
+																			"variant": "declaration",
+																			"kind": 1024,
+																			"flags": {
+																				"isOptional": true
+																			},
+																			"type": {
+																				"type": "intrinsic",
+																				"name": "unknown"
+																			}
+																		}
+																	],
+																	"groups": [
+																		{
+																			"title": "Properties",
+																			"children": [
+																				165,
+																				164,
+																				166
+																			]
+																		}
+																	]
+																}
+															}
+														]
+													}
+												]
+											}
+										}
+									],
+									"type": {
+										"type": "reference",
+										"target": 154,
+										"name": "ToolCallError",
+										"package": "holon-sh"
+									},
+									"overwrites": {
+										"type": "reference",
+										"target": -1,
+										"name": "Error.constructor",
+										"package": "typescript"
+									}
+								}
+							],
+							"overwrites": {
+								"type": "reference",
+								"target": -1,
+								"name": "Error.constructor",
+								"package": "typescript"
+							}
+						},
+						{
+							"id": 176,
+							"name": "data",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true,
+								"isReadonly": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "The failure's structured content, or else its text parsed as JSON when that text is JSON. Its shape is the server's own."
+									}
+								]
+							},
+							"type": {
+								"type": "intrinsic",
+								"name": "unknown"
+							}
+						},
+						{
+							"id": 167,
+							"name": "result",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isReadonly": true
+							},
+							"type": {
+								"type": "union",
+								"types": [
+									{
+										"type": "reference",
+										"target": {
+											"packageName": "@modelcontextprotocol/client",
+											"packagePath": "../core-internal/src/auth/errors.ts",
+											"qualifiedName": "InputRequiredResult"
+										},
+										"name": "InputRequiredResult",
+										"package": "@modelcontextprotocol/client"
+									},
+									{
+										"type": "intersection",
+										"types": [
+											{
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Omit"
+												},
+												"typeArguments": [
+													{
+														"type": "reference",
+														"target": -1,
+														"typeArguments": [
+															{
+																"type": "reflection",
+																"declaration": {
+																	"id": 168,
+																	"name": "__type",
+																	"variant": "declaration",
+																	"kind": 65536,
+																	"flags": {},
+																	"indexSignatures": [
+																		{
+																			"id": 169,
+																			"name": "__index",
+																			"variant": "signature",
+																			"kind": 8192,
+																			"flags": {},
+																			"parameters": [
+																				{
+																					"id": 170,
+																					"name": "key",
+																					"variant": "param",
+																					"kind": 32768,
+																					"flags": {},
+																					"type": {
+																						"type": "intrinsic",
+																						"name": "string"
+																					}
+																				}
+																			],
+																			"type": {
+																				"type": "intrinsic",
+																				"name": "unknown"
+																			}
+																		}
+																	]
+																}
+															}
+														],
+														"name": "Fields",
+														"package": "holon-sh"
+													},
+													{
+														"type": "union",
+														"types": [
+															{
+																"type": "literal",
+																"value": "structuredContent"
+															},
+															{
+																"type": "literal",
+																"value": "isError"
+															}
+														]
+													}
+												],
+												"name": "Omit",
+												"package": "typescript"
+											},
+											{
+												"type": "reflection",
+												"declaration": {
+													"id": 171,
+													"name": "__type",
+													"variant": "declaration",
+													"kind": 65536,
+													"flags": {},
+													"children": [
+														{
+															"id": 173,
+															"name": "isError",
+															"variant": "declaration",
+															"kind": 1024,
+															"flags": {},
+															"type": {
+																"type": "literal",
+																"value": true
+															}
+														},
+														{
+															"id": 172,
+															"name": "resultType",
+															"variant": "declaration",
+															"kind": 1024,
+															"flags": {},
+															"type": {
+																"type": "literal",
+																"value": "complete"
+															}
+														},
+														{
+															"id": 174,
+															"name": "structuredContent",
+															"variant": "declaration",
+															"kind": 1024,
+															"flags": {
+																"isOptional": true
+															},
+															"type": {
+																"type": "intrinsic",
+																"name": "unknown"
+															}
+														}
+													],
+													"groups": [
+														{
+															"title": "Properties",
+															"children": [
+																173,
+																172,
+																174
+															]
+														}
+													]
+												}
+											}
+										]
+									}
+								]
+							}
+						},
+						{
+							"id": 175,
+							"name": "text",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true,
+								"isReadonly": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "The failure's text content, its text blocks joined by newlines. Undefined for questions left unanswered."
+									}
+								]
+							},
+							"type": {
+								"type": "intrinsic",
+								"name": "string"
+							}
+						}
+					],
+					"groups": [
+						{
+							"title": "Constructors",
+							"children": [
+								155
+							]
+						},
+						{
+							"title": "Properties",
+							"children": [
+								176,
+								167,
+								175
+							]
+						}
+					],
+					"extendedTypes": [
+						{
+							"type": "reference",
+							"target": {
+								"packageName": "typescript",
+								"packagePath": "lib/lib.es5.d.ts",
+								"qualifiedName": "Error"
+							},
+							"name": "Error",
+							"package": "typescript"
+						}
+					]
+				},
+				{
+					"id": 177,
+					"name": "ToolClient",
+					"variant": "declaration",
+					"kind": 256,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises."
+							}
+						]
+					},
+					"children": [
+						{
+							"id": 212,
+							"name": "callTool",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isReadonly": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Return the full MCP result, preserving error results and questions left unanswered. Arguments and successful output are contract-validated."
+									}
+								]
+							},
+							"type": {
+								"type": "reflection",
+								"declaration": {
+									"id": 213,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"signatures": [
+										{
+											"id": 214,
+											"name": "__type",
+											"variant": "signature",
+											"kind": 4096,
+											"flags": {},
+											"typeParameters": [
+												{
+													"id": 215,
+													"name": "K",
+													"variant": "typeParam",
+													"kind": 131072,
+													"flags": {},
+													"type": {
+														"type": "intrinsic",
+														"name": "string"
+													}
+												}
+											],
+											"parameters": [
+												{
+													"id": 216,
+													"name": "request",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {},
+													"type": {
+														"type": "intersection",
+														"types": [
+															{
+																"type": "reference",
+																"target": {
+																	"packageName": "typescript",
+																	"packagePath": "lib/lib.es5.d.ts",
+																	"qualifiedName": "Omit"
+																},
+																"typeArguments": [
+																	{
+																		"type": "reflection",
+																		"declaration": {
+																			"id": 217,
+																			"name": "__type",
+																			"variant": "declaration",
+																			"kind": 65536,
+																			"flags": {}
+																		}
+																	},
+																	{
+																		"type": "union",
+																		"types": [
+																			{
+																				"type": "literal",
+																				"value": "name"
+																			},
+																			{
+																				"type": "literal",
+																				"value": "arguments"
+																			}
+																		]
+																	}
+																],
+																"name": "Omit",
+																"package": "typescript"
+															},
+															{
+																"type": "reflection",
+																"declaration": {
+																	"id": 218,
+																	"name": "__type",
+																	"variant": "declaration",
+																	"kind": 65536,
+																	"flags": {},
+																	"children": [
+																		{
+																			"id": 219,
+																			"name": "inputResponses",
+																			"variant": "declaration",
+																			"kind": 1024,
+																			"flags": {
+																				"isOptional": true
+																			},
+																			"type": {
+																				"type": "reference",
+																				"target": {
+																					"packageName": "@modelcontextprotocol/client",
+																					"packagePath": "../core-internal/src/auth/errors.ts",
+																					"qualifiedName": "InputResponses"
+																				},
+																				"name": "InputResponses",
+																				"package": "@modelcontextprotocol/client"
+																			}
+																		},
+																		{
+																			"id": 220,
+																			"name": "requestState",
+																			"variant": "declaration",
+																			"kind": 1024,
+																			"flags": {
+																				"isOptional": true
+																			},
+																			"type": {
+																				"type": "intrinsic",
+																				"name": "string"
+																			}
+																		}
+																	],
+																	"groups": [
+																		{
+																			"title": "Properties",
+																			"children": [
+																				219,
+																				220
+																			]
+																		}
+																	]
+																}
+															},
+															{
+																"type": "reflection",
+																"declaration": {
+																	"id": 221,
+																	"name": "__type",
+																	"variant": "declaration",
+																	"kind": 65536,
+																	"flags": {},
+																	"children": [
+																		{
+																			"id": 223,
+																			"name": "arguments",
+																			"variant": "declaration",
+																			"kind": 1024,
+																			"flags": {},
+																			"type": {
+																				"type": "indexedAccess",
+																				"indexType": {
+																					"type": "reference",
+																					"target": 215,
+																					"name": "K",
+																					"package": "holon-sh",
+																					"refersToTypeParameter": true
+																				},
+																				"objectType": {
+																					"type": "reference",
+																					"target": 178,
+																					"name": "I",
+																					"package": "holon-sh",
+																					"qualifiedName": "ToolClient.I",
+																					"refersToTypeParameter": true
+																				}
+																			}
+																		},
+																		{
+																			"id": 222,
+																			"name": "name",
+																			"variant": "declaration",
+																			"kind": 1024,
+																			"flags": {},
+																			"type": {
+																				"type": "reference",
+																				"target": 215,
+																				"name": "K",
+																				"package": "holon-sh",
+																				"refersToTypeParameter": true
+																			}
+																		}
+																	],
+																	"groups": [
+																		{
+																			"title": "Properties",
+																			"children": [
+																				223,
+																				222
+																			]
+																		}
+																	]
+																}
+															}
+														]
+													}
+												},
+												{
+													"id": 224,
+													"name": "options",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {
+														"isOptional": true
+													},
+													"type": {
+														"type": "reference",
+														"target": 133,
+														"name": "ToolCallOptions",
+														"package": "holon-sh"
+													}
+												}
+											],
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Promise"
+												},
+												"typeArguments": [
+													{
+														"type": "reference",
+														"target": 148,
+														"typeArguments": [
+															{
+																"type": "conditional",
+																"checkType": {
+																	"type": "reference",
+																	"target": 215,
+																	"name": "K",
+																	"package": "holon-sh",
+																	"refersToTypeParameter": true
+																},
+																"extendsType": {
+																	"type": "typeOperator",
+																	"operator": "keyof",
+																	"target": {
+																		"type": "reference",
+																		"target": 179,
+																		"name": "O",
+																		"package": "holon-sh",
+																		"qualifiedName": "ToolClient.O",
+																		"refersToTypeParameter": true
+																	}
+																},
+																"trueType": {
+																	"type": "indexedAccess",
+																	"indexType": {
+																		"type": "reference",
+																		"target": 215,
+																		"name": "K",
+																		"package": "holon-sh",
+																		"refersToTypeParameter": true
+																	},
+																	"objectType": {
+																		"type": "reference",
+																		"target": 179,
+																		"name": "O",
+																		"package": "holon-sh",
+																		"qualifiedName": "ToolClient.O",
+																		"refersToTypeParameter": true
+																	}
+																},
+																"falseType": {
+																	"type": "intrinsic",
+																	"name": "unknown"
+																}
+															}
+														],
+														"name": "ToolResult",
+														"package": "holon-sh"
+													}
+												],
+												"name": "Promise",
+												"package": "typescript"
+											}
+										}
+									]
+								}
+							}
+						},
+						{
+							"id": 181,
+							"name": "close",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isReadonly": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Close the cached endpoint session. Scoped calls close their own session; a host-owned session is closed by its host."
+									}
+								]
+							},
+							"type": {
+								"type": "reflection",
+								"declaration": {
+									"id": 182,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"signatures": [
+										{
+											"id": 183,
+											"name": "__type",
+											"variant": "signature",
+											"kind": 4096,
+											"flags": {},
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Promise"
+												},
+												"typeArguments": [
+													{
+														"type": "intrinsic",
+														"name": "void"
+													}
+												],
+												"name": "Promise",
+												"package": "typescript"
+											}
+										}
+									]
+								}
+							}
+						},
+						{
+							"id": 184,
+							"name": "listTools",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isReadonly": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Fetch the live tool catalog."
+									}
+								]
+							},
+							"type": {
+								"type": "reflection",
+								"declaration": {
+									"id": 185,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"signatures": [
+										{
+											"id": 186,
+											"name": "__type",
+											"variant": "signature",
+											"kind": 4096,
+											"flags": {},
+											"parameters": [
+												{
+													"id": 187,
+													"name": "options",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {
+														"isOptional": true
+													},
+													"type": {
+														"type": "reference",
+														"target": 132,
+														"name": "CallOptions",
+														"package": "holon-sh"
+													}
+												}
+											],
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Promise"
+												},
+												"typeArguments": [
+													{
+														"type": "reflection",
+														"declaration": {
+															"id": 188,
+															"name": "__type",
+															"variant": "declaration",
+															"kind": 65536,
+															"flags": {},
+															"indexSignatures": [
+																{
+																	"id": 189,
+																	"name": "__index",
+																	"variant": "signature",
+																	"kind": 8192,
+																	"flags": {},
+																	"parameters": [
+																		{
+																			"id": 190,
+																			"name": "key",
+																			"variant": "param",
+																			"kind": 32768,
+																			"flags": {},
+																			"type": {
+																				"type": "intrinsic",
+																				"name": "string"
+																			}
+																		}
+																	],
+																	"type": {
+																		"type": "intrinsic",
+																		"name": "unknown"
+																	}
+																}
+															]
+														}
+													}
+												],
+												"name": "Promise",
+												"package": "typescript"
+											}
+										}
+									]
+								}
+							}
+						},
+						{
+							"id": 191,
+							"name": "resources",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isReadonly": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Contracted JSON resources. read validates the first text content as JSON. watch requires an endpoint binding to a server that supports subscriptions; it reads the initial value, then listens for updates until aborted."
+									}
+								]
+							},
+							"type": {
+								"type": "mapped",
+								"parameter": "U",
+								"parameterType": {
+									"type": "union",
+									"types": [
+										{
+											"type": "intrinsic",
+											"name": "string"
+										},
+										{
+											"type": "intrinsic",
+											"name": "number"
+										},
+										{
+											"type": "intrinsic",
+											"name": "symbol"
+										}
+									]
+								},
+								"templateType": {
+									"type": "reflection",
+									"declaration": {
+										"id": 192,
+										"name": "__type",
+										"variant": "declaration",
+										"kind": 65536,
+										"flags": {},
+										"children": [
+											{
+												"id": 193,
+												"name": "read",
+												"variant": "declaration",
+												"kind": 1024,
+												"flags": {
+													"isReadonly": true
+												},
+												"type": {
+													"type": "reflection",
+													"declaration": {
+														"id": 194,
+														"name": "__type",
+														"variant": "declaration",
+														"kind": 65536,
+														"flags": {},
+														"signatures": [
+															{
+																"id": 195,
+																"name": "__type",
+																"variant": "signature",
+																"kind": 4096,
+																"flags": {},
+																"parameters": [
+																	{
+																		"id": 196,
+																		"name": "options",
+																		"variant": "param",
+																		"kind": 32768,
+																		"flags": {
+																			"isOptional": true
+																		},
+																		"type": {
+																			"type": "reference",
+																			"target": 132,
+																			"name": "CallOptions",
+																			"package": "holon-sh"
+																		}
+																	}
+																],
+																"type": {
+																	"type": "reference",
+																	"target": {
+																		"packageName": "typescript",
+																		"packagePath": "lib/lib.es5.d.ts",
+																		"qualifiedName": "Promise"
+																	},
+																	"typeArguments": [
+																		{
+																			"type": "indexedAccess",
+																			"indexType": {
+																				"type": "reference",
+																				"target": {
+																					"packageName": "holon-sh",
+																					"packagePath": "protocol.d.ts",
+																					"qualifiedName": "U"
+																				},
+																				"name": "U",
+																				"package": "holon-sh",
+																				"refersToTypeParameter": true
+																			},
+																			"objectType": {
+																				"type": "reference",
+																				"target": 180,
+																				"name": "R",
+																				"package": "holon-sh",
+																				"qualifiedName": "ToolClient.R",
+																				"refersToTypeParameter": true
+																			}
+																		}
+																	],
+																	"name": "Promise",
+																	"package": "typescript"
+																}
+															}
+														]
+													}
+												}
+											},
+											{
+												"id": 197,
+												"name": "watch",
+												"variant": "declaration",
+												"kind": 1024,
+												"flags": {
+													"isReadonly": true
+												},
+												"type": {
+													"type": "reflection",
+													"declaration": {
+														"id": 198,
+														"name": "__type",
+														"variant": "declaration",
+														"kind": 65536,
+														"flags": {},
+														"signatures": [
+															{
+																"id": 199,
+																"name": "__type",
+																"variant": "signature",
+																"kind": 4096,
+																"flags": {},
+																"parameters": [
+																	{
+																		"id": 200,
+																		"name": "onChange",
+																		"variant": "param",
+																		"kind": 32768,
+																		"flags": {},
+																		"type": {
+																			"type": "reflection",
+																			"declaration": {
+																				"id": 201,
+																				"name": "__type",
+																				"variant": "declaration",
+																				"kind": 65536,
+																				"flags": {},
+																				"signatures": [
+																					{
+																						"id": 202,
+																						"name": "__type",
+																						"variant": "signature",
+																						"kind": 4096,
+																						"flags": {},
+																						"parameters": [
+																							{
+																								"id": 203,
+																								"name": "value",
+																								"variant": "param",
+																								"kind": 32768,
+																								"flags": {},
+																								"type": {
+																									"type": "indexedAccess",
+																									"indexType": {
+																										"type": "reference",
+																										"target": {
+																											"packageName": "holon-sh",
+																											"packagePath": "protocol.d.ts",
+																											"qualifiedName": "U"
+																										},
+																										"name": "U",
+																										"package": "holon-sh",
+																										"refersToTypeParameter": true
+																									},
+																									"objectType": {
+																										"type": "reference",
+																										"target": 180,
+																										"name": "R",
+																										"package": "holon-sh",
+																										"qualifiedName": "ToolClient.R",
+																										"refersToTypeParameter": true
+																									}
+																								}
+																							}
+																						],
+																						"type": {
+																							"type": "union",
+																							"types": [
+																								{
+																									"type": "intrinsic",
+																									"name": "void"
+																								},
+																								{
+																									"type": "reference",
+																									"target": {
+																										"packageName": "typescript",
+																										"packagePath": "lib/lib.es5.d.ts",
+																										"qualifiedName": "Promise"
+																									},
+																									"typeArguments": [
+																										{
+																											"type": "intrinsic",
+																											"name": "void"
+																										}
+																									],
+																									"name": "Promise",
+																									"package": "typescript"
+																								}
+																							]
+																						}
+																					}
+																				]
+																			}
+																		}
+																	},
+																	{
+																		"id": 204,
+																		"name": "options",
+																		"variant": "param",
+																		"kind": 32768,
+																		"flags": {
+																			"isOptional": true
+																		},
+																		"type": {
+																			"type": "reflection",
+																			"declaration": {
+																				"id": 205,
+																				"name": "__type",
+																				"variant": "declaration",
+																				"kind": 65536,
+																				"flags": {},
+																				"children": [
+																					{
+																						"id": 206,
+																						"name": "signal",
+																						"variant": "declaration",
+																						"kind": 1024,
+																						"flags": {
+																							"isOptional": true
+																						},
+																						"type": {
+																							"type": "reference",
+																							"target": {
+																								"packageName": "typescript",
+																								"packagePath": "lib/lib.dom.d.ts",
+																								"qualifiedName": "AbortSignal"
+																							},
+																							"name": "AbortSignal",
+																							"package": "typescript"
+																						}
+																					}
+																				],
+																				"groups": [
+																					{
+																						"title": "Properties",
+																						"children": [
+																							206
+																						]
+																					}
+																				]
+																			}
+																		}
+																	}
+																],
+																"type": {
+																	"type": "reference",
+																	"target": {
+																		"packageName": "typescript",
+																		"packagePath": "lib/lib.es5.d.ts",
+																		"qualifiedName": "Promise"
+																	},
+																	"typeArguments": [
+																		{
+																			"type": "intrinsic",
+																			"name": "void"
+																		}
+																	],
+																	"name": "Promise",
+																	"package": "typescript"
+																}
+															}
+														]
+													}
+												}
+											}
+										],
+										"groups": [
+											{
+												"title": "Properties",
+												"children": [
+													193,
+													197
+												]
+											}
+										]
+									}
+								},
+								"readonlyModifier": "+"
+							}
+						},
+						{
+							"id": 207,
+							"name": "tools",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isReadonly": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Convenience methods returning structured output, or the complete MCP result, with its content blocks typed, for a tool without an output schema. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool."
+									}
+								]
+							},
+							"type": {
+								"type": "mapped",
+								"parameter": "K",
+								"parameterType": {
+									"type": "union",
+									"types": [
+										{
+											"type": "intrinsic",
+											"name": "string"
+										},
+										{
+											"type": "intrinsic",
+											"name": "number"
+										},
+										{
+											"type": "intrinsic",
+											"name": "symbol"
+										}
+									]
+								},
+								"templateType": {
+									"type": "reflection",
+									"declaration": {
+										"id": 208,
+										"name": "__type",
+										"variant": "declaration",
+										"kind": 65536,
+										"flags": {},
+										"signatures": [
+											{
+												"id": 209,
+												"name": "__type",
+												"variant": "signature",
+												"kind": 4096,
+												"flags": {},
+												"parameters": [
+													{
+														"id": 210,
+														"name": "input",
+														"variant": "param",
+														"kind": 32768,
+														"flags": {},
+														"type": {
+															"type": "indexedAccess",
+															"indexType": {
+																"type": "reference",
+																"target": {
+																	"packageName": "holon-sh",
+																	"packagePath": "protocol.d.ts",
+																	"qualifiedName": "K"
+																},
+																"name": "K",
+																"package": "holon-sh",
+																"refersToTypeParameter": true
+															},
+															"objectType": {
+																"type": "reference",
+																"target": 178,
+																"name": "I",
+																"package": "holon-sh",
+																"qualifiedName": "ToolClient.I",
+																"refersToTypeParameter": true
+															}
+														}
+													},
+													{
+														"id": 211,
+														"name": "options",
+														"variant": "param",
+														"kind": 32768,
+														"flags": {
+															"isOptional": true
+														},
+														"type": {
+															"type": "reference",
+															"target": 133,
+															"name": "ToolCallOptions",
+															"package": "holon-sh"
+														}
+													}
+												],
+												"type": {
+													"type": "reference",
+													"target": {
+														"packageName": "typescript",
+														"packagePath": "lib/lib.es5.d.ts",
+														"qualifiedName": "Promise"
+													},
+													"typeArguments": [
+														{
+															"type": "conditional",
+															"checkType": {
+																"type": "reference",
+																"target": {
+																	"packageName": "holon-sh",
+																	"packagePath": "protocol.d.ts",
+																	"qualifiedName": "K"
+																},
+																"name": "K",
+																"package": "holon-sh",
+																"refersToTypeParameter": true
+															},
+															"extendsType": {
+																"type": "typeOperator",
+																"operator": "keyof",
+																"target": {
+																	"type": "reference",
+																	"target": 179,
+																	"name": "O",
+																	"package": "holon-sh",
+																	"qualifiedName": "ToolClient.O",
+																	"refersToTypeParameter": true
+																}
+															},
+															"trueType": {
+																"type": "indexedAccess",
+																"indexType": {
+																	"type": "reference",
+																	"target": {
+																		"packageName": "holon-sh",
+																		"packagePath": "protocol.d.ts",
+																		"qualifiedName": "K"
+																	},
+																	"name": "K",
+																	"package": "holon-sh",
+																	"refersToTypeParameter": true
+																},
+																"objectType": {
+																	"type": "reference",
+																	"target": 179,
+																	"name": "O",
+																	"package": "holon-sh",
+																	"qualifiedName": "ToolClient.O",
+																	"refersToTypeParameter": true
+																}
+															},
+															"falseType": {
+																"type": "reference",
+																"target": 142,
+																"typeArguments": [
+																	{
+																		"type": "intrinsic",
+																		"name": "unknown"
+																	}
+																],
+																"name": "CompleteResult",
+																"package": "holon-sh"
+															}
+														}
+													],
+													"name": "Promise",
+													"package": "typescript"
+												}
+											}
+										]
+									}
+								},
+								"readonlyModifier": "+"
+							}
+						}
+					],
+					"groups": [
+						{
+							"title": "Properties",
+							"children": [
+								212,
+								181,
+								184,
+								191,
+								207
+							]
+						}
+					],
+					"typeParameters": [
+						{
+							"id": 178,
+							"name": "I",
+							"variant": "typeParam",
+							"kind": 131072,
+							"flags": {}
+						},
+						{
+							"id": 179,
+							"name": "O",
+							"variant": "typeParam",
+							"kind": 131072,
+							"flags": {}
+						},
+						{
+							"id": 180,
+							"name": "R",
+							"variant": "typeParam",
+							"kind": 131072,
+							"flags": {}
+						}
+					]
+				},
+				{
+					"id": 116,
+					"name": "AuthProvider",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Bearer-token or OAuth provider accepted by the MCP transport."
+							}
+						]
+					},
+					"type": {
+						"type": "union",
+						"types": [
+							{
+								"type": "reflection",
+								"declaration": {
+									"id": 117,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"children": [
+										{
+											"id": 120,
+											"name": "onUnauthorized",
+											"variant": "declaration",
+											"kind": 2048,
+											"flags": {
+												"isOptional": true
+											},
+											"signatures": [
+												{
+													"id": 121,
+													"name": "onUnauthorized",
+													"variant": "signature",
+													"kind": 4096,
+													"flags": {},
+													"parameters": [
+														{
+															"id": 122,
+															"name": "context",
+															"variant": "param",
+															"kind": 32768,
+															"flags": {},
+															"type": {
+																"type": "intrinsic",
+																"name": "unknown"
+															}
+														}
+													],
+													"type": {
+														"type": "reference",
+														"target": {
+															"packageName": "typescript",
+															"packagePath": "lib/lib.es5.d.ts",
+															"qualifiedName": "Promise"
+														},
+														"typeArguments": [
+															{
+																"type": "intrinsic",
+																"name": "void"
+															}
+														],
+														"name": "Promise",
+														"package": "typescript"
+													}
+												}
+											]
+										},
+										{
+											"id": 118,
+											"name": "token",
+											"variant": "declaration",
+											"kind": 2048,
+											"flags": {},
+											"signatures": [
+												{
+													"id": 119,
+													"name": "token",
+													"variant": "signature",
+													"kind": 4096,
+													"flags": {},
+													"type": {
+														"type": "reference",
+														"target": {
+															"packageName": "typescript",
+															"packagePath": "lib/lib.es5.d.ts",
+															"qualifiedName": "Promise"
+														},
+														"typeArguments": [
+															{
+																"type": "union",
+																"types": [
+																	{
+																		"type": "intrinsic",
+																		"name": "string"
+																	},
+																	{
+																		"type": "intrinsic",
+																		"name": "undefined"
+																	}
+																]
+															}
+														],
+														"name": "Promise",
+														"package": "typescript"
+													}
+												}
+											]
+										}
+									],
+									"groups": [
+										{
+											"title": "Methods",
+											"children": [
+												120,
+												118
+											]
+										}
+									]
+								}
+							},
+							{
+								"type": "reflection",
+								"declaration": {
+									"id": 123,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"children": [
+										{
+											"id": 127,
+											"name": "clientMetadata",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {},
+											"type": {
+												"type": "intrinsic",
+												"name": "unknown"
+											}
+										},
+										{
+											"id": 126,
+											"name": "redirectUrl",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {},
+											"type": {
+												"type": "intrinsic",
+												"name": "unknown"
+											}
+										},
+										{
+											"id": 124,
+											"name": "tokens",
+											"variant": "declaration",
+											"kind": 2048,
+											"flags": {},
+											"signatures": [
+												{
+													"id": 125,
+													"name": "tokens",
+													"variant": "signature",
+													"kind": 4096,
+													"flags": {},
+													"type": {
+														"type": "intrinsic",
+														"name": "unknown"
+													}
+												}
+											]
+										}
+									],
+									"groups": [
+										{
+											"title": "Properties",
+											"children": [
+												127,
+												126
+											]
+										},
+										{
+											"title": "Methods",
+											"children": [
+												124
+											]
+										}
+									]
+								}
+							}
+						]
+					}
+				},
+				{
+					"id": 136,
+					"name": "CallMetadata",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "MCP request metadata and input continuation fields. Pass inputResponses and requestState when continuing an input-required result."
+							}
+						]
+					},
+					"type": {
+						"type": "intersection",
+						"types": [
+							{
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Omit"
+								},
+								"typeArguments": [
+									{
+										"type": "indexedAccess",
+										"indexType": {
+											"type": "literal",
+											"value": "params"
+										},
+										"objectType": {
+											"type": "reference",
+											"target": {
+												"packageName": "@modelcontextprotocol/client",
+												"packagePath": "../core-internal/src/auth/errors.ts",
+												"qualifiedName": "CallToolRequest"
+											},
+											"name": "CallToolRequest",
+											"package": "@modelcontextprotocol/client"
+										}
+									},
+									{
+										"type": "union",
+										"types": [
+											{
+												"type": "literal",
+												"value": "name"
+											},
+											{
+												"type": "literal",
+												"value": "arguments"
+											}
+										]
+									}
+								],
+								"name": "Omit",
+								"package": "typescript"
+							},
+							{
+								"type": "reflection",
+								"declaration": {
+									"id": 137,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"children": [
+										{
+											"id": 138,
+											"name": "inputResponses",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "@modelcontextprotocol/client",
+													"packagePath": "../core-internal/src/auth/errors.ts",
+													"qualifiedName": "InputResponses"
+												},
+												"name": "InputResponses",
+												"package": "@modelcontextprotocol/client"
+											}
+										},
+										{
+											"id": 139,
+											"name": "requestState",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "intrinsic",
+												"name": "string"
+											}
+										}
+									],
+									"groups": [
+										{
+											"title": "Properties",
+											"children": [
+												138,
+												139
+											]
+										}
+									]
+								}
+							}
+						]
+					}
+				},
+				{
+					"id": 132,
+					"name": "CallOptions",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "MCP request options, including AbortSignal and timeout in milliseconds. A request without a timeout waits for its answer; progress from the server restarts a timeout. Input-required responses are enabled by the runtime."
+							}
+						]
+					},
+					"type": {
+						"type": "reference",
+						"target": {
+							"packageName": "typescript",
+							"packagePath": "lib/lib.es5.d.ts",
+							"qualifiedName": "Omit"
+						},
+						"typeArguments": [
+							{
+								"type": "reference",
+								"target": {
+									"packageName": "@modelcontextprotocol/client",
+									"packagePath": "../core-internal/src/auth/errors.ts",
+									"qualifiedName": "RequestOptions"
+								},
+								"name": "RequestOptions",
+								"package": "@modelcontextprotocol/client"
+							},
+							{
+								"type": "literal",
+								"value": "allowInputRequired"
+							}
+						],
+						"name": "Omit",
+						"package": "typescript"
+					}
+				},
+				{
+					"id": 142,
+					"name": "CompleteResult",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Successful tool result with contract-typed structured content."
+							}
+						]
+					},
+					"typeParameters": [
+						{
+							"id": 147,
+							"name": "Output",
+							"variant": "typeParam",
+							"kind": 131072,
+							"flags": {}
+						}
+					],
+					"type": {
+						"type": "intersection",
+						"types": [
+							{
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Omit"
+								},
+								"typeArguments": [
+									{
+										"type": "reference",
+										"target": -1,
+										"typeArguments": [
+											{
+												"type": "reference",
+												"target": {
+													"packageName": "@modelcontextprotocol/client",
+													"packagePath": "../core-internal/src/auth/errors.ts",
+													"qualifiedName": "CallToolResult"
+												},
+												"name": "CallToolResult",
+												"package": "@modelcontextprotocol/client"
+											}
+										],
+										"name": "Fields",
+										"package": "holon-sh"
+									},
+									{
+										"type": "union",
+										"types": [
+											{
+												"type": "literal",
+												"value": "structuredContent"
+											},
+											{
+												"type": "literal",
+												"value": "isError"
+											}
+										]
+									}
+								],
+								"name": "Omit",
+								"package": "typescript"
+							},
+							{
+								"type": "reflection",
+								"declaration": {
+									"id": 143,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"children": [
+										{
+											"id": 145,
+											"name": "isError",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "literal",
+												"value": false
+											}
+										},
+										{
+											"id": 144,
+											"name": "resultType",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {},
+											"type": {
+												"type": "literal",
+												"value": "complete"
+											}
+										},
+										{
+											"id": 146,
+											"name": "structuredContent",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {},
+											"type": {
+												"type": "reference",
+												"target": 147,
+												"name": "Output",
+												"package": "holon-sh",
+												"refersToTypeParameter": true
+											}
+										}
+									],
+									"groups": [
+										{
+											"title": "Properties",
+											"children": [
+												145,
+												144,
+												146
+											]
+										}
+									]
+								}
+							}
+						]
+					}
+				},
+				{
+					"id": 128,
+					"name": "ElicitHandler",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Answers a server's question so the call that asked can complete. "
+							},
+							{
+								"kind": "code",
+								"text": "`params.mode`"
+							},
+							{
+								"kind": "text",
+								"text": " tells a form from a URL to open."
+							}
+						]
+					},
+					"type": {
+						"type": "reflection",
+						"declaration": {
+							"id": 129,
+							"name": "__type",
+							"variant": "declaration",
+							"kind": 65536,
+							"flags": {},
+							"signatures": [
+								{
+									"id": 130,
+									"name": "__type",
+									"variant": "signature",
+									"kind": 4096,
+									"flags": {},
+									"parameters": [
+										{
+											"id": 131,
+											"name": "params",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {},
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "@modelcontextprotocol/client",
+													"packagePath": "../core-internal/src/auth/errors.ts",
+													"qualifiedName": "ElicitRequestParams"
+												},
+												"name": "ElicitRequestParams",
+												"package": "@modelcontextprotocol/client"
+											}
+										}
+									],
+									"type": {
+										"type": "union",
+										"types": [
+											{
+												"type": "reference",
+												"target": {
+													"packageName": "@modelcontextprotocol/client",
+													"packagePath": "../core-internal/src/auth/errors.ts",
+													"qualifiedName": "ElicitResult"
+												},
+												"name": "ElicitResult",
+												"package": "@modelcontextprotocol/client"
+											},
+											{
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Promise"
+												},
+												"typeArguments": [
+													{
+														"type": "reference",
+														"target": {
+															"packageName": "@modelcontextprotocol/client",
+															"packagePath": "../core-internal/src/auth/errors.ts",
+															"qualifiedName": "ElicitResult"
+														},
+														"name": "ElicitResult",
+														"package": "@modelcontextprotocol/client"
+													}
+												],
+												"name": "Promise",
+												"package": "typescript"
+											}
+										]
+									}
+								}
+							]
+						}
+					}
+				},
+				{
+					"id": 133,
+					"name": "ToolCallOptions",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Call options for a tool. "
+							},
+							{
+								"kind": "code",
+								"text": "`elicit`"
+							},
+							{
+								"kind": "text",
+								"text": " answers its questions in place, so the call returns the completed result."
+							}
+						]
+					},
+					"type": {
+						"type": "intersection",
+						"types": [
+							{
+								"type": "reference",
+								"target": 132,
+								"name": "CallOptions",
+								"package": "holon-sh"
+							},
+							{
+								"type": "reflection",
+								"declaration": {
+									"id": 134,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"children": [
+										{
+											"id": 135,
+											"name": "elicit",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "reference",
+												"target": 128,
+												"name": "ElicitHandler",
+												"package": "holon-sh"
+											}
+										}
+									],
+									"groups": [
+										{
+											"title": "Properties",
+											"children": [
+												135
+											]
+										}
+									]
+								}
+							}
+						]
+					}
+				},
+				{
+					"id": 148,
+					"name": "ToolResult",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Full tool result: successful typed output, an application error, or an input-required continuation."
+							}
+						]
+					},
+					"typeParameters": [
+						{
+							"id": 153,
+							"name": "Output",
+							"variant": "typeParam",
+							"kind": 131072,
+							"flags": {}
+						}
+					],
+					"type": {
+						"type": "union",
+						"types": [
+							{
+								"type": "reference",
+								"target": 142,
+								"typeArguments": [
+									{
+										"type": "reference",
+										"target": 153,
+										"name": "Output",
+										"package": "holon-sh",
+										"refersToTypeParameter": true
+									}
+								],
+								"name": "CompleteResult",
+								"package": "holon-sh"
+							},
+							{
+								"type": "intersection",
+								"types": [
+									{
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Omit"
+										},
+										"typeArguments": [
+											{
+												"type": "reference",
+												"target": -1,
+												"typeArguments": [
+													{
+														"type": "reference",
+														"target": {
+															"packageName": "@modelcontextprotocol/client",
+															"packagePath": "../core-internal/src/auth/errors.ts",
+															"qualifiedName": "CallToolResult"
+														},
+														"name": "CallToolResult",
+														"package": "@modelcontextprotocol/client"
+													}
+												],
+												"name": "Fields",
+												"package": "holon-sh"
+											},
+											{
+												"type": "union",
+												"types": [
+													{
+														"type": "literal",
+														"value": "structuredContent"
+													},
+													{
+														"type": "literal",
+														"value": "isError"
+													}
+												]
+											}
+										],
+										"name": "Omit",
+										"package": "typescript"
+									},
+									{
+										"type": "reflection",
+										"declaration": {
+											"id": 149,
+											"name": "__type",
+											"variant": "declaration",
+											"kind": 65536,
+											"flags": {},
+											"children": [
+												{
+													"id": 151,
+													"name": "isError",
+													"variant": "declaration",
+													"kind": 1024,
+													"flags": {},
+													"type": {
+														"type": "literal",
+														"value": true
+													}
+												},
+												{
+													"id": 150,
+													"name": "resultType",
+													"variant": "declaration",
+													"kind": 1024,
+													"flags": {},
+													"type": {
+														"type": "literal",
+														"value": "complete"
+													}
+												},
+												{
+													"id": 152,
+													"name": "structuredContent",
+													"variant": "declaration",
+													"kind": 1024,
+													"flags": {
+														"isOptional": true
+													},
+													"type": {
+														"type": "intrinsic",
+														"name": "unknown"
+													}
+												}
+											],
+											"groups": [
+												{
+													"title": "Properties",
+													"children": [
+														151,
+														150,
+														152
+													]
+												}
+											]
+										}
+									}
+								]
+							},
+							{
+								"type": "reference",
+								"target": {
+									"packageName": "@modelcontextprotocol/client",
+									"packagePath": "../core-internal/src/auth/errors.ts",
+									"qualifiedName": "InputRequiredResult"
+								},
+								"name": "InputRequiredResult",
+								"package": "@modelcontextprotocol/client"
+							}
+						]
+					}
+				}
+			],
+			"groups": [
+				{
+					"title": "Classes",
+					"children": [
+						154
+					]
+				},
+				{
+					"title": "Interfaces",
+					"children": [
+						177
+					]
+				},
+				{
+					"title": "Type Aliases",
+					"children": [
+						116,
+						136,
+						132,
+						142,
+						128,
+						133,
+						148
+					]
+				}
+			]
+		},
+		{
+			"id": 13,
+			"name": "runtime",
+			"variant": "declaration",
+			"kind": 2,
+			"flags": {},
+			"children": [
+				{
+					"id": 34,
+					"name": "Binding",
+					"variant": "declaration",
+					"kind": 256,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Connection settings for an MCP endpoint."
+							}
+						]
+					},
+					"children": [
+						{
+							"id": 36,
+							"name": "authProvider",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Authentication provider; use application-owned credentials."
+									}
+								]
+							},
+							"type": {
+								"type": "reference",
+								"target": 116,
+								"name": "AuthProvider",
+								"package": "holon-sh"
+							}
+						},
+						{
+							"id": 35,
+							"name": "endpoint",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Streamable HTTP MCP endpoint."
+									}
+								]
+							},
+							"type": {
+								"type": "union",
+								"types": [
+									{
+										"type": "intrinsic",
+										"name": "string"
+									},
+									{
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.dom.d.ts",
+											"qualifiedName": "URL"
+										},
+										"name": "URL",
+										"package": "typescript"
+									}
+								]
+							}
+						},
+						{
+							"id": 37,
+							"name": "fetch",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Custom fetch implementation, for example for an in-process transport."
+									}
+								]
+							},
+							"type": {
+								"type": "reflection",
+								"declaration": {
+									"id": 38,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"signatures": [
+										{
+											"id": 39,
+											"name": "__type",
+											"variant": "signature",
+											"kind": 4096,
+											"flags": {},
+											"comment": {
+												"summary": [
+													{
+														"kind": "text",
+														"text": "[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)"
+													}
+												]
+											},
+											"parameters": [
+												{
+													"id": 40,
+													"name": "input",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {},
+													"type": {
+														"type": "union",
+														"types": [
+															{
+																"type": "reference",
+																"target": {
+																	"packageName": "typescript",
+																	"packagePath": "lib/lib.dom.d.ts",
+																	"qualifiedName": "URL"
+																},
+																"name": "URL",
+																"package": "typescript"
+															},
+															{
+																"type": "reference",
+																"target": {
+																	"packageName": "typescript",
+																	"packagePath": "lib/lib.dom.d.ts",
+																	"qualifiedName": "RequestInfo"
+																},
+																"name": "RequestInfo",
+																"package": "typescript"
+															}
+														]
+													}
+												},
+												{
+													"id": 41,
+													"name": "init",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {
+														"isOptional": true
+													},
+													"type": {
+														"type": "reference",
+														"target": {
+															"packageName": "typescript",
+															"packagePath": "lib/lib.dom.d.ts",
+															"qualifiedName": "RequestInit"
+														},
+														"name": "RequestInit",
+														"package": "typescript"
+													}
+												}
+											],
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Promise"
+												},
+												"typeArguments": [
+													{
+														"type": "reference",
+														"target": {
+															"packageName": "typescript",
+															"packagePath": "lib/lib.dom.d.ts",
+															"qualifiedName": "Response"
+														},
+														"name": "Response",
+														"package": "typescript"
+													}
+												],
+												"name": "Promise",
+												"package": "typescript"
+											}
+										},
+										{
+											"id": 42,
+											"name": "__type",
+											"variant": "signature",
+											"kind": 4096,
+											"flags": {},
+											"comment": {
+												"summary": [
+													{
+														"kind": "text",
+														"text": "[MDN Reference](https://developer.mozilla.org/docs/Web/API/Window/fetch)"
+													}
+												]
+											},
+											"parameters": [
+												{
+													"id": 43,
+													"name": "input",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {},
+													"type": {
+														"type": "union",
+														"types": [
+															{
+																"type": "intrinsic",
+																"name": "string"
+															},
+															{
+																"type": "reference",
+																"target": {
+																	"packageName": "typescript",
+																	"packagePath": "lib/lib.dom.d.ts",
+																	"qualifiedName": "URL"
+																},
+																"name": "URL",
+																"package": "typescript"
+															},
+															{
+																"type": "reference",
+																"target": {
+																	"packageName": "typescript",
+																	"packagePath": "lib/lib.dom.d.ts",
+																	"qualifiedName": "Request"
+																},
+																"name": "Request",
+																"package": "typescript"
+															}
+														]
+													}
+												},
+												{
+													"id": 44,
+													"name": "init",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {
+														"isOptional": true
+													},
+													"type": {
+														"type": "reference",
+														"target": {
+															"packageName": "typescript",
+															"packagePath": "lib/lib.dom.d.ts",
+															"qualifiedName": "RequestInit"
+														},
+														"name": "RequestInit",
+														"package": "typescript"
+													}
+												}
+											],
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Promise"
+												},
+												"typeArguments": [
+													{
+														"type": "reference",
+														"target": {
+															"packageName": "typescript",
+															"packagePath": "lib/lib.dom.d.ts",
+															"qualifiedName": "Response"
+														},
+														"name": "Response",
+														"package": "typescript"
+													}
+												],
+												"name": "Promise",
+												"package": "typescript"
+											}
+										}
+									]
+								}
+							}
+						},
+						{
+							"id": 45,
+							"name": "installationUID",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Optional X-Holon-Installation-UID routing header."
+									}
+								]
+							},
+							"type": {
+								"type": "intrinsic",
+								"name": "string"
+							}
+						},
+						{
+							"id": 46,
+							"name": "scoped",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Close the session after every call instead of keeping one connection open."
+									}
+								]
+							},
+							"type": {
+								"type": "intrinsic",
+								"name": "boolean"
+							}
+						}
+					],
+					"groups": [
+						{
+							"title": "Properties",
+							"children": [
+								36,
+								35,
+								37,
+								45,
+								46
+							]
+						}
+					]
+				},
+				{
+					"id": 55,
+					"name": "Contract",
+					"variant": "declaration",
+					"kind": 256,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Generation-time tool and JSON resource schemas. A null contract permits unvalidated callTool requests."
+							}
+						]
+					},
+					"children": [
+						{
+							"id": 61,
+							"name": "resources",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"type": {
+								"type": "array",
+								"elementType": {
+									"type": "reflection",
+									"declaration": {
+										"id": 62,
+										"name": "__type",
+										"variant": "declaration",
+										"kind": 65536,
+										"flags": {},
+										"children": [
+											{
+												"id": 64,
+												"name": "outputSchema",
+												"variant": "declaration",
+												"kind": 1024,
+												"flags": {},
+												"type": {
+													"type": "reference",
+													"target": {
+														"packageName": "typescript",
+														"packagePath": "lib/lib.es5.d.ts",
+														"qualifiedName": "Record"
+													},
+													"typeArguments": [
+														{
+															"type": "intrinsic",
+															"name": "string"
+														},
+														{
+															"type": "intrinsic",
+															"name": "unknown"
+														}
+													],
+													"name": "Record",
+													"package": "typescript"
+												}
+											},
+											{
+												"id": 63,
+												"name": "uri",
+												"variant": "declaration",
+												"kind": 1024,
+												"flags": {},
+												"type": {
+													"type": "intrinsic",
+													"name": "string"
+												}
+											}
+										],
+										"groups": [
+											{
+												"title": "Properties",
+												"children": [
+													64,
+													63
+												]
+											}
+										]
+									}
+								}
+							}
+						},
+						{
+							"id": 56,
+							"name": "tools",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {},
+							"type": {
+								"type": "array",
+								"elementType": {
+									"type": "reflection",
+									"declaration": {
+										"id": 57,
+										"name": "__type",
+										"variant": "declaration",
+										"kind": 65536,
+										"flags": {},
+										"children": [
+											{
+												"id": 59,
+												"name": "inputSchema",
+												"variant": "declaration",
+												"kind": 1024,
+												"flags": {},
+												"type": {
+													"type": "reference",
+													"target": {
+														"packageName": "typescript",
+														"packagePath": "lib/lib.es5.d.ts",
+														"qualifiedName": "Record"
+													},
+													"typeArguments": [
+														{
+															"type": "intrinsic",
+															"name": "string"
+														},
+														{
+															"type": "intrinsic",
+															"name": "unknown"
+														}
+													],
+													"name": "Record",
+													"package": "typescript"
+												}
+											},
+											{
+												"id": 58,
+												"name": "name",
+												"variant": "declaration",
+												"kind": 1024,
+												"flags": {},
+												"type": {
+													"type": "intrinsic",
+													"name": "string"
+												}
+											},
+											{
+												"id": 60,
+												"name": "outputSchema",
+												"variant": "declaration",
+												"kind": 1024,
+												"flags": {
+													"isOptional": true
+												},
+												"type": {
+													"type": "reference",
+													"target": {
+														"packageName": "typescript",
+														"packagePath": "lib/lib.es5.d.ts",
+														"qualifiedName": "Record"
+													},
+													"typeArguments": [
+														{
+															"type": "intrinsic",
+															"name": "string"
+														},
+														{
+															"type": "intrinsic",
+															"name": "unknown"
+														}
+													],
+													"name": "Record",
+													"package": "typescript"
+												}
+											}
+										],
+										"groups": [
+											{
+												"title": "Properties",
+												"children": [
+													59,
+													58,
+													60
+												]
+											}
+										]
+									}
+								}
+							}
+						}
+					],
+					"groups": [
+						{
+							"title": "Properties",
+							"children": [
+								61,
+								56
+							]
+						}
+					]
+				},
+				{
+					"id": 84,
+					"name": "CreateOptions",
+					"variant": "declaration",
+					"kind": 256,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Optional validation, binding resolution, and host-session hooks."
+							}
+						]
+					},
+					"children": [
+						{
+							"id": 93,
+							"name": "resolve",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Binding of an app created without explicit bindings; consulted on every call."
+									}
+								]
+							},
+							"type": {
+								"type": "reflection",
+								"declaration": {
+									"id": 94,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"signatures": [
+										{
+											"id": 95,
+											"name": "__type",
+											"variant": "signature",
+											"kind": 4096,
+											"flags": {},
+											"parameters": [
+												{
+													"id": 96,
+													"name": "app",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {},
+													"type": {
+														"type": "intrinsic",
+														"name": "string"
+													}
+												}
+											],
+											"type": {
+												"type": "union",
+												"types": [
+													{
+														"type": "reference",
+														"target": 34,
+														"name": "Binding",
+														"package": "holon-sh"
+													},
+													{
+														"type": "intrinsic",
+														"name": "undefined"
+													}
+												]
+											}
+										}
+									]
+								}
+							}
+						},
+						{
+							"id": 97,
+							"name": "session",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Session for a binding the runtime does not connect to itself (anything without an endpoint)."
+									}
+								]
+							},
+							"type": {
+								"type": "reflection",
+								"declaration": {
+									"id": 98,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"signatures": [
+										{
+											"id": 99,
+											"name": "__type",
+											"variant": "signature",
+											"kind": 4096,
+											"flags": {},
+											"parameters": [
+												{
+													"id": 100,
+													"name": "app",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {},
+													"type": {
+														"type": "intrinsic",
+														"name": "string"
+													}
+												},
+												{
+													"id": 101,
+													"name": "binding",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {},
+													"type": {
+														"type": "reference",
+														"target": 85,
+														"name": "B",
+														"package": "holon-sh",
+														"qualifiedName": "CreateOptions.B",
+														"refersToTypeParameter": true
+													}
+												}
+											],
+											"type": {
+												"type": "union",
+												"types": [
+													{
+														"type": "reference",
+														"target": 66,
+														"name": "ToolSession",
+														"package": "holon-sh"
+													},
+													{
+														"type": "intrinsic",
+														"name": "undefined"
+													}
+												]
+											}
+										}
+									]
+								}
+							}
+						},
+						{
+							"id": 86,
+							"name": "validator",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "JSON Schema validator factory. The default uses Ajv."
+									}
+								]
+							},
+							"type": {
+								"type": "reflection",
+								"declaration": {
+									"id": 87,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"signatures": [
+										{
+											"id": 88,
+											"name": "__type",
+											"variant": "signature",
+											"kind": 4096,
+											"flags": {},
+											"parameters": [
+												{
+													"id": 89,
+													"name": "schema",
+													"variant": "param",
+													"kind": 32768,
+													"flags": {},
+													"type": {
+														"type": "intrinsic",
+														"name": "object"
+													}
+												}
+											],
+											"type": {
+												"type": "reflection",
+												"declaration": {
+													"id": 90,
+													"name": "__type",
+													"variant": "declaration",
+													"kind": 65536,
+													"flags": {},
+													"signatures": [
+														{
+															"id": 91,
+															"name": "__type",
+															"variant": "signature",
+															"kind": 4096,
+															"flags": {},
+															"parameters": [
+																{
+																	"id": 92,
+																	"name": "value",
+																	"variant": "param",
+																	"kind": 32768,
+																	"flags": {},
+																	"type": {
+																		"type": "intrinsic",
+																		"name": "unknown"
+																	}
+																}
+															],
+															"type": {
+																"type": "intrinsic",
+																"name": "boolean"
+															}
+														}
+													]
+												}
+											}
+										}
+									]
+								}
+							}
+						}
+					],
+					"groups": [
+						{
+							"title": "Properties",
+							"children": [
+								93,
+								97,
+								86
+							]
+						}
+					],
+					"typeParameters": [
+						{
+							"id": 85,
+							"name": "B",
+							"variant": "typeParam",
+							"kind": 131072,
+							"flags": {},
+							"default": {
+								"type": "reference",
+								"target": 34,
+								"name": "Binding",
+								"package": "holon-sh"
+							}
+						}
+					]
+				},
+				{
+					"id": 48,
+					"name": "Identity",
+					"variant": "declaration",
+					"kind": 256,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Calling application identity and its declared dependencies."
+							}
+						]
+					},
+					"children": [
+						{
+							"id": 49,
+							"name": "name",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {},
+							"type": {
+								"type": "intrinsic",
+								"name": "string"
+							}
+						},
+						{
+							"id": 51,
+							"name": "requires",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"type": {
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Record"
+								},
+								"typeArguments": [
+									{
+										"type": "intrinsic",
+										"name": "string"
+									},
+									{
+										"type": "reflection",
+										"declaration": {
+											"id": 52,
+											"name": "__type",
+											"variant": "declaration",
+											"kind": 65536,
+											"flags": {},
+											"children": [
+												{
+													"id": 53,
+													"name": "name",
+													"variant": "declaration",
+													"kind": 1024,
+													"flags": {
+														"isOptional": true
+													},
+													"type": {
+														"type": "intrinsic",
+														"name": "string"
+													}
+												},
+												{
+													"id": 54,
+													"name": "version",
+													"variant": "declaration",
+													"kind": 1024,
+													"flags": {
+														"isOptional": true
+													},
+													"type": {
+														"type": "intrinsic",
+														"name": "string"
+													}
+												}
+											],
+											"groups": [
+												{
+													"title": "Properties",
+													"children": [
+														53,
+														54
+													]
+												}
+											]
+										}
+									}
+								],
+								"name": "Record",
+								"package": "typescript"
+							}
+						},
+						{
+							"id": 50,
+							"name": "version",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {},
+							"type": {
+								"type": "intrinsic",
+								"name": "string"
+							}
+						}
+					],
+					"groups": [
+						{
+							"title": "Properties",
+							"children": [
+								49,
+								51,
+								50
+							]
+						}
+					]
+				},
+				{
+					"id": 66,
+					"name": "ToolSession",
+					"variant": "declaration",
+					"kind": 256,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "The subset of an MCP client a session must provide."
+							}
+						]
+					},
+					"children": [
+						{
+							"id": 67,
+							"name": "callTool",
+							"variant": "declaration",
+							"kind": 2048,
+							"flags": {},
+							"signatures": [
+								{
+									"id": 68,
+									"name": "callTool",
+									"variant": "signature",
+									"kind": 4096,
+									"flags": {},
+									"parameters": [
+										{
+											"id": 69,
+											"name": "request",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {},
+											"type": {
+												"type": "reflection",
+												"declaration": {
+													"id": 70,
+													"name": "__type",
+													"variant": "declaration",
+													"kind": 65536,
+													"flags": {},
+													"children": [
+														{
+															"id": 72,
+															"name": "arguments",
+															"variant": "declaration",
+															"kind": 1024,
+															"flags": {
+																"isOptional": true
+															},
+															"type": {
+																"type": "reference",
+																"target": {
+																	"packageName": "typescript",
+																	"packagePath": "lib/lib.es5.d.ts",
+																	"qualifiedName": "Record"
+																},
+																"typeArguments": [
+																	{
+																		"type": "intrinsic",
+																		"name": "string"
+																	},
+																	{
+																		"type": "intrinsic",
+																		"name": "unknown"
+																	}
+																],
+																"name": "Record",
+																"package": "typescript"
+															}
+														},
+														{
+															"id": 71,
+															"name": "name",
+															"variant": "declaration",
+															"kind": 1024,
+															"flags": {},
+															"type": {
+																"type": "intrinsic",
+																"name": "string"
+															}
+														}
+													],
+													"groups": [
+														{
+															"title": "Properties",
+															"children": [
+																72,
+																71
+															]
+														}
+													]
+												}
+											}
+										},
+										{
+											"id": 73,
+											"name": "options",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Record"
+												},
+												"typeArguments": [
+													{
+														"type": "intrinsic",
+														"name": "string"
+													},
+													{
+														"type": "intrinsic",
+														"name": "unknown"
+													}
+												],
+												"name": "Record",
+												"package": "typescript"
+											}
+										}
+									],
+									"type": {
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Promise"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "any"
+											}
+										],
+										"name": "Promise",
+										"package": "typescript"
+									}
+								}
+							]
+						},
+						{
+							"id": 80,
+							"name": "listTools",
+							"variant": "declaration",
+							"kind": 2048,
+							"flags": {},
+							"signatures": [
+								{
+									"id": 81,
+									"name": "listTools",
+									"variant": "signature",
+									"kind": 4096,
+									"flags": {},
+									"parameters": [
+										{
+											"id": 82,
+											"name": "params",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "intrinsic",
+												"name": "undefined"
+											}
+										},
+										{
+											"id": 83,
+											"name": "options",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Record"
+												},
+												"typeArguments": [
+													{
+														"type": "intrinsic",
+														"name": "string"
+													},
+													{
+														"type": "intrinsic",
+														"name": "unknown"
+													}
+												],
+												"name": "Record",
+												"package": "typescript"
+											}
+										}
+									],
+									"type": {
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Promise"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "any"
+											}
+										],
+										"name": "Promise",
+										"package": "typescript"
+									}
+								}
+							]
+						},
+						{
+							"id": 74,
+							"name": "readResource",
+							"variant": "declaration",
+							"kind": 2048,
+							"flags": {},
+							"signatures": [
+								{
+									"id": 75,
+									"name": "readResource",
+									"variant": "signature",
+									"kind": 4096,
+									"flags": {},
+									"parameters": [
+										{
+											"id": 76,
+											"name": "request",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {},
+											"type": {
+												"type": "reflection",
+												"declaration": {
+													"id": 77,
+													"name": "__type",
+													"variant": "declaration",
+													"kind": 65536,
+													"flags": {},
+													"children": [
+														{
+															"id": 78,
+															"name": "uri",
+															"variant": "declaration",
+															"kind": 1024,
+															"flags": {},
+															"type": {
+																"type": "intrinsic",
+																"name": "string"
+															}
+														}
+													],
+													"groups": [
+														{
+															"title": "Properties",
+															"children": [
+																78
+															]
+														}
+													]
+												}
+											}
+										},
+										{
+											"id": 79,
+											"name": "options",
+											"variant": "param",
+											"kind": 32768,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.es5.d.ts",
+													"qualifiedName": "Record"
+												},
+												"typeArguments": [
+													{
+														"type": "intrinsic",
+														"name": "string"
+													},
+													{
+														"type": "intrinsic",
+														"name": "unknown"
+													}
+												],
+												"name": "Record",
+												"package": "typescript"
+											}
+										}
+									],
+									"type": {
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Promise"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "any"
+											}
+										],
+										"name": "Promise",
+										"package": "typescript"
+									}
+								}
+							]
+						}
+					],
+					"groups": [
+						{
+							"title": "Methods",
+							"children": [
+								67,
+								80,
+								74
+							]
+						}
+					]
+				},
+				{
+					"id": 47,
+					"name": "EndpointBinding",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Alias for an endpoint binding."
+							}
+						]
+					},
+					"type": {
+						"type": "reference",
+						"target": 34,
+						"name": "Binding",
+						"package": "holon-sh"
+					}
+				},
+				{
+					"id": 65,
+					"name": "RuntimeClient",
+					"variant": "declaration",
+					"kind": 2097152,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources."
+							}
+						]
+					},
+					"type": {
+						"type": "reference",
+						"target": 177,
+						"typeArguments": [
+							{
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Record"
+								},
+								"typeArguments": [
+									{
+										"type": "intrinsic",
+										"name": "string"
+									},
+									{
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Record"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "intrinsic",
+												"name": "unknown"
+											}
+										],
+										"name": "Record",
+										"package": "typescript"
+									}
+								],
+								"name": "Record",
+								"package": "typescript"
+							},
+							{
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Record"
+								},
+								"typeArguments": [
+									{
+										"type": "intrinsic",
+										"name": "string"
+									},
+									{
+										"type": "intrinsic",
+										"name": "unknown"
+									}
+								],
+								"name": "Record",
+								"package": "typescript"
+							},
+							{
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Record"
+								},
+								"typeArguments": [
+									{
+										"type": "intrinsic",
+										"name": "string"
+									},
+									{
+										"type": "intrinsic",
+										"name": "unknown"
+									}
+								],
+								"name": "Record",
+								"package": "typescript"
+							}
+						],
+						"name": "ToolClient",
+						"package": "holon-sh"
+					}
+				},
+				{
+					"id": 21,
+					"name": "bindApps",
+					"variant": "declaration",
+					"kind": 64,
+					"flags": {},
+					"signatures": [
+						{
+							"id": 22,
+							"name": "bindApps",
+							"variant": "signature",
+							"kind": 4096,
+							"flags": {},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Construct only the explicitly bound dependencies. Unknown names throw; an empty binding map selects none. Used by generated createApps factories."
+									}
+								]
+							},
+							"typeParameters": [
+								{
+									"id": 23,
+									"name": "B",
+									"variant": "typeParam",
+									"kind": 131072,
+									"flags": {},
+									"default": {
+										"type": "reference",
+										"target": 34,
+										"name": "Binding",
+										"package": "holon-sh"
+									}
+								}
+							],
+							"parameters": [
+								{
+									"id": 24,
+									"name": "identity",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"type": {
+										"type": "reference",
+										"target": 48,
+										"name": "Identity",
+										"package": "holon-sh"
+									}
+								},
+								{
+									"id": 25,
+									"name": "contracts",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"type": {
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Record"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "union",
+												"types": [
+													{
+														"type": "reference",
+														"target": 55,
+														"name": "Contract",
+														"package": "holon-sh"
+													},
+													{
+														"type": "literal",
+														"value": null
+													}
+												]
+											}
+										],
+										"name": "Record",
+										"package": "typescript"
+									}
+								},
+								{
+									"id": 26,
+									"name": "bindings",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"type": {
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Record"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "reference",
+												"target": 23,
+												"name": "B",
+												"package": "holon-sh",
+												"refersToTypeParameter": true
+											}
+										],
+										"name": "Record",
+										"package": "typescript"
+									}
+								},
+								{
+									"id": 27,
+									"name": "options",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {
+										"isOptional": true
+									},
+									"type": {
+										"type": "reference",
+										"target": 84,
+										"typeArguments": [
+											{
+												"type": "reference",
+												"target": 23,
+												"name": "B",
+												"package": "holon-sh",
+												"refersToTypeParameter": true
+											}
+										],
+										"name": "CreateOptions",
+										"package": "holon-sh"
+									}
+								}
+							],
+							"type": {
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Readonly"
+								},
+								"typeArguments": [
+									{
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Record"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "reference",
+												"target": 65,
+												"name": "RuntimeClient",
+												"package": "holon-sh"
+											}
+										],
+										"name": "Record",
+										"package": "typescript"
+									}
+								],
+								"name": "Readonly",
+								"package": "typescript"
+							}
+						}
+					]
+				},
+				{
+					"id": 14,
+					"name": "createApps",
+					"variant": "declaration",
+					"kind": 64,
+					"flags": {},
+					"signatures": [
+						{
+							"id": 15,
+							"name": "createApps",
+							"variant": "signature",
+							"kind": 4096,
+							"flags": {},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated package root."
+									}
+								]
+							},
+							"typeParameters": [
+								{
+									"id": 16,
+									"name": "B",
+									"variant": "typeParam",
+									"kind": 131072,
+									"flags": {},
+									"default": {
+										"type": "reference",
+										"target": 34,
+										"name": "Binding",
+										"package": "holon-sh"
+									}
+								}
+							],
+							"parameters": [
+								{
+									"id": 17,
+									"name": "identity",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"type": {
+										"type": "reference",
+										"target": 48,
+										"name": "Identity",
+										"package": "holon-sh"
+									}
+								},
+								{
+									"id": 18,
+									"name": "contracts",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"type": {
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Record"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "union",
+												"types": [
+													{
+														"type": "reference",
+														"target": 55,
+														"name": "Contract",
+														"package": "holon-sh"
+													},
+													{
+														"type": "literal",
+														"value": null
+													}
+												]
+											}
+										],
+										"name": "Record",
+										"package": "typescript"
+									}
+								},
+								{
+									"id": 19,
+									"name": "bindings",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {
+										"isOptional": true
+									},
+									"type": {
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Record"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "reference",
+												"target": 16,
+												"name": "B",
+												"package": "holon-sh",
+												"refersToTypeParameter": true
+											}
+										],
+										"name": "Record",
+										"package": "typescript"
+									}
+								},
+								{
+									"id": 20,
+									"name": "options",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {
+										"isOptional": true
+									},
+									"type": {
+										"type": "reference",
+										"target": 84,
+										"typeArguments": [
+											{
+												"type": "reference",
+												"target": 16,
+												"name": "B",
+												"package": "holon-sh",
+												"refersToTypeParameter": true
+											}
+										],
+										"name": "CreateOptions",
+										"package": "holon-sh"
+									}
+								}
+							],
+							"type": {
+								"type": "reference",
+								"target": {
+									"packageName": "typescript",
+									"packagePath": "lib/lib.es5.d.ts",
+									"qualifiedName": "Readonly"
+								},
+								"typeArguments": [
+									{
+										"type": "reference",
+										"target": {
+											"packageName": "typescript",
+											"packagePath": "lib/lib.es5.d.ts",
+											"qualifiedName": "Record"
+										},
+										"typeArguments": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "reference",
+												"target": 65,
+												"name": "RuntimeClient",
+												"package": "holon-sh"
+											}
+										],
+										"name": "Record",
+										"package": "typescript"
+									}
+								],
+								"name": "Readonly",
+								"package": "typescript"
+							}
+						}
+					]
+				},
+				{
+					"id": 28,
+					"name": "setDefaultBinding",
+					"variant": "declaration",
+					"kind": 64,
+					"flags": {},
+					"signatures": [
+						{
+							"id": 29,
+							"name": "setDefaultBinding",
+							"variant": "signature",
+							"kind": 4096,
+							"flags": {},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "For hosts: register a process-wide resolver for clients created without explicit bindings. Explicit bindings take precedence; return undefined to fall back to the <NAME>_MCP_URL environment variable. Register during startup."
+									}
+								]
+							},
+							"parameters": [
+								{
+									"id": 30,
+									"name": "resolve",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"type": {
+										"type": "reflection",
+										"declaration": {
+											"id": 31,
+											"name": "__type",
+											"variant": "declaration",
+											"kind": 65536,
+											"flags": {},
+											"signatures": [
+												{
+													"id": 32,
+													"name": "__type",
+													"variant": "signature",
+													"kind": 4096,
+													"flags": {},
+													"parameters": [
+														{
+															"id": 33,
+															"name": "app",
+															"variant": "param",
+															"kind": 32768,
+															"flags": {},
+															"type": {
+																"type": "intrinsic",
+																"name": "string"
+															}
+														}
+													],
+													"type": {
+														"type": "union",
+														"types": [
+															{
+																"type": "reference",
+																"target": 34,
+																"name": "Binding",
+																"package": "holon-sh"
+															},
+															{
+																"type": "intrinsic",
+																"name": "undefined"
+															}
+														]
+													}
+												}
+											]
+										}
+									}
+								}
+							],
+							"type": {
+								"type": "intrinsic",
+								"name": "void"
+							}
+						}
+					]
+				},
+				{
+					"id": 230,
+					"name": "AuthProvider",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 116
+				},
+				{
+					"id": 232,
+					"name": "CallMetadata",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 136
+				},
+				{
+					"id": 231,
+					"name": "CallOptions",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 132
+				},
+				{
+					"id": 233,
+					"name": "ElicitHandler",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 128
+				},
+				{
+					"id": 229,
+					"name": "ToolCallError",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 154
+				},
+				{
+					"id": 234,
+					"name": "ToolCallOptions",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 133
+				},
+				{
+					"id": 236,
+					"name": "ToolClient",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 177
+				},
+				{
+					"id": 235,
+					"name": "ToolResult",
+					"variant": "reference",
+					"kind": 4194304,
+					"flags": {},
+					"target": 148
+				}
+			],
+			"groups": [
+				{
+					"title": "Interfaces",
+					"children": [
+						34,
+						55,
+						84,
+						48,
+						66
+					]
+				},
+				{
+					"title": "Type Aliases",
+					"children": [
+						47,
+						65
+					]
+				},
+				{
+					"title": "Functions",
+					"children": [
+						21,
+						14,
+						28
+					]
+				},
+				{
+					"title": "References",
+					"children": [
+						230,
+						232,
+						231,
+						233,
+						229,
+						234,
+						236,
+						235
+					]
+				}
+			]
+		},
+		{
+			"id": 102,
+			"name": "src/view",
+			"variant": "declaration",
+			"kind": 2,
+			"flags": {},
+			"children": [
+				{
+					"id": 110,
+					"name": "ViewOptions",
+					"variant": "declaration",
+					"kind": 256,
+					"flags": {},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "Allowed network and asset domains for the view content security policy."
+							}
+						]
+					},
+					"children": [
+						{
+							"id": 111,
+							"name": "csp",
+							"variant": "declaration",
+							"kind": 1024,
+							"flags": {
+								"isOptional": true
+							},
+							"type": {
+								"type": "reflection",
+								"declaration": {
+									"id": 112,
+									"name": "__type",
+									"variant": "declaration",
+									"kind": 65536,
+									"flags": {},
+									"children": [
+										{
+											"id": 113,
+											"name": "connectDomains",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "array",
+												"elementType": {
+													"type": "intrinsic",
+													"name": "string"
+												}
+											}
+										},
+										{
+											"id": 114,
+											"name": "resourceDomains",
+											"variant": "declaration",
+											"kind": 1024,
+											"flags": {
+												"isOptional": true
+											},
+											"type": {
+												"type": "array",
+												"elementType": {
+													"type": "intrinsic",
+													"name": "string"
+												}
+											}
+										}
+									],
+									"groups": [
+										{
+											"title": "Properties",
+											"children": [
+												113,
+												114
+											]
+										}
+									]
+								}
+							}
+						}
+					],
+					"groups": [
+						{
+							"title": "Properties",
+							"children": [
+								111
+							]
+						}
+					]
+				},
+				{
+					"id": 109,
+					"name": "VIEW_MIME_TYPE",
+					"variant": "declaration",
+					"kind": 32,
+					"flags": {
+						"isConst": true
+					},
+					"comment": {
+						"summary": [
+							{
+								"kind": "text",
+								"text": "MIME type of an MCP App HTML resource."
+							}
+						]
+					},
+					"type": {
+						"type": "literal",
+						"value": "text/html;profile=mcp-app"
+					},
+					"defaultValue": "\"text/html;profile=mcp-app\""
+				},
+				{
+					"id": 103,
+					"name": "appView",
+					"variant": "declaration",
+					"kind": 64,
+					"flags": {},
+					"signatures": [
+						{
+							"id": 104,
+							"name": "appView",
+							"variant": "signature",
+							"kind": 4096,
+							"flags": {},
+							"comment": {
+								"summary": [
+									{
+										"kind": "text",
+										"text": "Create a registration tuple for server.registerResource(...appView(...)).\nNode only: the HTML file is read once when this helper is called.\nResource reads reuse that promise; file read failures reject resource requests."
+									}
+								],
+								"blockTags": [
+									{
+										"tag": "@returns",
+										"content": [
+											{
+												"kind": "text",
+												"text": "Name, URI, metadata, and resource-read callback."
+											}
+										]
+									},
+									{
+										"tag": "@example",
+										"content": [
+											{
+												"kind": "code",
+												"text": "```ts\nserver.registerResource(...appView(\"App\", \"ui://app/index.html\", new URL(\"./index.html\", import.meta.url)));\n```"
+											}
+										]
+									}
+								]
+							},
+							"parameters": [
+								{
+									"id": 105,
+									"name": "name",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"comment": {
+										"summary": [
+											{
+												"kind": "text",
+												"text": "Human-readable resource name."
+											}
+										]
+									},
+									"type": {
+										"type": "intrinsic",
+										"name": "string"
+									}
+								},
+								{
+									"id": 106,
+									"name": "uri",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"comment": {
+										"summary": [
+											{
+												"kind": "text",
+												"text": "Resource URI, usually starting with ui://."
+											}
+										]
+									},
+									"type": {
+										"type": "intrinsic",
+										"name": "string"
+									}
+								},
+								{
+									"id": 107,
+									"name": "file",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"comment": {
+										"summary": [
+											{
+												"kind": "text",
+												"text": "Built HTML file path or file URL."
+											}
+										]
+									},
+									"type": {
+										"type": "union",
+										"types": [
+											{
+												"type": "intrinsic",
+												"name": "string"
+											},
+											{
+												"type": "reference",
+												"target": {
+													"packageName": "typescript",
+													"packagePath": "lib/lib.dom.d.ts",
+													"qualifiedName": "URL"
+												},
+												"name": "URL",
+												"package": "typescript"
+											}
+										]
+									}
+								},
+								{
+									"id": 108,
+									"name": "options",
+									"variant": "param",
+									"kind": 32768,
+									"flags": {},
+									"comment": {
+										"summary": [
+											{
+												"kind": "text",
+												"text": "View content security policy."
+											}
+										]
+									},
+									"type": {
+										"type": "reference",
+										"target": 110,
+										"name": "ViewOptions",
+										"package": "holon-sh"
+									},
+									"defaultValue": "{}"
+								}
+							],
+							"type": {
+								"type": "reference",
+								"target": {
+									"packageName": "holon-sh",
+									"packagePath": "src/view.ts",
+									"qualifiedName": "ViewRegistration"
+								},
+								"name": "ViewRegistration",
+								"package": "holon-sh"
+							}
+						}
+					]
+				}
+			],
+			"groups": [
+				{
+					"title": "Interfaces",
+					"children": [
+						110
+					]
+				},
+				{
+					"title": "Variables",
+					"children": [
+						109
+					]
+				},
+				{
+					"title": "Functions",
+					"children": [
+						103
+					]
+				}
+			]
+		}
+	],
+	"groups": [
+		{
+			"title": "Modules",
+			"children": [
+				1,
+				115,
+				13,
+				102
+			]
+		}
+	],
+	"packageName": "holon-sh",
+	"readme": [
+		{
+			"kind": "text",
+			"text": "# TypeScript SDK\n\nThe "
+		},
+		{
+			"kind": "code",
+			"text": "`holon-sh`"
+		},
+		{
+			"kind": "text",
+			"text": " package provides typed MCP clients and server-side HTML views for Node.js 22 or later.\n\n| Import | Purpose |\n| --- | --- |\n| "
+		},
+		{
+			"kind": "code",
+			"text": "`holon-sh`"
+		},
+		{
+			"kind": "text",
+			"text": " | Generated "
+		},
+		{
+			"kind": "code",
+			"text": "`apps`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`createApps`"
+		},
+		{
+			"kind": "text",
+			"text": ", and project types |\n| "
+		},
+		{
+			"kind": "code",
+			"text": "`holon-sh/runtime`"
+		},
+		{
+			"kind": "text",
+			"text": " | Low-level client construction and binding resolution |\n| "
+		},
+		{
+			"kind": "code",
+			"text": "`holon-sh/view`"
+		},
+		{
+			"kind": "text",
+			"text": " | Server registration of built HTML views |\n| "
+		},
+		{
+			"kind": "code",
+			"text": "`holon-sh/protocol`"
+		},
+		{
+			"kind": "text",
+			"text": " | Shared client/result types and "
+		},
+		{
+			"kind": "code",
+			"text": "`ToolCallError`"
+		},
+		{
+			"kind": "text",
+			"text": " |\n\nThe root exports named values: "
+		},
+		{
+			"kind": "code",
+			"text": "`import { apps, createApps } from \"holon-sh\"`"
+		},
+		{
+			"kind": "text",
+			"text": ".\nThe root re-exports your project's generated "
+		},
+		{
+			"kind": "code",
+			"text": "`Apps`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`Inputs`"
+		},
+		{
+			"kind": "text",
+			"text": ", "
+		},
+		{
+			"kind": "code",
+			"text": "`Outputs`"
+		},
+		{
+			"kind": "text",
+			"text": ", and\n"
+		},
+		{
+			"kind": "code",
+			"text": "`Resources`"
+		},
+		{
+			"kind": "text",
+			"text": " from "
+		},
+		{
+			"kind": "code",
+			"text": "`.holon/generated/holon-sh/`"
+		},
+		{
+			"kind": "text",
+			"text": ", so install "
+		},
+		{
+			"kind": "code",
+			"text": "`holon-sh`"
+		},
+		{
+			"kind": "text",
+			"text": " in the\nproject's own "
+		},
+		{
+			"kind": "code",
+			"text": "`node_modules`"
+		},
+		{
+			"kind": "text",
+			"text": " and generate clients before importing it.\n\nRun "
+		},
+		{
+			"kind": "code",
+			"text": "`holon types generate`"
+		},
+		{
+			"kind": "text",
+			"text": " from your project directory to use its "
+		},
+		{
+			"kind": "code",
+			"text": "`server.json`"
+		},
+		{
+			"kind": "text",
+			"text": "\ndependencies, or pass explicit dependencies with\n"
+		},
+		{
+			"kind": "code",
+			"text": "`holon types generate --server orders=https://orders.example.com/mcp`"
+		},
+		{
+			"kind": "text",
+			"text": ".\nThen run "
+		},
+		{
+			"kind": "code",
+			"text": "`holon types check --no-generate`"
+		},
+		{
+			"kind": "text",
+			"text": " to check calls against the generated types.\n\nGenerated clients accept endpoint bindings. Hosts such as "
+		},
+		{
+			"kind": "code",
+			"text": "`holon-ui`"
+		},
+		{
+			"kind": "text",
+			"text": " can use the\nlow-level runtime's "
+		},
+		{
+			"kind": "code",
+			"text": "`CreateOptions.session`"
+		},
+		{
+			"kind": "text",
+			"text": " hook to serve custom bindings.\nUse "
+		},
+		{
+			"kind": "code",
+			"text": "`appView`"
+		},
+		{
+			"kind": "text",
+			"text": " to register built HTML with a Node MCP server.\n\nSee [generate clients](https://holon-labs.dev/docs/#generate-clients),\n[bind and authenticate clients](https://holon-labs.dev/docs/#bind-sdk-clients),\nand [handle tool results](https://holon-labs.dev/docs/#handle-tool-results)."
+		}
+	],
+	"symbolIdMap": {
+		"1": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": ""
+		},
+		"2": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "createApps"
+		},
+		"3": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "createApps"
+		},
+		"4": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "bindings"
+		},
+		"5": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "options"
+		},
+		"6": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "Apps"
+		},
+		"7": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "Inputs"
+		},
+		"8": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "Outputs"
+		},
+		"9": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "InputTypes"
+		},
+		"10": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "OutputTypes"
+		},
+		"11": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "Resources"
+		},
+		"12": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "apps"
+		},
+		"13": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": ""
+		},
+		"14": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "createApps"
+		},
+		"15": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "createApps"
+		},
+		"16": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "B"
+		},
+		"17": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "identity"
+		},
+		"18": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "contracts"
+		},
+		"19": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "bindings"
+		},
+		"20": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "options"
+		},
+		"21": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "bindApps"
+		},
+		"22": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "bindApps"
+		},
+		"23": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "B"
+		},
+		"24": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "identity"
+		},
+		"25": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "contracts"
+		},
+		"26": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "bindings"
+		},
+		"27": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "options"
+		},
+		"28": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "setDefaultBinding"
+		},
+		"29": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "setDefaultBinding"
+		},
+		"30": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "resolve"
+		},
+		"31": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"32": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"33": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "app"
+		},
+		"34": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Binding"
+		},
+		"35": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Binding.endpoint"
+		},
+		"36": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Binding.authProvider"
+		},
+		"37": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Binding.fetch"
+		},
+		"38": {
+			"packageName": "typescript",
+			"packagePath": "lib/lib.dom.d.ts",
+			"qualifiedName": "fetch"
+		},
+		"39": {
+			"packageName": "typescript",
+			"packagePath": "lib/lib.dom.d.ts",
+			"qualifiedName": "fetch"
+		},
+		"40": {
+			"packageName": "typescript",
+			"packagePath": "lib/lib.dom.d.ts",
+			"qualifiedName": "input"
+		},
+		"41": {
+			"packageName": "typescript",
+			"packagePath": "lib/lib.dom.d.ts",
+			"qualifiedName": "init"
+		},
+		"42": {
+			"packageName": "@types/node",
+			"packagePath": "web-globals/fetch.d.ts",
+			"qualifiedName": "fetch"
+		},
+		"43": {
+			"packageName": "@types/node",
+			"packagePath": "web-globals/fetch.d.ts",
+			"qualifiedName": "input"
+		},
+		"44": {
+			"packageName": "@types/node",
+			"packagePath": "web-globals/fetch.d.ts",
+			"qualifiedName": "init"
+		},
+		"45": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Binding.installationUID"
+		},
+		"46": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Binding.scoped"
+		},
+		"47": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "EndpointBinding"
+		},
+		"48": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Identity"
+		},
+		"49": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Identity.name"
+		},
+		"50": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Identity.version"
+		},
+		"51": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Identity.requires"
+		},
+		"52": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"53": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.name"
+		},
+		"54": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.version"
+		},
+		"55": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Contract"
+		},
+		"56": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Contract.tools"
+		},
+		"57": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"58": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.name"
+		},
+		"59": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.inputSchema"
+		},
+		"60": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.outputSchema"
+		},
+		"61": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "Contract.resources"
+		},
+		"62": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"63": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.uri"
+		},
+		"64": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.outputSchema"
+		},
+		"65": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "RuntimeClient"
+		},
+		"66": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolSession"
+		},
+		"67": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolSession.callTool"
+		},
+		"68": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolSession.callTool"
+		},
+		"69": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "request"
+		},
+		"70": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"71": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.name"
+		},
+		"72": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.arguments"
+		},
+		"73": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "options"
+		},
+		"74": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolSession.readResource"
+		},
+		"75": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolSession.readResource"
+		},
+		"76": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "request"
+		},
+		"77": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"78": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type.uri"
+		},
+		"79": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "options"
+		},
+		"80": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolSession.listTools"
+		},
+		"81": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolSession.listTools"
+		},
+		"82": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "params"
+		},
+		"83": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "options"
+		},
+		"84": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "CreateOptions"
+		},
+		"85": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "CreateOptions.B"
+		},
+		"86": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "CreateOptions.validator"
+		},
+		"87": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"88": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"89": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "schema"
+		},
+		"90": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"91": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"92": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "value"
+		},
+		"93": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "CreateOptions.resolve"
+		},
+		"94": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"95": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"96": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "app"
+		},
+		"97": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "CreateOptions.session"
+		},
+		"98": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"99": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "__type"
+		},
+		"100": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "app"
+		},
+		"101": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "binding"
+		},
+		"102": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": ""
+		},
+		"103": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "appView"
+		},
+		"104": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "appView"
+		},
+		"105": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "name"
+		},
+		"106": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "uri"
+		},
+		"107": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "file"
+		},
+		"108": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "options"
+		},
+		"109": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "VIEW_MIME_TYPE"
+		},
+		"110": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "ViewOptions"
+		},
+		"111": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "ViewOptions.csp"
+		},
+		"112": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "__type"
+		},
+		"113": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "__type.connectDomains"
+		},
+		"114": {
+			"packageName": "holon-sh",
+			"packagePath": "src/view.ts",
+			"qualifiedName": "__type.resourceDomains"
+		},
+		"115": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": ""
+		},
+		"116": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "AuthProvider"
+		},
+		"117": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"118": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.token"
+		},
+		"119": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.token"
+		},
+		"120": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.onUnauthorized"
+		},
+		"121": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.onUnauthorized"
+		},
+		"122": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "context"
+		},
+		"123": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"124": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.tokens"
+		},
+		"125": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.tokens"
+		},
+		"126": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.redirectUrl"
+		},
+		"127": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.clientMetadata"
+		},
+		"128": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ElicitHandler"
+		},
+		"129": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"130": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"131": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "params"
+		},
+		"132": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "CallOptions"
+		},
+		"133": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolCallOptions"
+		},
+		"134": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"135": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.elicit"
+		},
+		"136": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "CallMetadata"
+		},
+		"137": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"138": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.inputResponses"
+		},
+		"139": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.requestState"
+		},
+		"142": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "CompleteResult"
+		},
+		"143": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"144": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.resultType"
+		},
+		"145": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.isError"
+		},
+		"146": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.structuredContent"
+		},
+		"147": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "Output"
+		},
+		"148": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolResult"
+		},
+		"149": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"150": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.resultType"
+		},
+		"151": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.isError"
+		},
+		"152": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.structuredContent"
+		},
+		"153": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "Output"
+		},
+		"154": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolCallError"
+		},
+		"155": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolCallError.__constructor"
+		},
+		"156": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolCallError"
+		},
+		"157": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "app"
+		},
+		"158": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "tool"
+		},
+		"159": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "result"
+		},
+		"160": {
+			"packageName": "@modelcontextprotocol/client",
+			"packagePath": "../core-internal/src/auth/errors.ts",
+			"qualifiedName": "__type"
+		},
+		"163": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"164": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.resultType"
+		},
+		"165": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.isError"
+		},
+		"166": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.structuredContent"
+		},
+		"167": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolCallError.result"
+		},
+		"168": {
+			"packageName": "@modelcontextprotocol/client",
+			"packagePath": "../core-internal/src/auth/errors.ts",
+			"qualifiedName": "__type"
+		},
+		"171": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"172": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.resultType"
+		},
+		"173": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.isError"
+		},
+		"174": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.structuredContent"
+		},
+		"175": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolCallError.text"
+		},
+		"176": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolCallError.data"
+		},
+		"177": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient"
+		},
+		"178": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient.I"
+		},
+		"179": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient.O"
+		},
+		"180": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient.R"
+		},
+		"181": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient.close"
+		},
+		"182": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"183": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"184": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient.listTools"
+		},
+		"185": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"186": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"187": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "options"
+		},
+		"188": {
+			"packageName": "@modelcontextprotocol/client",
+			"packagePath": "../core-internal/src/auth/errors.ts",
+			"qualifiedName": "__type"
+		},
+		"191": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient.resources"
+		},
+		"192": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"193": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.read"
+		},
+		"194": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"195": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"196": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "options"
+		},
+		"197": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.watch"
+		},
+		"198": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"199": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"200": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "onChange"
+		},
+		"201": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"202": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"203": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "value"
+		},
+		"204": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "options"
+		},
+		"205": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"206": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.signal"
+		},
+		"207": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient.tools"
+		},
+		"208": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"209": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"210": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "input"
+		},
+		"211": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "options"
+		},
+		"212": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "ToolClient.callTool"
+		},
+		"213": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"214": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"215": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "K"
+		},
+		"216": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "request"
+		},
+		"217": {
+			"packageName": "@modelcontextprotocol/client",
+			"packagePath": "../core-internal/src/auth/errors.ts",
+			"qualifiedName": "__type"
+		},
+		"218": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"219": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.inputResponses"
+		},
+		"220": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.requestState"
+		},
+		"221": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type"
+		},
+		"222": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.name"
+		},
+		"223": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "__type.arguments"
+		},
+		"224": {
+			"packageName": "holon-sh",
+			"packagePath": "protocol.d.ts",
+			"qualifiedName": "options"
+		},
+		"225": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "ToolCallError"
+		},
+		"226": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "Binding"
+		},
+		"227": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "EndpointBinding"
+		},
+		"228": {
+			"packageName": "holon-sh",
+			"packagePath": "docs/root.d.ts",
+			"qualifiedName": "CreateOptions"
+		},
+		"229": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolCallError"
+		},
+		"230": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "AuthProvider"
+		},
+		"231": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "CallOptions"
+		},
+		"232": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "CallMetadata"
+		},
+		"233": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ElicitHandler"
+		},
+		"234": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolCallOptions"
+		},
+		"235": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolResult"
+		},
+		"236": {
+			"packageName": "holon-sh",
+			"packagePath": "runtime.d.ts",
+			"qualifiedName": "ToolClient"
+		}
+	},
+	"files": {
+		"entries": {
+			"1": "docs/root.d.ts",
+			"2": "runtime.d.ts",
+			"3": "src/view.ts",
+			"4": "protocol.d.ts",
+			"5": "docs/index.md",
+			"6": "docs"
+		},
+		"reflections": {
+			"1": 1,
+			"2": 13,
+			"3": 102,
+			"4": 115,
+			"5": 0,
+			"6": 0
+		}
+	}
+}
