@@ -70,9 +70,9 @@ const integer = (value, minimum) => value === undefined || Number.isInteger(valu
  * waits on at most `maxQueued` notifications taking `maxQueuedBytes` for a reader that has not read them.
  */
 export function createEvents({
-  keep: { events: keptEvents = 10_000, age: keptAge = 10 * 60_000, bytes: keptBytes = 16 * 2 ** 20 } = {},
-  maxQueued = 1000, maxQueuedBytes = 4 * 2 ** 20, interval = 1000, heartbeat = 30_000,
-  pollLease, maxSubscriptions = 10_000, maxSubscriptionsPerCaller = 1000, pageSize = 100, listChanged = false, modes = [],
+  keep: { events: keptEvents = 10_000, age: keptAge = 10 * 60_000, bytes: keptBytes = 4 * 2 ** 20 } = {},
+  maxQueued = 1000, maxQueuedBytes = 2 ** 20, interval = 1000, heartbeat = 30_000,
+  pollLease, maxSubscriptions = 10_000, maxSubscriptionsPerCaller = 100, pageSize = 100, listChanged = false, modes = [],
 } = {}) {
   const offered = ["poll", "push", ...modes.map(mode => mode.name)];
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
@@ -465,13 +465,18 @@ export function createEvents({
         // too, so when too much waits the oldest is let go.
         const pushed = [];
         let pushedBytes = 0;
+        // Some of it was let go, and the stream owes its reader word of the gap.
+        let lost = false;
         const sink = kept => {
           if (type.check) {
             const older = kept.replaces ? pushed.findIndex(waiting => waiting.replaces === kept.replaces) : -1;
             if (older >= 0) pushedBytes -= pushed.splice(older, 1)[0].size;
             pushed.push(kept);
             pushedBytes += kept.size;
-            while (pushed.length > 1 && (pushed.length > maxQueued || pushedBytes > maxQueuedBytes)) pushedBytes -= pushed.shift().size;
+            while (pushed.length > 1 && (pushed.length > maxQueued || pushedBytes > maxQueuedBytes)) {
+              pushedBytes -= pushed.shift().size;
+              lost = true;
+            }
           } else behind = true;
           wake();
         };
@@ -480,7 +485,8 @@ export function createEvents({
         const room = size => {
           const count = waiting(server);
           unread = count ? unread.slice(-count) : [];
-          return count < maxQueued && unread.reduce((sum, each) => sum + each, size) <= maxQueuedBytes;
+          // An event is sent alone when nothing waits, whatever it weighs.
+          return count === 0 || count < maxQueued && unread.reduce((sum, each) => sum + each, size) <= maxQueuedBytes;
         };
         const send = async event => {
           const size = bytes(event);
@@ -514,15 +520,23 @@ export function createEvents({
               // Nothing more is sent until the reader has read what waits.
               while (!done && waiting(server)) await new Promise(resolve => setTimeout(resolve, 50));
               if (done) break;
-              // A source without positions has no newest to go on from: its next check answers with what is new.
-              cursor = type.check ? cursor === null ? null : (await read(type, held, null)).cursor : position(type);
+              let head = cursor;
+              try {
+                // A source without positions has no newest to go on from: its next check answers with what is new.
+                head = type.check ? cursor === null ? null : (await read(type, held, null)).cursor : position(type);
+              } catch (error) {
+                await notify("error", { error: described(error) });
+              }
+              cursor = head;
               pushed.length = 0;
               pushedBytes = 0;
               unread = [];
               overflowed = false;
+              lost = false;
               behind = false;
               due = Date.now() + type.interval;
-              await notify("active", { cursor, truncated: true });
+              // A source without positions has nothing to have skipped past, so it is not told of a gap.
+              if (cursor !== null) await notify("active", { cursor, truncated: true });
             }
             if (type.check ? Date.now() >= due : behind) {
               behind = false;
@@ -557,6 +571,10 @@ export function createEvents({
               }
             }
             // What a type with a check function emits is sent at once, at the cursor the stream has reached.
+            if (lost && !overflowed) {
+              lost = false;
+              if (cursor !== null) await notify("active", { cursor, truncated: true });
+            }
             while (pushed.length && !done && !overflowed) {
               const kept = pushed.shift();
               pushedBytes -= kept.size;

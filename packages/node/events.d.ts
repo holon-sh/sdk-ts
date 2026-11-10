@@ -70,9 +70,12 @@ export interface EventDefinition<A, D> {
   transform?: (data: D, args: A, context: SubscriptionContext) => unknown;
   /**
    * For events that each hold the whole of a record: an emitted event replaces the one before it with the same key,
-   * among the events kept and the ones a stream has yet to send. A subscription behind it receives only the newest,
-   * and is not told of a gap, since nothing it would act on was lost. Do not give a key to events that each say what
-   * changed: a client behind would miss a change.
+   * among the events kept and the ones a stream has yet to send. A subscription is given the latest occurrence of
+   * each key, in the order of those latest emits, and is not told of a gap, since nothing it would act on was lost.
+   * Groups are not kept whole: a reader that is behind may get a later occurrence of one key without the group the
+   * earlier one came in. `match` must answer the same for every occurrence of a key, or a subscriber may never hear
+   * of a record whose newest occurrence it does not match. Do not give a key to events that each say what changed: a
+   * client behind would miss a change.
    */
   key?: (data: D) => string;
   /**
@@ -114,8 +117,12 @@ export interface Emitter<D> {
    * subscription in that order, with no other occurrence of this type between them, whether polled or pushed. So a
    * group of changes that nothing may come between is either emitted in one run or sent as one occurrence holding a
    * list. A subscription skips part of a group only when it is told of a gap: the group outgrew the events kept, the
-   * subscription fell behind them, or its reader stopped reading. For a type with a check function the order holds among what is emitted, but
-   * not between what is emitted and what the check function finds, which may arrive later or again.
+   * subscription fell behind them, or its reader stopped reading. A type with a `key` promises less: see `key`. For a
+   * type with a check function the order holds among what is emitted, but not between what is emitted and what the
+   * check function finds, which may arrive later or again.
+   *
+   * The data is measured as JSON when it is emitted, so data that cannot be serialised throws here, before anything
+   * is kept or sent.
    */
   emit(data: D, options?: { eventId?: string; timestamp?: string; subscription?: string }): void;
   /**
@@ -143,7 +150,7 @@ export interface EventsOptions {
     events?: number;
     /** For how long, in milliseconds. Ten minutes unless given. */
     age?: number;
-    /** How many bytes they take, as JSON. The newest is kept whatever it takes. 16 MiB unless given. */
+    /** How many bytes they take, as JSON. The newest is kept whatever it takes. 4 MiB unless given. */
     bytes?: number;
   };
   /**
@@ -151,7 +158,7 @@ export interface EventsOptions {
    * read them, it is told of a gap and goes on from the newest. A thousand unless given.
    */
   maxQueued?: number;
-  /** How many bytes those notifications take, as JSON. 4 MiB unless given. */
+  /** How many bytes those notifications take, as JSON. An event is sent alone when nothing waits, whatever it weighs. 1 MiB unless given. */
   maxQueuedBytes?: number;
   /**
    * How long a poll is told to wait before the next, and how often a stream asks a check function, in milliseconds,
@@ -171,7 +178,7 @@ export interface EventsOptions {
    */
   maxSubscriptions?: number;
   /**
-   * How many of those one caller may hold. A thousand unless given. Callers without an identity cannot be told
+   * How many of those one caller may hold. A hundred unless given. Callers without an identity cannot be told
    * apart, so they count together as one caller.
    */
   maxSubscriptionsPerCaller?: number;
