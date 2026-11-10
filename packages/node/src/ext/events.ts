@@ -8,9 +8,7 @@ import { ProtocolError, ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from "@mod
 import type { AuthInfo, JSONRPCErrorResponse, McpServer, Server, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { webhooks, type WebhookOptions } from "./webhooks.js";
 
-export { createReceiver } from "./webhooks.js";
 export type { WebhookOptions, WebhookStore, WebhookSubscription } from "./webhooks.js";
-export type { WebhookConfig, WebhookReceiver } from "../protocol.js";
 
 /** The request a subscription came in, as Holon admitted it: read its caller with getContext. */
 export type SubscriptionContext = { authInfo?: AuthInfo | undefined } | undefined;
@@ -188,10 +186,10 @@ export interface EventsOptions {
   listChanged?: boolean;
   /**
    * The sketch's webhook_ttl, which turns webhook delivery on: the longest lifetime granted to a webhook
-   * subscription, in milliseconds. A client's suggestion is held to it. Null lets a client ask for no expiry, which
-   * needs `webhook.store`. Without it, webhook delivery is not offered.
+   * subscription, in milliseconds. A client's suggestion is held to it, and every grant expires. Without it, webhook
+   * delivery is not offered.
    */
-  webhookTtl?: number | null;
+  webhookTtl?: number;
   /** How webhook delivery keeps subscriptions, retries, and limits what callers may ask of it. */
   webhook?: WebhookOptions;
   /** Delivery modes besides poll, push and webhook, each from a module of its own. */

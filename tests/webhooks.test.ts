@@ -8,8 +8,7 @@ import type { TestContext } from "node:test";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApps, type Subscription } from "holon-sh/runtime";
-import { createEvents, createReceiver, type WebhookOptions, type WebhookSubscription } from "holon-sh/ext/events";
+import { createEvents, type WebhookOptions, type WebhookSubscription } from "holon-sh/ext/events";
 import { serve } from "./helpers.ts";
 
 const identity = { name: "test", version: "1.0.0" };
@@ -18,13 +17,16 @@ const ann = { clientId: "web", scopes: [], extra: { iss: "https://id.example", s
 // The Node adapter hands the server what upstream middleware attached as auth.
 const admit = (request: IncomingMessage) => { (request as IncomingMessage & { auth?: typeof ann }).auth = ann; };
 const wait = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
+const until = async (condition: () => unknown) => { while (!condition()) await wait(5); };
 /** What a server answers or refuses, as a plain client reads it. */
 type Answer = Record<string, any>;
 interface Refusal { code?: number; message: string; data?: { reason?: string } }
+// The secret a subscriber gives, as a client would make it.
+const secret = `whsec_${randomBytes(32).toString("base64")}`;
 
 // A server whose rooms say things, by webhook too. A room can be closed to its subscribers, and whether one is open
 // can become impossible to tell.
-async function rooms(t: TestContext, options?: WebhookOptions & { webhookTtl?: number | null }) {
+async function rooms(t: TestContext, options?: WebhookOptions & { webhookTtl?: number }) {
   const closed = new Set<string>();
   const unknown = new Set<string>();
   const { webhookTtl = 30 * 60_000, ...webhook } = options ?? {};
@@ -47,7 +49,7 @@ async function rooms(t: TestContext, options?: WebhookOptions & { webhookTtl?: n
   return { endpoint, say: (room: string, text: string) => said.emit({ room, text }, { eventId: text }), close: (room: string) => closed.add(room), lose: (room: string) => unknown.add(room) };
 }
 
-// An HTTP server that answers with a function from a Request to a Response, as a receiver is mounted.
+// An HTTP server that answers with a function from a Request to a Response.
 async function host(t: TestContext, handle: (request: Request) => Response | Promise<Response>) {
   const http = createServer(async (incoming, outgoing) => {
     const chunks: Buffer[] = [];
@@ -63,15 +65,22 @@ async function host(t: TestContext, handle: (request: Request) => Response | Pro
   return `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
 }
 
-async function subscribed(t: TestContext, options?: WebhookOptions & { webhookTtl?: number | null }, room = "a") {
-  const server = await rooms(t, options);
-  const receiver = createReceiver();
-  const posts: Array<string | null> = [];
-  const url = `${await host(t, request => { posts.push(request.headers.get("webhook-id")); return receiver(request); })}/hooks`;
-  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint: server.endpoint } }, { ext: { events: { webhook: { url, receiver } } } });
-  t.after(() => app?.close());
-  const subscribe = (room: string) => app!.ext.events.subscribe("room.said", { room });
-  return { ...server, subscription: await subscribe(room), subscribe, posts };
+// A callback endpoint, as a subscriber's would be: it checks each delivery's signature, answers challenges, and keeps
+// what it is delivered, by the subscription each names.
+async function callback(t: TestContext) {
+  const received: Array<{ subscription: string | null; message: Answer }> = [];
+  const root = await host(t, async incoming => {
+    const body = await incoming.text();
+    const [id, timestamp, signature] = ["webhook-id", "webhook-timestamp", "webhook-signature"].map(name => incoming.headers.get(name));
+    assert.equal(signature, `v1,${createHmac("sha256", Buffer.from(secret.slice(6), "base64")).update(`${id}.${timestamp}.${body}`).digest("base64")}`);
+    const message = JSON.parse(body) as Answer;
+    if (message.type === "verification") return Response.json({ challenge: message.challenge });
+    received.push({ subscription: incoming.headers.get("x-mcp-subscription-id"), message });
+    return new Response(null, { status: 204 });
+  });
+  const said = (subscription: string) => received.filter(each => each.subscription === subscription && !each.message.type).map(each => each.message.data.text);
+  const ended = (subscription: string) => received.find(each => each.subscription === subscription && each.message.type === "terminated")?.message.error;
+  return { url: `${root}/hooks`, said, ended };
 }
 
 // A plain MCP client, to send the sketch's messages as they are.
@@ -82,43 +91,52 @@ async function client(t: TestContext, endpoint: string) {
   return (method: string, params: Record<string, unknown>): Promise<Answer> => mcp.request({ method, params }, z.looseObject({}));
 }
 
-async function take(subscription: Subscription, count: number) {
-  const texts: string[] = [];
-  for await (const { data } of subscription) if (texts.push((data as { text: string }).text) === count) break;
-  return texts;
+// Subscribes to a room's events by webhook, as a client would.
+async function subscriber(t: TestContext, endpoint: string, url: string) {
+  const call = await client(t, endpoint);
+  return {
+    subscribe: (room: string, more?: Record<string, unknown>) => call("events/subscribe", { name: "room.said", arguments: { room }, delivery: { mode: "webhook", url, secret }, ...more }),
+    unsubscribe: (room: string) => call("events/unsubscribe", { name: "room.said", arguments: { room }, delivery: { url } }),
+  };
 }
 
-test("a client with a receiver is delivered its events by webhook, keeps its subscription by refreshing it, and lets go of it when it ends", { timeout: 10_000 }, async t => {
-  // Grants of a few hundred milliseconds lapse during the test unless the client refreshes them.
-  const { subscription, say, posts } = await subscribed(t, { webhookTtl: 300, minTtl: 100 });
-  assert.equal(subscription.delivery, "webhook");
-  say("a", "one");
-  say("b", "another room");
-  await wait(800);
-  // A lapsed subscription would be made again from its cursor at the next refresh, so this one must be live now.
-  say("a", "two");
+test("a subscription is delivered its events while it is refreshed, lapses when it is not, and ends when unsubscribed", { timeout: 10_000 }, async t => {
+  // Grants of a few hundred milliseconds lapse during the test unless they are refreshed.
+  const server = await rooms(t, { webhookTtl: 600, minTtl: 100 });
+  const { url, said } = await callback(t);
+  const { subscribe, unsubscribe } = await subscriber(t, server.endpoint, url);
+  const kept = await subscribe("a", { ttlMs: 600 });
+  const lapsed = await subscribe("b", { ttlMs: 600 });
+  server.say("a", "one");
+  server.say("b", "two");
+  await wait(400);
+  await subscribe("a", { ttlMs: 600, cursor: kept.cursor });
+  await wait(400);
+  server.say("a", "three");
+  server.say("b", "four");
   await wait(100);
-  assert.ok(posts.includes("two"));
-  assert.deepEqual(await take(subscription, 2), ["one", "two"]);
-  assert.equal(typeof subscription.cursor, "string");
+  assert.deepEqual([said(kept.id), said(lapsed.id)], [["one", "three"], ["two"]]);
 
-  // Leaving the loop unsubscribed, so the server sends nothing more.
+  // Still within its grant, but unsubscribed, so the server sends nothing more.
+  await unsubscribe("a");
+  server.say("a", "five");
   await wait(100);
-  const sent = posts.length;
-  say("a", "three");
-  await wait(100);
-  assert.equal(posts.length, sent);
+  assert.deepEqual(said(kept.id), ["one", "three"]);
 });
 
-test("a subscription whose caller loses access is ended while nothing is emitted, though a check of another one keeps failing", { timeout: 10_000 }, async t => {
+test("a subscription whose caller loses access is terminated while nothing is emitted, though a check of another one keeps failing", { timeout: 10_000 }, async t => {
+  const server = await rooms(t);
+  const { url, ended } = await callback(t);
+  const { subscribe } = await subscriber(t, server.endpoint, url);
   // The failing check comes first, and must not keep the other subscription from being checked.
-  const { subscription: failing, subscribe, close, lose } = await subscribed(t, {}, "b");
-  const subscription = await subscribe("a");
-  lose("b");
-  close("a");
-  await assert.rejects(take(subscription, 1), (error: Refusal) => error.code === -32024 && /ended the subscription to room.said: Forbidden/.test(error.message));
+  const failing = await subscribe("b");
+  const closing = await subscribe("a");
+  server.lose("b");
+  server.close("a");
+  await until(() => ended(closing.id) && ended(failing.id));
+  assert.deepEqual([ended(closing.id).code, ended(closing.id).message], [-32024, "Forbidden"]);
   // Access that cannot be told for a few checks in a row ends the subscription with why.
-  await assert.rejects(take(failing, 1), (error: Refusal) => /ended the subscription to room.said: The directory is down/.test(error.message));
+  assert.equal(ended(failing.id).message, "The directory is down.");
 });
 
 test("a subscription its type ends while it is being set up is refused, delivers nothing, and is torn down", { timeout: 10_000 }, async t => {
@@ -162,12 +180,14 @@ test("a server that restarts with a store delivers to the subscriptions it kept,
     save: (record: WebhookSubscription) => { kept.set(record.id, structuredClone(record)); },
     remove: (id: string) => { kept.delete(id); },
   };
-  const { subscription } = await subscribed(t, { store });
-  // Another process with the same store. The client still talks to the first, so this one is never subscribed to, and
-  // nothing has asked it anything.
+  const first = await rooms(t, { store });
+  const { url, said } = await callback(t);
+  const { id } = await (await subscriber(t, first.endpoint, url)).subscribe("a");
+  // Another process with the same store, which nothing has subscribed to or asked anything.
   const restarted = await rooms(t, { store });
   restarted.say("a", "after the restart");
-  assert.deepEqual(await take(subscription, 1), ["after the restart"]);
+  await until(() => said(id).length);
+  assert.deepEqual(said(id), ["after the restart"]);
 });
 
 test("the server speaks the sketch's webhook messages, and delivers only to an https endpoint that proved it wants them", async t => {
@@ -218,7 +238,7 @@ test("the server speaks the sketch's webhook messages, and delivers only to an h
 
   const refreshed = await call("events/subscribe", params(`${root}/yes`, { ttlMs: null, cursor: subscribed.cursor }));
   assert.equal(refreshed.id, subscribed.id);
-  // No expiry is granted only by a server that keeps subscriptions across restarts.
+  // No expiry is never granted: it needs storage the server does not have.
   assert.notEqual(refreshed.refreshBefore, null);
   assert.deepEqual({ ...refreshed.deliveryStatus, lastDeliveryAt: typeof refreshed.deliveryStatus.lastDeliveryAt }, { active: true, lastDeliveryAt: "string", lastError: null });
   const unsubscribe = params(`${root}/yes`);
@@ -226,49 +246,4 @@ test("the server speaks the sketch's webhook messages, and delivers only to an h
   const { _meta: __, ...acknowledged } = await call("events/unsubscribe", unsubscribe);
   assert.deepEqual(acknowledged, {});
   await assert.rejects(call("events/unsubscribe", unsubscribe), refused(-32023));
-});
-
-test("the receiver accepts only fresh deliveries signed with its subscription's secret, and each once", async t => {
-  const receiver = createReceiver();
-  const heard: unknown[] = [];
-  const listening = receiver.listen(message => heard.push(message));
-  const post = (subscription: string, id: string, body: unknown, { secret = listening.secret, age = 0 } = {}) => {
-    const timestamp = String(Math.floor(Date.now() / 1000) - age);
-    const text = JSON.stringify(body);
-    const signature = createHmac("sha256", Buffer.from(secret.slice(6), "base64")).update(`${id}.${timestamp}.${text}`).digest("base64");
-    return receiver(new Request("https://app.example/hooks", { method: "POST", body: text, headers: { "webhook-id": id, "webhook-timestamp": timestamp, "webhook-signature": `v1,${signature}`, "x-mcp-subscription-id": subscription } }));
-  };
-  const event = { eventId: "e1", name: "room.said", timestamp: new Date().toISOString(), data: { text: "one" }, cursor: "c1" };
-
-  // The challenge comes before the subscribe response says the subscription's id, and the secret tells whose it is.
-  // Deliveries wait for that response.
-  const challenged = await post("sub_1", "msg_verification_1", { type: "verification", challenge: "nonce" });
-  assert.deepEqual([challenged.status, await challenged.json()], [200, { challenge: "nonce" }]);
-  assert.equal((await post("sub_1", "e1", event)).status, 503);
-  listening.bind("sub_1");
-  assert.equal((await post("sub_1", "e1", event)).status, 204);
-  assert.equal((await post("sub_1", "e1", event)).status, 204);
-  assert.equal((await post("sub_1", "e2", event, { secret: `whsec_${randomBytes(32).toString("base64")}` })).status, 401);
-  assert.equal((await post("sub_1", "e3", event, { age: 600 })).status, 400);
-  assert.deepEqual(heard, [event]);
-  assert.equal(listening.close(), true);
-  assert.equal((await post("sub_1", "e4", event)).status, 410);
-});
-
-test("a delivery reaches only the subscription whose secret signed it, whichever subscription it names", async () => {
-  const receiver = createReceiver();
-  const [a, b] = [[], []].map((heard: Array<{ eventId: string }>) => Object.assign(receiver.listen(message => heard.push(message as { eventId: string })), { heard })) as [ReturnType<typeof receiver.listen> & { heard: Array<{ eventId: string }> }, ReturnType<typeof receiver.listen> & { heard: Array<{ eventId: string }> }];
-  const post = (subscription: string, secret: string, eventId: string) => {
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const text = JSON.stringify({ eventId, name: "room.said", timestamp: new Date().toISOString(), data: {} });
-    const signature = createHmac("sha256", Buffer.from(secret.slice(6), "base64")).update(`${eventId}.${timestamp}.${text}`).digest("base64");
-    return receiver(new Request("https://app.example/hooks", { method: "POST", body: text, headers: { "webhook-id": eventId, "webhook-timestamp": timestamp, "webhook-signature": `v1,${signature}`, "x-mcp-subscription-id": subscription } }));
-  };
-  b.bind("sub_b");
-  // A server given a's secret names b's subscription, before a's subscribe response has arrived and after.
-  await post("sub_b", a.secret, "forged before");
-  a.bind("sub_a");
-  await post("sub_b", a.secret, "forged after");
-  await post("sub_a", a.secret, "a's own");
-  assert.deepEqual([a.heard.map(({ eventId }) => eventId), b.heard], [["a's own"], []]);
 });

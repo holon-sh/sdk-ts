@@ -147,20 +147,9 @@ const events = createEvents({ webhookTtl: 30 * 60_000 });
 
 The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `terminate`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again every minute. Subscriptions are kept in memory; give `createEvents({ webhook: { store } })` to keep them across restarts, and delivery to them resumes as soon as the process declares their event types.
 
-A client that can be reached mounts a receiver at a URL and gives both to `createApps` as the sketch's `WebhookConfig`. Its subscriptions then use webhooks wherever a server offers them:
+Every subscription expires unless its client refreshes it: one that never expires would need storage the server does not have. On Holon, an app that delivers webhooks leaves `egress` undeclared in `holon.yaml`, since declared hosts are the only ones it can reach.
 
-```ts
-import { createApps } from "#holon-sh";
-import { createReceiver } from "holon-sh/ext/events";
-
-const receiver = createReceiver();
-const apps = createApps({ rooms: { endpoint } }, { ext: { events: { webhook: { url: "https://app.example/hooks", receiver } } } });
-// Answer POSTs to /hooks with receiver(request), which returns the Response.
-
-const subscription = await apps.rooms.ext.events.subscribe("room.said", { room: "lobby" });
-```
-
-The receiver checks each delivery's signature and age, answers the server's challenge, drops repeats, and hands each event to its subscription. Each subscription signs with a secret of its own, or with what `secretProvider` returns. The client refreshes the subscription before it lapses and unsubscribes when it ends. A Holon app cannot serve its own routes yet, so a receiver runs in a server of your own.
+Subscribing by webhook is for clients that can be reached at an `https` URL. This client does not subscribe by webhook yet: a Holon app cannot serve the route a receiver needs, so it subscribes by push or poll.
 
 ## Community
 

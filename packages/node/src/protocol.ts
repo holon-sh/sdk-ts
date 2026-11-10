@@ -74,44 +74,18 @@ export interface SubscribeOptions {
   cursor?: string | null;
   /** Do not replay events older than this many milliseconds. */
   maxAgeMs?: number;
-  /**
-   * The delivery mode to use. Without one, webhook where the client has a WebhookConfig and the server offers it, then
-   * push, then poll, as the sketch prefers. One the server does not offer, or webhook without a WebhookConfig, rejects
-   * with an error named NoCompatibleDeliveryMode.
-   */
-  delivery?: "webhook" | "push" | "poll";
+  /** The delivery mode to use. Without one, push where the server offers it, and poll otherwise. One the server does not offer rejects with an error named NoCompatibleDeliveryMode. */
+  delivery?: "push" | "poll";
   /** Called when the server skipped events, for example after it restarted. Read the current state again. */
   onGap?: () => void;
 }
 /** A subscription to an event: iterate it for the occurrences, in the order the server produced them. */
 export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurrence<Data>> {
-  readonly delivery: "webhook" | "push" | "poll";
+  readonly delivery: "push" | "poll";
   /** The position after the last occurrence received, to resume from later. Null when the event cannot be replayed. */
   readonly cursor: string | null;
   /** Ends the subscription, as leaving a `for await` loop over it does. */
   cancel(): void;
-}
-
-/**
- * The client's end of webhook delivery, made by createReceiver of holon-sh/ext/events: a function from the Request a
- * server POSTs to the callback URL to its Response. Mount it at that URL.
- */
-export interface WebhookReceiver {
-  (request: Request): Promise<Response>;
-  /** @internal Used by subscribe: listens for one subscription's deliveries, under its secret. */
-  listen(handle: (message: unknown) => void, secret?: string): { readonly secret: string; bind(id: string): void; close(): boolean };
-}
-/** The sketch's WebhookConfig: where servers deliver this client's events by webhook. */
-export interface WebhookConfig {
-  /** The callback URL, which the receiver answers. */
-  url: URL | string;
-  /** The receiver mounted at `url`, which hands each subscription its deliveries. */
-  receiver: WebhookReceiver;
-  /**
-   * The sketch's secret_provider: the whsec_ secret a subscription's deliveries are signed with. Without it, a random
-   * one is made for each subscription, as the sketch recommends.
-   */
-  secretProvider?: (subscription: { name: string; arguments: unknown }) => string | Promise<string>;
 }
 
 /** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. A Blob at a file argument (x-mcp-file) is sent with the files extension: inline when the server takes it, else uploaded to the target the server names. A failure before the call completes says whether the tool did not run or the outcome is unknown. */

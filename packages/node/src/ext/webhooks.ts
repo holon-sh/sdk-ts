@@ -1,14 +1,13 @@
-// Webhook delivery of MCP Events, both sides, as the Triggers & Events Working Group's design sketch defines it:
+// Webhook delivery of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#webhook-based-delivery
-// The server side is the webhook delivery mode createEvents adds when given a webhookTtl. The client side is a receiver
-// an application mounts at its callback URL, which the runtime's subscribe hands deliveries from. Both are exported by
-// holon-sh/ext/events. Deliveries are signed and verified by the Standard Webhooks library. Nothing here needs a Node
-// module until it sends: a server is evaluated for its contract where node:crypto and its neighbours are not there.
+// This is the server side: the webhook delivery mode createEvents adds when given a webhookTtl. Deliveries are signed by
+// the Standard Webhooks library. Nothing here needs a Node module until it sends: a server is evaluated for its
+// contract where node:crypto and its neighbours are not there. The client side, a receiver, waits for a Holon app to be
+// able to serve one.
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import type { Server, ServerContext, StandardSchemaV1 } from "@modelcontextprotocol/server";
 import { Webhook } from "standardwebhooks";
 import { getContext } from "../context.js";
-import type { WebhookReceiver } from "../protocol.js";
 import type { DeliveryMode, EventError, EventOccurrence, EventTypeState, Internals, Owed, SubscriptionContext } from "./events.js";
 
 /** A webhook subscription as the server keeps it. Its secret signs deliveries, so a store keeps it as it would a key. */
@@ -21,8 +20,8 @@ export interface WebhookSubscription {
   secret: string;
   /** The secret a refresh replaced, which still signs deliveries until `until`. */
   previous?: { secret: string; until: number };
-  /** When the subscription lapses unless refreshed, in milliseconds since the epoch. Null when it does not. */
-  expiresAt: number | null;
+  /** When the subscription lapses unless refreshed, in milliseconds since the epoch. */
+  expiresAt: number;
   /** The id again, the subscription's checked arguments, and the caller match, transform and authorize are given. */
   subscription: { id: string; arguments: unknown; context: SubscriptionContext };
 }
@@ -93,7 +92,6 @@ interface WebhookRequest {
 const anything: StandardSchemaV1<unknown, WebhookRequest> = { "~standard": { version: 1, vendor: "holon-sh", validate: value => ({ value: (value ?? {}) as WebhookRequest }) } };
 
 const encoder = new TextEncoder();
-const base64 = (bytes: ArrayBuffer | Uint8Array) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
 const unbase64 = (text: string) => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 const random = (bytes: number) => crypto.getRandomValues(new Uint8Array(bytes));
 const hex = (bytes: ArrayBuffer | Uint8Array) => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
@@ -203,9 +201,8 @@ export function webhooks({
   maxPending = 1000,
   concurrency = 4,
   allowInsecureLocalCallbacksForTesting = false,
-}: WebhookOptions & { ttl: number | null }): DeliveryMode {
+}: WebhookOptions & { ttl: number }): DeliveryMode {
   // A subscription that never expires is never refreshed, so it must outlive the process: that needs a store.
-  if (ttl === null && !store) throw new Error("Webhook subscriptions without expiry need a store that keeps them across restarts.");
   const local = allowInsecureLocalCallbacksForTesting === true;
   // Subscriptions being delivered to, by event name, then id; and what delivering to each has come to, which is kept
   // in memory only, lost on restart and begun again.
@@ -233,8 +230,8 @@ export function webhooks({
   };
   const owner = (principal: WebhookSubscription["principal"], url: string) => canonical([principal.issuer, principal.subject, url]);
   const endpointError = (reason: string | undefined) => new ProtocolError(CALLBACK_ENDPOINT_ERROR, "CallbackEndpointError", { reason });
-  const expired = (record: WebhookSubscription) => record.expiresAt !== null && record.expiresAt <= Date.now();
-  const refreshBefore = (record: WebhookSubscription) => record.expiresAt === null ? null : new Date(record.expiresAt).toISOString();
+  const expired = (record: WebhookSubscription) => record.expiresAt <= Date.now();
+  const refreshBefore = (record: WebhookSubscription) => new Date(record.expiresAt).toISOString();
   const codeOf = (error: unknown) => (error as Partial<EventError> | undefined)?.code;
 
   // Stops delivering to a subscription and lets go of its place among its type's subscriptions. A newer subscription
@@ -318,11 +315,7 @@ export function webhooks({
     if (result.ok) Object.assign(state, { lastDeliveryAt: new Date(now).toISOString(), lastError: null, failedSince: undefined });
     else Object.assign(state, { lastError: result.error, failedSince: state.failedSince ?? new Date(now).toISOString() });
     const failures = state.outcomes.filter(({ ok }) => !ok).length;
-    if (state.active && state.outcomes.length >= SUSPEND.attempts && failures / state.outcomes.length > SUSPEND.rate) {
-      state.active = false;
-      // A subscription without expiry has no refresh to bring it back, so it is dropped.
-      if (record.expiresAt === null) quietly(terminate(record, endpointError(result.error)));
-    }
+    if (state.active && state.outcomes.length >= SUSPEND.attempts && failures / state.outcomes.length > SUSPEND.rate) state.active = false;
   };
 
   // Each message is retried on its own, with backoff, until it is acknowledged, refused for good, or out of attempts.
@@ -548,7 +541,7 @@ export function webhooks({
       failed.set(url, { until: Date.now() + FAILED_CHALLENGE, reason });
       throw endpointError(reason);
     }
-    verified.set(key, Date.now() + Math.max(ttl ?? 0, 24 * 60 * 60_000));
+    verified.set(key, Date.now() + Math.max(ttl, 24 * 60 * 60_000));
   };
 
   // Only what match, transform and authorize may read of the subscribing request is kept: never its token, which a
@@ -575,13 +568,9 @@ export function webhooks({
     return { type, principal, url, id, subscription: { id, arguments: subscription.arguments, context: keep(subscription.context) } };
   };
 
-  // The granted lifetime: the client's suggestion within the server's floor and cap. No expiry only when both allow it.
-  const grant = (suggested: unknown) => {
-    if (suggested === null && ttl === null) return null;
-    const cap = ttl ?? Infinity;
-    const wanted = typeof suggested === "number" && suggested > 0 ? suggested : cap === Infinity ? 24 * 60 * 60_000 : cap;
-    return Math.max(minTtl, Math.min(wanted, cap));
-  };
+  // The granted lifetime: the client's suggestion within the server's floor and cap. A request for no expiry, which
+  // needs storage the server does not have, is granted the cap.
+  const grant = (suggested: unknown) => Math.max(minTtl, Math.min(typeof suggested === "number" && suggested > 0 ? suggested : ttl, ttl));
 
   return {
     name: "webhook",
@@ -600,8 +589,7 @@ export function webhooks({
         if (typeof secret !== "string" || !secretBytes(secret)) throw new ProtocolError(INVALID_PARAMS, "delivery.secret must be whsec_ and the base64 of 24 to 64 bytes.");
         const { type, subscription, principal, url, id } = await keyed(request, ctx.http);
         attach(type);
-        const granted = grant(request.ttlMs);
-        const expiresAt = granted === null ? null : Date.now() + granted;
+        const expiresAt = Date.now() + grant(request.ttlMs);
         const existing = live.get(type.name)?.get(id);
         const state = existing && states.get(existing);
         if (existing && state?.type === type && !expired(existing)) {
@@ -636,120 +624,4 @@ export function webhooks({
       });
     },
   };
-}
-
-// The body of a request, read no further than `limit` bytes. Undefined when it is longer.
-async function read(request: Request, limit: number): Promise<string | undefined> {
-  if (Number(request.headers.get("content-length")) > limit) return undefined;
-  if (!request.body) return "";
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if ((size += value.length) > limit) {
-      await reader.cancel().catch(() => {});
-      return undefined;
-    }
-    chunks.push(value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
-  return new TextDecoder().decode(bytes);
-}
-
-/** One subscription's end of a receiver. */
-interface Listener { secret: string; handle: (message: unknown) => void; seen: Set<string>; id?: string }
-
-/**
- * The client's end of webhook delivery, as a function from a Request to a Response, for any server that speaks
- * fetch. Give it to createApps with the URL it is reached at, and mount it there: subscriptions then prefer webhook
- * delivery where a server offers it. It checks each delivery's signature, and that it is at most five minutes old, with
- * the Standard Webhooks library; answers the challenge; drops what it has seen; and hands the rest to the subscription
- * it belongs to.
- */
-export function createReceiver(): WebhookReceiver {
-  // Subscriptions by the id the server derived, and those whose subscribe response has not said theirs yet.
-  const routes = new Map<string, Set<Listener>>();
-  const waiting = new Set<Listener>();
-  // Subscriptions ended here, so a server still delivering to one is told to stop retrying.
-  const ended = new Set<string>();
-  const bounded = (set: Set<string>, value: string) => {
-    set.add(value);
-    const oldest = set.values().next();
-    if (set.size > 1024 && !oldest.done) set.delete(oldest.value);
-  };
-  const reply = (status: number, body?: unknown) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: body === undefined ? {} : { "content-type": "application/json" } });
-  const unroute = (listener: Listener) => {
-    const route = listener.id === undefined ? undefined : routes.get(listener.id);
-    if (!route || listener.id === undefined) return false;
-    route.delete(listener);
-    if (route.size) return false;
-    routes.delete(listener.id);
-    return true;
-  };
-
-  async function receive(request: Request): Promise<Response> {
-    if (request.method !== "POST") return reply(405);
-    const [id, timestamp, signature, subscription] = ["webhook-id", "webhook-timestamp", "webhook-signature", "x-mcp-subscription-id"].map(name => request.headers.get(name));
-    if (!id || !timestamp || !signature || !subscription) return reply(400);
-    // The library checks the age too; checked first here, a stale delivery is told apart from a forged one.
-    if (!/^\d+$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 5 * 60) return reply(400);
-    const body = await read(request, MAX_BODY);
-    if (body === undefined) return reply(413);
-    const headers = { "webhook-id": id, "webhook-timestamp": timestamp, "webhook-signature": signature };
-    let parsed: unknown;
-    // The listeners among these whose secret signed the delivery. Only they may hear it.
-    const signers = (listeners: Iterable<Listener>) => [...listeners].filter(listener => {
-      try {
-        parsed = new Webhook(listener.secret).verify(body, headers);
-        return true;
-      } catch { return false; }
-    });
-    const route = routes.get(subscription);
-    const signed = signers(route ?? []);
-    // A subscription whose subscribe response has not arrived can answer a challenge, but is not routed to by what a
-    // delivery says: the server tries its events again once the response has bound it.
-    const pending = signed.length ? [] : signers(waiting);
-    if (!signed.length && !pending.length) return reply(!route && ended.has(subscription) ? 410 : 401);
-    const message = parsed as { type?: unknown; challenge?: unknown } | null;
-    if (message?.type === "verification") return reply(200, { challenge: message.challenge });
-    if (!signed.length) return reply(503);
-    for (const listener of signed) {
-      if (listener.seen.has(id)) continue;
-      bounded(listener.seen, id);
-      listener.handle(message);
-    }
-    return reply(204);
-  }
-
-  return Object.assign(receive, {
-    listen(handle: (message: unknown) => void, secret?: string) {
-      // A secret the application provides is used as given; the server refuses one Standard Webhooks does not allow.
-      const listener: Listener = { secret: secret ?? `whsec_${base64(random(32))}`, handle, seen: new Set() };
-      waiting.add(listener);
-      return {
-        secret: listener.secret,
-        // Routes the subscription's deliveries here, by the id its subscribe response gave.
-        bind(id: string) {
-          if (listener.id === id) return;
-          if (listener.id) unroute(listener);
-          waiting.delete(listener);
-          listener.id = id;
-          let route = routes.get(id);
-          if (!route) routes.set(id, route = new Set());
-          route.add(listener);
-        },
-        // Whether this was the last listener of its subscription, which the server can then be told to stop.
-        close() {
-          waiting.delete(listener);
-          if (!listener.id || !unroute(listener)) return false;
-          bounded(ended, listener.id);
-          return true;
-        },
-      };
-    },
-  });
 }
