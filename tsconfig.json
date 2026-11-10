@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["tests", "packages/node/scripts"],
+  "exclude": ["tests/fixtures"],
+  "references": [{ "path": "packages/node" }]
+}

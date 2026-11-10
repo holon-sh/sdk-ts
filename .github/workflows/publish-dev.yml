@@ -26,11 +26,10 @@ jobs:
             echo "::error::Unsupported channel '$CHANNEL'; only 'dev' can be published from this workflow."
             exit 1
           fi
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-          cache: npm
       - name: Update npm for trusted publishing
         run: npm install -g npm@11
       - run: npm ci
@@ -38,6 +37,7 @@ jobs:
       - name: Set the dev version (not committed)
         run: npm version "$VERSION" --workspaces --no-git-tag-version
       - run: npm pack --dry-run -w packages/node
+      - run: npm run lint:package
       - name: Publish to npm under the dev tag
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
