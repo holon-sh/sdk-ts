@@ -67,6 +67,41 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 // error TS2339: Property 'hub_search' does not exist on type '{ readonly hf_fs: (input: { operations: { args: string[]; cmd: "attach" | "cat" | "find" | "ls" | "search" | "stat"; }[]; }, options?: ToolCallOptions | undefined) => Promise<{ results: ({ ...; } | { ...; })[]; truncated?: boolean | undefined; truncation_reason?: "output_budget" | undefined; }>; readonly hf_whoami: ...'.
 ```
 
+## Events
+
+A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it.
+
+A server declares an event type and emits its occurrences:
+
+```ts
+import { createEvents } from "holon-sh/events";
+
+const events = createEvents();
+const said = events.event("room.said", {
+  description: "Someone said something in a room",
+  inputSchema: z.object({ room: z.string() }),
+  payloadSchema: z.object({ text: z.string() }),
+  match: ({ room }, args) => room === args.room,
+  transform: ({ text }) => ({ text }),
+});
+
+const server = new McpServer({ name: "rooms", version: "1.0.0" });
+events.serve(server);
+
+said.emit({ room: "lobby", text: "hello" });
+```
+
+A client subscribes and iterates:
+
+```ts
+const subscription = await apps.rooms.events.subscribe("room.said", { room: "lobby" });
+for await (const { data } of subscription) console.log(data.text);
+```
+
+The client is pushed each event on a stream where the server offers one and polls otherwise. It reconnects by itself and resumes from its cursor. Events are kept in the server's memory, so after a restart the client's `onGap` is called: read the current state again.
+
+Poll and push delivery are here. Webhook delivery and typed event names are not.
+
 ## Community
 
 Ask questions and share what you're building on the [Holon Discord](https://discord.gg/jXExyBdy).

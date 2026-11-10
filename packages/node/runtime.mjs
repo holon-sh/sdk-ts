@@ -56,6 +56,11 @@ function patient(options) {
     : { onprogress: () => {}, resetTimeoutOnProgress: true, ...options };
 }
 
+// Requests outside the core protocol are checked by their callers.
+const anything = { "~standard": { version: 1, vendor: "holon-sh", validate: value => ({ value: value ?? {} }) } };
+// A stream that has said nothing for twice the longest heartbeat interval is dead: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#lifecycle
+const QUIET = 60_000;
+
 function delay(milliseconds, signal) {
   return new Promise(resolve => {
     const timer = setTimeout(resolve, milliseconds);
@@ -201,7 +206,134 @@ export function createApps(identity, contracts, bindings, options) {
       };
       resources[resource.uri] = Object.freeze({ read, watch });
     }
-    apps[name] = Object.freeze({ callTool, listTools, resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
+    // MCP Events, the draft extension: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
+    const list = options => session(options, async client => {
+      const events = [];
+      for (let cursor; ;) {
+        const page = await client.request({ method: "events/list", params: { ...(cursor && { cursor }) } }, anything, patient(options));
+        events.push(...page.events ?? []);
+        if (!(cursor = page.nextCursor)) return events;
+      }
+    });
+    const subscribe = async (event, args = {}, { signal, onGap, maxAgeMs, ...options } = {}) => {
+      const resolved = current();
+      if (!resolved?.endpoint) throw new Error(`Subscribing to ${name} ${event} requires an endpoint binding.`);
+      const offered = (await list({ signal })).find(type => type.name === event)?.delivery;
+      if (!offered) throw new Error(`${name} has no event ${event}.`);
+      // Push hears of an event at once, and poll works wherever a request does. Webhook delivery is not supported.
+      const delivery = options.delivery ?? ["push", "poll"].find(mode => offered.includes(mode));
+      if (!offered.includes(delivery)) throw new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`);
+      const cancelled = new AbortController();
+      const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
+      let cursor = options.cursor ?? null;
+      const queue = [];
+      const seen = new Set();
+      let wake = () => {};
+      let done = false;
+      let failure;
+      // An absent cursor is a null one, and a null one is never resumed from.
+      const reach = (next, truncated) => {
+        cursor = next ?? null;
+        if (truncated) onGap?.();
+      };
+      const deliver = ({ cursor: _, _meta, ...occurrence }) => {
+        if (seen.has(occurrence.eventId)) return;
+        seen.add(occurrence.eventId);
+        if (seen.size > 1024) seen.delete(seen.values().next().value);
+        queue.push(occurrence);
+        wake();
+      };
+      const request = { name: event, arguments: args, ...(maxAgeMs !== undefined && { maxAgeMs }) };
+      let confirmed = false;
+      let established;
+      const active = new Promise((resolve, reject) => { established = { resolve: () => { confirmed = true; resolve(); }, reject }; });
+      // A server's refusal ends the subscription. Anything else is tried again from the cursor.
+      const refused = error => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500;
+      const poll = async () => {
+        while (!ended.aborted) {
+          let wait = 1000;
+          try {
+            const result = await session({ signal: ended }, client => client.request({ method: "events/poll", params: { ...request, cursor } }, anything, patient({ signal: ended })));
+            for (const occurrence of result.events ?? []) deliver(occurrence);
+            reach(result.cursor, result.truncated);
+            established.resolve();
+            // A server that asks for a tight loop is not obeyed.
+            wait = result.hasMore ? 0 : Math.max(1000, result.nextPollMs ?? 0);
+          } catch (error) {
+            if (ended.aborted) return;
+            if (!confirmed || refused(error)) throw error;
+          }
+          await delay(wait, ended);
+        }
+      };
+      const stream = async () => {
+        while (!ended.aborted) {
+          const quiet = new AbortController();
+          // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
+          const watched = async (input, init) => {
+            const response = await (resolved.fetch ?? fetch)(input, init);
+            if (!response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
+            const reader = response.body.getReader();
+            const body = new ReadableStream({
+              pull: controller => reader.read().then(({ done, value }) => {
+                if (!done) return controller.enqueue(value);
+                controller.close();
+                // The answer, when the stream ended with one, is handled first.
+                setTimeout(() => quiet.abort());
+              }, error => { controller.error(error); quiet.abort(); }),
+              cancel: reason => reader.cancel(reason),
+            });
+            return new Response(body, response);
+          };
+          // Each stream has its own connection, so every event notification on it is this subscription's.
+          const connection = connect({ ...resolved, fetch: watched });
+          let timer;
+          const heard = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => quiet.abort(), QUIET);
+          };
+          let terminated;
+          try {
+            await untilAborted(connection.ready, ended);
+            const on = (method, handle) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything }, params => { heard(); handle(params); });
+            on("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
+            on("event", occurrence => { deliver(occurrence); reach(occurrence.cursor); });
+            on("heartbeat", ({ cursor: next }) => reach(next));
+            // The server recovers from an error by itself, and the stream stays open.
+            on("error", () => {});
+            on("terminated", ({ error }) => { terminated = error; quiet.abort(); });
+            heard();
+            await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, anything, { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
+          } catch (error) {
+            if (!terminated && !ended.aborted && (!confirmed || refused(error))) throw error;
+          } finally {
+            clearTimeout(timer);
+            await connection.close();
+          }
+          if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated?.message}`), { code: terminated?.code, data: terminated?.data });
+          await delay(1000, ended);
+        }
+      };
+      void (delivery === "push" ? stream() : poll())
+        .catch(error => { failure = error; })
+        .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
+      await active;
+      return {
+        delivery,
+        get cursor() { return cursor; },
+        cancel: () => cancelled.abort(),
+        [Symbol.asyncIterator]: () => ({
+          next: async () => {
+            while (!queue.length && !done) await new Promise(resolve => { wake = resolve; });
+            if (queue.length) return { value: queue.shift(), done: false };
+            if (failure) throw failure;
+            return { value: undefined, done: true };
+          },
+          return: async () => { cancelled.abort(); return { value: undefined, done: true }; },
+        }),
+      };
+    };
+    apps[name] = Object.freeze({ callTool, listTools, events: Object.freeze({ list, subscribe }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
   }
   return Object.freeze(apps);
 }

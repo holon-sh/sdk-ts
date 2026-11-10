@@ -33,12 +33,55 @@ export declare class ToolCallError extends Error {
   constructor(app: string, tool: string, result: ToolCallError["result"]);
 }
 
+/** An event type a server offers, as events/list describes it. */
+export interface EventType {
+  name: string;
+  description?: string;
+  /** How the server delivers it: any of poll, push and webhook. */
+  delivery: string[];
+  /** JSON Schema of a subscription's arguments. */
+  inputSchema?: Record<string, unknown>;
+  /** JSON Schema of an occurrence's data. */
+  payloadSchema?: Record<string, unknown>;
+}
+/** One occurrence of an event. `eventId` is stable, so an occurrence delivered twice is yielded once. */
+export interface EventOccurrence<Data = unknown> { eventId: string; name: string; timestamp: string; data: Data }
+export interface SubscribeOptions {
+  /** Ends the subscription. */
+  signal?: AbortSignal;
+  /** Where to resume from: a subscription's last cursor. Without one, the subscription starts from now. */
+  cursor?: string | null;
+  /** Do not replay events older than this many milliseconds. */
+  maxAgeMs?: number;
+  /** The delivery mode to use. Without one, push where the server offers it, and poll otherwise. */
+  delivery?: "push" | "poll";
+  /** Called when the server skipped events, for example after it restarted. Read the current state again. */
+  onGap?: () => void;
+}
+/** A subscription to an event: iterate it for the occurrences, in the order the server produced them. */
+export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurrence<Data>> {
+  readonly delivery: "push" | "poll";
+  /** The position after the last occurrence received, to resume from later. Null when the event cannot be replayed. */
+  readonly cursor: string | null;
+  /** Ends the subscription, as leaving a `for await` loop over it does. */
+  cancel(): void;
+}
+
 /** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. */
 export interface ToolClient<I, O, R> {
   /** Close the cached endpoint session. Scoped calls close their own session; a host-owned session is closed by its host. */
   readonly close: () => Promise<void>;
   /** Fetch the live tool catalog. */
   readonly listTools: (options?: CallOptions) => Promise<ListToolsResult>;
+  /**
+   * MCP Events, the draft extension of the Triggers & Events Working Group. subscribe requires an endpoint binding. It
+   * resolves once the server has confirmed the subscription, then reconnects and resumes from its cursor by itself,
+   * and rejects when the server offers no such event.
+   */
+  readonly events: {
+    readonly list: (options?: CallOptions) => Promise<EventType[]>;
+    readonly subscribe: <Data = unknown>(name: string, args?: Record<string, unknown>, options?: SubscribeOptions) => Promise<Subscription<Data>>;
+  };
   /** Contracted JSON resources. read validates the first text content as JSON. watch requires an endpoint binding to a server that supports subscriptions; it reads the initial value, then listens for updates until aborted. */
   readonly resources: { readonly [U in keyof R]: {
     readonly read: (options?: CallOptions) => Promise<R[U]>;

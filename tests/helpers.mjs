@@ -37,5 +37,5 @@ export async function serve(t, factory, onRequest) {
   });
   http.listen(0, "127.0.0.1");
   await once(http, "listening");
-  return { handler, endpoint: `http://127.0.0.1:${http.address().port}/mcp` };
+  return { handler, http, endpoint: `http://127.0.0.1:${http.address().port}/mcp` };
 }

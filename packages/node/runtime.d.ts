@@ -1,6 +1,6 @@
 import type { AuthProvider, CallOptions, ToolClient } from "./protocol.js";
 export { ToolCallError } from "./protocol.js";
-export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
+export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
 export interface Binding {

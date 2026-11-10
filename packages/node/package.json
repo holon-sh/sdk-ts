@@ -1,7 +1,7 @@
 {
   "name": "holon-sh",
   "version": "0.0.1",
-  "description": "Typed MCP clients and the caller of an MCP request, for Node.js.",
+  "description": "Typed MCP clients, MCP Events, and the caller of an MCP request, for Node.js.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/holon-sh/sdk-ts.git",
@@ -27,6 +27,10 @@
       "types": "./context.d.ts",
       "import": "./context.mjs"
     },
+    "./events": {
+      "types": "./events.d.ts",
+      "import": "./events.mjs"
+    },
     "./protocol": {
       "types": "./protocol.d.ts",
       "import": "./runtime.mjs"
@@ -38,7 +42,9 @@
     "validate.mjs",
     "protocol.d.ts",
     "context.mjs",
-    "context.d.ts"
+    "context.d.ts",
+    "events.mjs",
+    "events.d.ts"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -46,5 +52,13 @@
   },
   "dependencies": {
     "@modelcontextprotocol/client": "^2.3.1"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/server": "^2.3.1"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/server": {
+      "optional": true
+    }
   }
 }
