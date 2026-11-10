@@ -32,7 +32,7 @@ function rooms(options: EventsOptions = {}, definition: Partial<EventDefinition<
     events.serve(server);
     return server;
   };
-  return { factory, said, say: (room: string, speaker: string, text: string, to?: string) => said.emit({ room, speaker, text }, { eventId: text, subscription: to }) };
+  return { factory, said, say: (room: string, speaker: string, text: string, to?: string) => said.emit({ room, speaker, text }, { eventId: text, subscriptionId: to }) };
 }
 
 // Reads from a subscription without ending it, as take does when it stops.
@@ -81,7 +81,7 @@ test("a subscription to a 2025 server is pushed its events, and ending it ends i
   const said = events.event<{ room: string }, { text: string }>("room.said", {
     inputSchema: z.object({ room: z.string() }),
     payloadSchema: z.object({ text: z.string() }),
-    onSubscribe: ({ id }) => () => { ended.push(id); },
+    onUnsubscribe: ({ id }) => { ended.push(id); },
   });
   const { endpoint } = await serveLegacy(t, () => {
     const server = new McpServer({ name: "rooms", version: "1.0.0" });
@@ -283,9 +283,9 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   const ended: string[] = [];
   const onSubscribe: EventDefinition<Listener, Said>["onSubscribe"] = ({ id, delivery, arguments: args }) => {
     begun.push({ id, delivery, args });
-    return () => ended.push(id);
   };
-  const { factory, say } = rooms({ pollLease: 1200 }, { onSubscribe, interval: 100 });
+  const onUnsubscribe: EventDefinition<Listener, Said>["onUnsubscribe"] = ({ id }) => { ended.push(id); };
+  const { factory, say } = rooms({ pollSubscriptionTtl: 1200 }, { onSubscribe, onUnsubscribe, interval: 100 });
   // Every request comes from one signed-in user, through one client.
   const { endpoint, http } = await serve(t, factory, (request: IncomingMessage & { auth?: unknown }) => { request.auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } }; });
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
@@ -383,10 +383,10 @@ test("a stream left while its subscription is being set up is torn down and free
   let release: (() => void) | undefined;
   const ended: string[] = [];
   const { factory } = rooms({ maxSubscriptions: 1 }, {
-    onSubscribe: async ({ id }) => {
+    onSubscribe: async () => {
       if (!release) await new Promise<void>(resolve => { release = resolve; });
-      return () => ended.push(id);
     },
+    onUnsubscribe: ({ id }) => { ended.push(id); },
   });
   const { endpoint } = await serve(t, factory);
   const { client } = await wire(t, endpoint);
@@ -450,12 +450,12 @@ test("a subscription the caller may not have is refused, and one the app ends is
   // Every delivery mode counts against the limit.
   await assert.rejects(app.ext.events.subscribe("room.said", { room: "a", listener: "fay" }, { delivery: "poll" }), refusedWith(-32025, { limit: "subscriptions", max: 3 }));
 
-  said.end(subscriptions.get("bob"), { code: -32024, message: "Forbidden", data: { reason: "Left the room" } });
+  said.terminate(subscriptions.get("bob"), { code: -32024, message: "Forbidden", data: { reason: "Left the room" } });
   await assert.rejects(take(bob, 1), refusedWith(-32024, { reason: "Left the room" }));
   // Access lost is noticed at the next heartbeat.
   revoked.add("cat");
   await assert.rejects(take(cat, 1), refusedWith(-32024));
-  said.end(subscriptions.get("dan"));
+  said.terminate(subscriptions.get("dan"));
   say("a", "ann", "too late");
   await assert.rejects(take(dan, 1), refusedWith(-32024));
 });
@@ -500,7 +500,7 @@ test("events/list pages through the event types, and removing one ends its subsc
 });
 
 test("a stream owed events that are no longer kept is told of the gap, and carries on from what is kept", async t => {
-  const { factory, say } = rooms({ keep: { events: 3 } });
+  const { factory, say } = rooms({ emitBuffer: { maxEvents: 3 } });
   const { endpoint } = await serve(t, factory);
   const { heard, request } = await wire(t, endpoint);
   request("events/stream", { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor: null }).catch(() => {});
