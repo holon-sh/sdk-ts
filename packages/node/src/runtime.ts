@@ -4,10 +4,10 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests, downloads, isUploadRequest, prepare, settings, upload } from "./ext/files.client.js";
 import { ToolCallError } from "./protocol.js";
-import type { AuthProvider, CallMetadata, CallOptions, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
+import type { AuthProvider, CallMetadata, CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
 export { ToolCallError } from "./protocol.js";
-export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
+export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
 export interface Binding {
@@ -28,10 +28,11 @@ export interface Binding {
 export type EndpointBinding = Binding;
 /** Calling application identity and its declared dependencies. */
 export interface Identity { name: string; version: string; requires?: Record<string, { name?: string; version?: string }> }
-/** Generation-time tool and JSON resource schemas. A null contract permits unvalidated callTool requests. */
+/** Generation-time tool, JSON resource and event schemas. A null contract permits unvalidated callTool requests. */
 export interface Contract {
   tools: Array<{ name: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown> }>;
   resources?: Array<{ uri: string; outputSchema: Record<string, unknown> }>;
+  events?: Array<{ name: string; inputSchema?: Record<string, unknown>; payloadSchema?: Record<string, unknown> }>;
 }
 /** Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources. */
 export type RuntimeClient = ToolClient<Record<string, Record<string, unknown>>, Record<string, unknown>, Record<string, unknown>>;
@@ -134,6 +135,20 @@ function patient(options?: CacheableRequestOptions): CacheableRequestOptions {
     ? { ...options, timeout: 2 ** 31 - 1 }
     : { onprogress: () => {}, resetTimeoutOnProgress: true, ...options };
 }
+
+// Requests outside the core protocol are checked by their callers.
+const anything = { "~standard": { version: 1 as const, vendor: "holon-sh", validate: (value: unknown) => ({ value: (value ?? {}) as any }) } };
+// A stream that has said nothing for twice the longest heartbeat interval is dead: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#lifecycle
+const QUIET = 60_000;
+/** An occurrence as the server sends it, at the cursor after it. */
+type Sent = EventOccurrence & { cursor?: string | null; _meta?: unknown };
+/** One page of events/list. */
+type Listed = { events?: EventType[]; nextCursor?: string };
+/** What an events/poll answers. */
+type Polled = { events?: Sent[]; cursor?: string | null; truncated?: boolean; hasMore?: boolean; nextPollMs?: number };
+// A server's refusal ends a subscription: a client error, or an answer that the event type is gone, that access was
+// lost, or that the request is no longer valid. Anything else is tried again from the cursor.
+const refused = (error: any): boolean => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500 || [-32602, -32023, -32024, -32026].includes(error?.code);
 
 /** Construct only the explicitly bound dependencies. Unknown names throw; an empty binding map selects none. Used by generated createApps factories. */
 export function bindApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>> {
@@ -308,8 +323,144 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       };
       resources[resource.uri] = Object.freeze({ read, watch });
     }
+    // MCP Events, the draft extension: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
+    const list = (options?: CallOptions) => session(options, async client => {
+      const events: EventType[] = [];
+      for (let cursor: string | undefined; ;) {
+        const page = await (client as Client).request({ method: "events/list", params: { ...(cursor && { cursor }) } }, anything, patient(options)) as Listed;
+        events.push(...page.events ?? []);
+        if (!(cursor = page.nextCursor)) return events;
+      }
+    });
+    const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
+      const resolved = current();
+      if (!resolved?.endpoint) throw new Error(`Subscribing to ${name} ${event} requires an endpoint binding.`);
+      const endpoint = resolved;
+      const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
+      if (!offered) throw new Error(`${name} has no event ${event}.`);
+      // Push hears of an event at once, and poll works wherever a request does. Webhook delivery is not supported.
+      const delivery = options.delivery ?? (["push", "poll"] as const).find(mode => offered.includes(mode));
+      if (!delivery || !offered.includes(delivery)) throw new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`);
+      const cancelled = new AbortController();
+      const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
+      let cursor = options.cursor ?? null;
+      const queue: EventOccurrence[] = [];
+      const seen = new Set<string>();
+      let wake = () => {};
+      let done = false;
+      let failure: unknown;
+      // An absent cursor is a null one, and a null one is never resumed from.
+      const reach = (next: string | null | undefined, truncated?: boolean) => {
+        cursor = next ?? null;
+        if (truncated) onGap?.();
+      };
+      // The client checks an event's data against the contract it was compiled against, as it does a tool's output.
+      const expected = contract?.events?.find(type => type.name === event)?.payloadSchema;
+      let valid: Check | undefined;
+      const deliver = ({ cursor: _, _meta, ...occurrence }: Sent) => {
+        if (seen.has(occurrence.eventId)) return;
+        seen.add(occurrence.eventId);
+        if (seen.size > 1024) seen.delete(seen.values().next().value!);
+        if (expected) validate(valid ??= validator(expected), occurrence.data, `data of ${name} ${event}`);
+        queue.push(occurrence);
+        wake();
+      };
+      const request = { name: event, arguments: args, ...(maxAgeMs !== undefined && { maxAgeMs }) };
+      let confirmed = false;
+      let established!: { resolve: () => void; reject: (reason: unknown) => void };
+      const active = new Promise<void>((resolve, reject) => { established = { resolve: () => { confirmed = true; resolve(); }, reject }; });
+      const poll = async () => {
+        while (!ended.aborted) {
+          let wait = 1000;
+          try {
+            const result = await session({ signal: ended }, client => (client as Client).request({ method: "events/poll", params: { ...request, cursor } }, anything, patient({ signal: ended })) as Promise<Polled>);
+            try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
+            reach(result.cursor, result.truncated);
+            established.resolve();
+            // A server that asks for a tight loop is not obeyed.
+            wait = result.hasMore ? 0 : Math.max(1000, result.nextPollMs ?? 0);
+          } catch (error) {
+            if (ended.aborted) return;
+            if (!confirmed || refused(error)) throw error;
+          }
+          await sleep(wait, ended);
+        }
+      };
+      const stream = async () => {
+        while (!ended.aborted) {
+          const quiet = new AbortController();
+          // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
+          // Only the stream's own response is watched: a 2025 server answers its initialization as a stream too.
+          const watched: typeof fetch = async (input, init) => {
+            const response = await (endpoint.fetch ?? fetch)(input, init);
+            const streaming = typeof init?.body === "string" && init.body.includes('"method":"events/stream"');
+            if (!streaming || !response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
+            const reader = response.body.getReader();
+            const body = new ReadableStream({
+              pull: controller => reader.read().then(({ done, value }) => {
+                if (!done) return controller.enqueue(value);
+                controller.close();
+                // The answer, when the stream ended with one, is handled first.
+                setTimeout(() => quiet.abort());
+              }, error => { controller.error(error); quiet.abort(); }),
+              cancel: reason => reader.cancel(reason),
+            });
+            return new Response(body, response);
+          };
+          // Each stream has its own connection, so every event notification on it is this subscription's.
+          const connection = connect({ ...endpoint, fetch: watched });
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          const heard = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => quiet.abort(), QUIET);
+          };
+          let terminated: { code?: number; message?: string; data?: unknown } | undefined;
+          try {
+            await untilAborted(connection.ready, ended);
+            const on = (method: string, handle: (params: any) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything }, params => { heard(); handle(params); });
+            on("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
+            on("event", occurrence => {
+              try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
+              reach(occurrence.cursor);
+            });
+            on("heartbeat", ({ cursor: next }) => reach(next));
+            // The server recovers from an error by itself, and the stream stays open.
+            on("error", () => {});
+            on("terminated", ({ error }) => { terminated = error; quiet.abort(); });
+            heard();
+            await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, anything, { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
+          } catch (error) {
+            if (!terminated && !ended.aborted && (!confirmed || refused(error))) throw error;
+          } finally {
+            clearTimeout(timer);
+            await connection.close();
+          }
+          if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated.message}`), { code: terminated.code, data: terminated.data });
+          await sleep(1000, ended);
+        }
+      };
+      void (delivery === "push" ? stream() : poll())
+        .catch(error => { failure ??= error; })
+        .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
+      await active;
+      return {
+        delivery,
+        get cursor() { return cursor; },
+        cancel: () => cancelled.abort(),
+        [Symbol.asyncIterator]: () => ({
+          next: async (): Promise<IteratorResult<EventOccurrence>> => {
+            while (!queue.length && !done) await new Promise<void>(resolve => { wake = resolve; });
+            const value = queue.shift();
+            if (value) return { value, done: false };
+            if (failure) throw failure;
+            return { value: undefined, done: true };
+          },
+          return: async (): Promise<IteratorResult<EventOccurrence>> => { cancelled.abort(); return { value: undefined, done: true }; },
+        }),
+      };
+    };
     // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
-    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
+    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, ext: Object.freeze({ events: Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] }) }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
   }
   return Object.freeze(apps);
 }

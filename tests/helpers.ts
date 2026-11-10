@@ -48,7 +48,7 @@ export async function serve(t: TestContext, factory: Parameters<typeof createMcp
     onRequest?.(req);
     void dispatch(req, res).catch(() => res.destroy());
   });
-  return { handler, endpoint: await listen(t, http, () => handler.close()) };
+  return { handler, http, endpoint: await listen(t, http, () => handler.close()) };
 }
 
 export async function serveLegacy(t: TestContext, factory: () => McpServer) {
