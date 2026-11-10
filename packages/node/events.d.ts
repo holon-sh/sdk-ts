@@ -87,8 +87,22 @@ export interface Emitter<D> {
    * `eventId` lets a client drop an occurrence it has seen. Give the source's own id when it has one. With
    * `subscription`, the occurrence goes to that subscription alone, whatever its arguments. An event type with a
    * check function pushes what it emits to open streams at once, and polls learn of it from the check function.
+   *
+   * Emitting is synchronous. Occurrences emitted one after another in the same synchronous run reach each
+   * subscription in that order, with no other occurrence of this type between them, whether polled or pushed. So a
+   * group of changes that nothing may come between is either emitted in one run or sent as one occurrence holding a
+   * list. A subscription skips part of a group only when it is told of a gap: the group outgrew the events kept, or
+   * the subscription fell behind them. For a type with a check function the order holds among what is emitted, but
+   * not between what is emitted and what the check function finds, which may arrive later or again.
    */
   emit(data: D, options?: { eventId?: string; timestamp?: string; subscription?: string }): void;
+  /**
+   * The position after the last occurrence emitted, for a type without a check function. Return it with the state
+   * a tool reads, in the same synchronous run, and a client that subscribes from it hears every change after that
+   * state and none before. A type with a check function has no such position here: its cursor is the source's own,
+   * so read the source's head instead. This throws for such a type.
+   */
+  cursor(): string;
   /**
    * Ends one subscription, or all of this type's. A stream is told `error` and closed, and the next poll is answered
    * with it. Forbidden unless given.

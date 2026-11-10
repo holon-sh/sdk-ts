@@ -100,6 +100,8 @@ for await (const { data } of subscription) console.log(data.text);
 
 The client is pushed each event on a stream where the server offers one and polls otherwise. It reconnects by itself and resumes from its cursor. Emitted events are kept in the server's memory, so after a restart the client's `onGap` is called: read the current state again.
 
+To hand a page its state and then its changes, a tool returns the state together with `said.cursor()`, read in the same synchronous run, and the page subscribes from that cursor: it hears every change after the state, and none twice. Occurrences emitted one after another in one run reach each subscriber in that order with nothing of the same type between them, so a group of changes is emitted together or sent as one occurrence holding a list.
+
 A source that keeps its own history is read through a check function instead. Its cursor is the source's own, so a client resumes across restarts with nothing skipped. Polls are answered by it, streams ask it every `interval`, and the type can still `emit` to push at once:
 
 ```ts

@@ -244,6 +244,10 @@ export function createEvents({
           while (type.kept.length > maxEvents || type.kept[0].at < kept.at - maxAge) type.dropped = type.kept.shift().sequence;
           for (const sink of type.sinks) sink(kept);
         },
+        cursor() {
+          if (type.check) throw new Error(`Event ${name} has a check function, whose cursor is its source's own.`);
+          return position(type);
+        },
         end(id, error = { code: FORBIDDEN, message: "Forbidden" }) {
           end(id, error);
         },

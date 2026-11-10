@@ -350,3 +350,20 @@ test("a stream owed events that are no longer kept is told of the gap, and carri
   assert.deepEqual([active.truncated, gap.kind, gap.truncated, typeof gap.cursor], [false, "active", true, "string"]);
   assert.deepEqual(rest.map(({ eventId }) => eventId), ["three", "four", "five"]);
 });
+
+test("a subscription from the cursor read with a snapshot hears every change after the snapshot and none before", async t => {
+  const { factory, said, say } = rooms();
+  const { endpoint } = await serve(t, factory);
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
+  t.after(() => app.close());
+  const state = [];
+  const tell = text => { state.push(text); say("a", "ann", text); };
+  tell("in the snapshot");
+  // What a tool would return: the state and the cursor, read in the same synchronous run.
+  const snapshot = { state: [...state], cursor: said.cursor() };
+  tell("after the snapshot");
+  tell("later still");
+  const subscription = await app.events.subscribe("room.said", { room: "a", listener: "bob" }, { cursor: snapshot.cursor });
+  tell("once subscribed");
+  assert.deepEqual([...snapshot.state, ...await take(subscription, 3)], state);
+});
