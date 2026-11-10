@@ -5,7 +5,7 @@
 // holon-sh/ext/events. Deliveries are signed and verified by the Standard Webhooks library. Nothing here needs a Node
 // module until it sends: a server is evaluated for its contract where node:crypto and its neighbours are not there.
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
-import type { ServerContext, StandardSchemaV1 } from "@modelcontextprotocol/server";
+import type { Server, ServerContext, StandardSchemaV1 } from "@modelcontextprotocol/server";
 import { Webhook } from "standardwebhooks";
 import { getContext } from "../context.js";
 import type { WebhookReceiver } from "../protocol.js";
@@ -589,7 +589,8 @@ export function webhooks({
       start(given);
       attach(type);
     },
-    serve(server, given) {
+    serve(served, given) {
+      const server = served as Server;
       start(given);
       for (const type of internals.types.values()) attach(type);
       server.setRequestHandler("events/subscribe", { params: anything }, async (request, ctx: ServerContext) => {
