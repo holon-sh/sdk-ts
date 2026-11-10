@@ -16,13 +16,18 @@ const identity = { name: "test", version: "1.0.0" };
 const ann = { clientId: "web", scopes: [], extra: { iss: "https://id.example", sub: "ann" } };
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
-// A server whose rooms say things, by webhook too. A room can be closed to its subscribers.
+// A server whose rooms say things, by webhook too. A room can be closed to its subscribers, and whether one is open
+// can become impossible to tell.
 async function rooms(t, options) {
   const closed = new Set();
+  const unknown = new Set();
   const events = createEvents({ modes: [webhooks({ allowInsecureLocalCallbacksForTesting: true, backoff: 10, reverify: 20, ...options })] });
   const said = events.event("room.said", {
     inputSchema: z.object({ room: z.string() }),
-    authorize: ({ room }) => !closed.has(room),
+    authorize: ({ room }) => {
+      if (unknown.has(room)) throw new Error("The directory is down.");
+      return !closed.has(room);
+    },
     payloadSchema: z.object({ text: z.string() }),
     match: ({ room }, args) => room === args.room,
     transform: ({ text }) => ({ text }),
@@ -32,7 +37,7 @@ async function rooms(t, options) {
     events.serve(server);
     return server;
   }, request => { request.auth = ann; });
-  return { endpoint, say: (room, text) => said.emit({ room, text }, { eventId: text }), close: room => closed.add(room) };
+  return { endpoint, say: (room, text) => said.emit({ room, text }, { eventId: text }), close: room => closed.add(room), lose: room => unknown.add(room) };
 }
 
 // An HTTP server that answers with a function from a Request to a Response, as a receiver is mounted.
@@ -50,15 +55,15 @@ async function host(t, handle) {
   return `http://127.0.0.1:${http.address().port}`;
 }
 
-async function subscribed(t, options) {
+async function subscribed(t, options, room = "a") {
   const server = await rooms(t, options);
   const receiver = createReceiver();
   const posts = [];
   const url = `${await host(t, request => { posts.push(request.headers.get("webhook-id")); return receiver(request); })}/hooks`;
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint: server.endpoint } }, { webhook: { url, receiver } });
   t.after(() => app.close());
-  const subscription = await app.events.subscribe("room.said", { room: "a" });
-  return { ...server, subscription, posts };
+  const subscribe = room => app.events.subscribe("room.said", { room });
+  return { ...server, subscription: await subscribe(room), subscribe, posts };
 }
 
 // A plain MCP client, to send the sketch's messages as they are.
@@ -97,10 +102,51 @@ test("a client with a receiver is delivered its events by webhook, keeps its sub
   assert.equal(posts.length, sent);
 });
 
-test("a subscription whose caller loses access is ended while nothing is emitted, with the error it was terminated with", { timeout: 10_000 }, async t => {
-  const { subscription, close } = await subscribed(t);
+test("a subscription whose caller loses access is ended while nothing is emitted, though a check of another one keeps failing", { timeout: 10_000 }, async t => {
+  // The failing check comes first, and must not keep the other subscription from being checked.
+  const { subscription: failing, subscribe, close, lose } = await subscribed(t, {}, "b");
+  const subscription = await subscribe("a");
+  lose("b");
   close("a");
   await assert.rejects(take(subscription, 1), error => error.code === -32024 && /ended the subscription to room.said: Forbidden/.test(error.message));
+  // Access that cannot be told for a few checks in a row ends the subscription with why.
+  await assert.rejects(take(failing, 1), error => /ended the subscription to room.said: The directory is down/.test(error.message));
+});
+
+test("a subscription its type ends while it is being set up is refused, delivers nothing, and is torn down", { timeout: 10_000 }, async t => {
+  let release;
+  const reading = new Promise(resolve => { release = resolve; });
+  let asked;
+  const checking = new Promise(resolve => { asked = resolve; });
+  const teardowns = [];
+  const delivered = [];
+  const events = createEvents({ modes: [webhooks({ allowInsecureLocalCallbacksForTesting: true, backoff: 10 })] });
+  const tick = events.event("tick", {
+    inputSchema: z.object({}),
+    payloadSchema: z.object({}),
+    interval: 10,
+    // The first check, which setting up the subscription waits for, takes until the test lets it go.
+    check: async cursor => {
+      if (cursor === null) { asked(); await reading; return { events: [], cursor: "0" }; }
+      return { events: [{ eventId: `after ${cursor}`, data: {} }], cursor: String(Number(cursor) + 1) };
+    },
+    onSubscribe: () => () => teardowns.push("torn down"),
+  });
+  const { endpoint } = await serve(t, () => { const server = new McpServer({ name: "ticks", version: "1.0.0" }); events.serve(server); return server; }, request => { request.auth = ann; });
+  const root = await host(t, async incoming => {
+    const message = JSON.parse(await incoming.text());
+    if (message.type === "verification") return Response.json({ challenge: message.challenge });
+    delivered.push(message.eventId ?? message.type);
+    return new Response(null, { status: 204 });
+  });
+  const call = await client(t, endpoint);
+  const subscribing = call("events/subscribe", { name: "tick", arguments: {}, delivery: { url: `${root}/hooks`, secret: `whsec_${randomBytes(32).toString("base64")}` } });
+  await checking;
+  tick.remove();
+  release();
+  await assert.rejects(subscribing, error => error.code === -32023);
+  await wait(100);
+  assert.deepEqual([teardowns, delivered], [["torn down"], []]);
 });
 
 test("a server that restarts with a store delivers to the subscriptions it kept, though no client subscribes again", { timeout: 10_000 }, async t => {
