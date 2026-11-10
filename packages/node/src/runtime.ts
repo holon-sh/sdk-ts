@@ -1,5 +1,5 @@
 import { Client, isInputRequiredResult, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, CallToolResult, DiscoverResult, InputRequiredResult, InputResponses, ReadResourceResult, StreamableHTTPClientTransportOptions, Tool } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, CallToolResult, DiscoverResult, InputRequiredResult, InputResponses, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ToolCallError } from "./protocol.js";
@@ -144,8 +144,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
       const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} } }, versionNegotiation: { mode: "auto" } });
-      // The public AuthProvider names the shapes the transport accepts without restating every OAuth member.
-      const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider as StreamableHTTPClientTransportOptions["authProvider"], fetch: async (input, init) => {
+      const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: async (input, init) => {
         const response = await (resolved.fetch ?? fetch)(input, init);
         current.answered ||= response.ok;
         return response;
