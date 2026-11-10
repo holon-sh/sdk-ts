@@ -203,7 +203,8 @@ function send(target, init, { resolved, authorization }) {
   if (target.include && authorization) headers.set("authorization", authorization);
   // A path is under the MCP address, so it routes like the MCP requests.
   if (target.path && resolved.installationUID) headers.set("x-holon-installation-uid", resolved.installationUID);
-  const transport = target.path ? resolved.fetch ?? fetch : target.allowlisted ? fetch : fetchGlobal;
+  // Not the binding's fetch: it may add the caller's own credentials, which only an include target may carry.
+  const transport = target.path || target.allowlisted ? fetch : fetchGlobal;
   return transport(target.url, { ...init, headers, credentials: "omit", redirect: "error" });
 }
 
