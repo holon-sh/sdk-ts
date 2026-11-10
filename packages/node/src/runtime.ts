@@ -1,5 +1,5 @@
 import { Client, isInputRequiredResult, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, CallToolResult, DiscoverResult, InputRequiredResult, InputResponses, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, CallToolResult, InputRequiredResult, InputResponses, PriorDiscovery, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { setTimeout as sleep } from "node:timers/promises";
 import { ToolCallError } from "./protocol.js";
@@ -48,10 +48,13 @@ export interface CreateOptions<B = Binding> {
   session?: (app: string, binding: B) => ToolSession | undefined;
 }
 
-// Environment-bound calls reuse the last server/discover result for the same endpoint and token instead of discovering
-// the server on every call. A dependency keeps only its latest result, so a changed endpoint or token replaces it.
+// Environment-bound calls reuse the last era verdict for the same endpoint and token instead of probing the server with
+// server/discover on every call. A dependency keeps only its latest verdict, so a changed endpoint or token replaces it.
 const DISCOVERY = Symbol("discovery");
-const discovered = new Map<string, { key: string; discover: DiscoverResult | undefined }>();
+const discovered = new Map<string, { key: string; prior: PriorDiscovery; expires: number }>();
+// A server that upgrades still answers initialize, so a legacy verdict would hold forever; it expires and the next call
+// probes again. A modern verdict that went stale fails the first request instead, and the call retries without it.
+const LEGACY_VERDICT_MS = 10 * 60 * 1000;
 
 /** A binding the runtime connects to itself. */
 type Endpoint = Binding & { [DISCOVERY]?: string };
@@ -140,7 +143,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     // Without explicit bindings, the resolve hook supplies the binding on every call.
     const current = (): Resolved | undefined => (binding as Resolved | undefined) ?? (bindings ? undefined : resolve(name));
     let connection: Connection | undefined;
-    const connect = (resolved: Endpoint, discover?: DiscoverResult): Connection => {
+    const connect = (resolved: Endpoint, prior?: PriorDiscovery): Connection => {
       // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
       const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} } }, versionNegotiation: { mode: "auto" } });
@@ -150,14 +153,17 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         return response;
       }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
       transport.onclose = () => { if (connection === current) connection = undefined; };
-      const ready = client.connect(transport, discover && { prior: { kind: "modern", discover } }).catch(async (error: unknown) => {
+      const ready = client.connect(transport, { prior }).catch(async (error: unknown) => {
         await transport.close();
         throw error;
       });
-      const current: Connection = { client, ready, answered: false, close: async () => {
+      let closed: Promise<void> | undefined;
+      const current: Connection = { client, ready, answered: false, close: () => closed ??= (async () => {
+        // A 2025-era server keeps its Mcp-Session-Id session until the client deletes it. Without a session this sends nothing.
+        await transport.terminateSession().catch(() => {});
         await transport.close();
         await ready.catch(() => {});
-      } };
+      })() };
       return current;
     };
     // The session hook serves bindings the runtime does not connect to itself.
@@ -174,14 +180,18 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       const scoped = resolved.scoped === true;
       const key = resolved[DISCOVERY];
       const cached = discovered.get(name);
-      const prior = key !== undefined && cached?.key === key ? cached.discover : undefined;
+      const prior = key !== undefined && cached?.key === key && Date.now() < cached.expires ? cached.prior : undefined;
       const active = scoped ? connect(resolved, prior) : (connection ??= connect(resolved));
       try {
         await untilAborted(active.ready, options?.signal);
-        if (key !== undefined) discovered.set(name, { key, discover: active.client.getDiscoverResult() });
+        // A verdict dates from the probe that produced it, so reusing one leaves it as it was.
+        if (key !== undefined && !prior) {
+          const discover = active.client.getDiscoverResult();
+          discovered.set(name, discover ? { key, prior: { kind: "modern", discover }, expires: Infinity } : { key, prior: { kind: "legacy" }, expires: Date.now() + LEGACY_VERDICT_MS });
+        }
         return await run(active.client);
       } catch (error) {
-        // A server that no longer speaks the discovered protocol rejects the first request without running it.
+        // A server that no longer speaks the cached era's protocol rejects the first request without running it.
         if (!prior || active.answered || !(SdkHttpError.isInstance(error) && error.status === 400)) throw error;
         discovered.delete(name);
         return session(options, run);
