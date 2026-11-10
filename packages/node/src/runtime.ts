@@ -4,7 +4,7 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/
 import { setTimeout as sleep } from "node:timers/promises";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
-import type { WebhookReceiver } from "./webhooks.js";
+import type { WebhookReceiver } from "./ext/webhooks.js";
 
 export { ToolCallError } from "./protocol.js";
 export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
@@ -48,8 +48,11 @@ export interface CreateOptions<B = Binding> {
   resolve?: (app: string) => Binding | undefined;
   /** Session for a binding the runtime does not connect to itself (anything without an endpoint). */
   session?: (app: string, binding: B) => ToolSession | undefined;
-  /** Where servers deliver events by webhook: the URL the receiver is mounted at, and the receiver. */
-  webhook?: { url: URL | string; receiver: WebhookReceiver };
+  /** Settings of draft MCP extensions, whose shape may change with their drafts. */
+  ext?: {
+    /** MCP Events. `webhook` is where servers deliver events by webhook: the URL the receiver is mounted at, and the receiver. */
+    events?: { webhook?: { url: URL | string; receiver: WebhookReceiver } };
+  };
 }
 
 // Environment-bound calls reuse the last server/discover result for the same endpoint and token instead of discovering
@@ -152,7 +155,8 @@ export function bindApps<B = Binding>(identity: Identity, contracts: Record<stri
 
 /** Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated clients. */
 export function createApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>> {
-  const { validator = defaultValidator, resolve = (name: string) => environment(identity, name), session: hosted, webhook } = options ?? {};
+  const { validator = defaultValidator, resolve = (name: string) => environment(identity, name), session: hosted, ext } = options ?? {};
+  const webhook = ext?.events?.webhook;
   const apps: Record<string, RuntimeClient> = Object.create(null);
   // Without explicit bindings, every declared dependency gets a client; those without a contract are untyped.
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
@@ -314,7 +318,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       // A webhook ties up no connection, push hears of an event at once, and poll works wherever a request does: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#delivery-mode-selection
       const delivery = options.delivery ?? (webhook && offered.includes("webhook") ? "webhook" : offered.includes("push") ? "push" : offered.includes("poll") ? "poll" : undefined);
       if (!delivery || !offered.includes(delivery)) throw new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`);
-      if (delivery === "webhook" && !webhook) throw new Error(`Webhook delivery of ${name} ${event} needs the webhook option of createApps.`);
+      if (delivery === "webhook" && !webhook) throw new Error(`Webhook delivery of ${name} ${event} needs the ext.events.webhook option of createApps.`);
       const cancelled = new AbortController();
       const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
       let cursor = options.cursor ?? null;
@@ -484,7 +488,8 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     };
     // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds, and
     // subscribe to their contract's events.
-    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, events: Object.freeze({ list, subscribe: subscribe as RuntimeClient["events"]["subscribe"] }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
+    const events = Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] });
+    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, ext: Object.freeze({ events }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
   }
   return Object.freeze(apps);
 }

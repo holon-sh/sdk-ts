@@ -412,7 +412,7 @@ export function createEvents({
     return { ...occurrence, data, ...(sequence !== undefined && { cursor: position(type, sequence) }) };
   };
   const skipped = (type: EventType, eventId: string, error: unknown, failed?: (error: EventError) => void) => {
-    console.error(`holon-sh/events: event ${eventId} of ${type.name} was skipped for a subscription:`, error);
+    console.error(`holon-sh/ext/events: event ${eventId} of ${type.name} was skipped for a subscription:`, error);
     failed?.({ code: INTERNAL_ERROR, message: `Event ${eventId} could not be delivered and was skipped`, data: { eventId, reason: String((error as Error)?.message ?? error) } });
   };
   // What a check function found is skipped in the same way when it cannot be sent as JSON.

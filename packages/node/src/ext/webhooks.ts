@@ -6,7 +6,7 @@
 import { ProtocolError } from "@modelcontextprotocol/server";
 import type { Server, ServerContext, StandardSchemaV1 } from "@modelcontextprotocol/server";
 import type { BlockList, LookupFunction } from "node:net";
-import { getContext } from "./context.js";
+import { getContext } from "../context.js";
 import type { DeliveryMode, EventError, EventType, Internals, Owed, Shaped, SubscriptionContext } from "./events.js";
 
 /** A webhook subscription as the server keeps it. Its secret signs deliveries, so a store keeps it as it would a key. */

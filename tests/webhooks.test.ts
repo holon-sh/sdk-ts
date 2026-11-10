@@ -9,8 +9,8 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps, type Subscription } from "holon-sh/runtime";
-import { createEvents } from "holon-sh/events";
-import { createReceiver, webhooks, type WebhookOptions, type WebhookSubscription } from "holon-sh/webhooks";
+import { createEvents } from "holon-sh/ext/events";
+import { createReceiver, webhooks, type WebhookOptions, type WebhookSubscription } from "holon-sh/ext/webhooks";
 import { serve } from "./helpers.ts";
 
 const identity = { name: "test", version: "1.0.0" };
@@ -68,9 +68,9 @@ async function subscribed(t: TestContext, options?: WebhookOptions, room = "a") 
   const receiver = createReceiver();
   const posts: Array<string | null> = [];
   const url = `${await host(t, request => { posts.push(request.headers.get("webhook-id")); return receiver(request); })}/hooks`;
-  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint: server.endpoint } }, { webhook: { url, receiver } });
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint: server.endpoint } }, { ext: { events: { webhook: { url, receiver } } } });
   t.after(() => app?.close());
-  const subscribe = (room: string) => app!.events.subscribe("room.said", { room });
+  const subscribe = (room: string) => app!.ext.events.subscribe("room.said", { room });
   return { ...server, subscription: await subscribe(room), subscribe, posts };
 }
 

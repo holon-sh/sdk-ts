@@ -69,12 +69,12 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 
 ## Events
 
-A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it.
+A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it, so it lives under `ext`: the `holon-sh/ext/events` and `holon-sh/ext/webhooks` modules, and `ext.events` on each client.
 
 A server declares an event type and emits its occurrences:
 
 ```ts
-import { createEvents } from "holon-sh/events";
+import { createEvents } from "holon-sh/ext/events";
 
 const events = createEvents();
 const said = events.event("room.said", {
@@ -94,7 +94,7 @@ said.emit({ room: "lobby", text: "hello" });
 A client subscribes and iterates:
 
 ```ts
-const subscription = await apps.rooms.events.subscribe("room.said", { room: "lobby" });
+const subscription = await apps.rooms.ext.events.subscribe("room.said", { room: "lobby" });
 for await (const { data } of subscription) console.log(data.text);
 ```
 
@@ -142,7 +142,7 @@ Poll and push delivery are here, with check functions, targeted emits, subscript
 A server delivers by webhook too when `createEvents` is given the mode. Nothing else changes: `emit` reaches webhook subscribers as it does the others.
 
 ```ts
-import { webhooks } from "holon-sh/webhooks";
+import { webhooks } from "holon-sh/ext/webhooks";
 
 const events = createEvents({ modes: [webhooks()] });
 ```
@@ -153,13 +153,13 @@ A client that can be reached mounts a receiver at a URL and gives both to `creat
 
 ```ts
 import { createApps } from "#holon-sh";
-import { createReceiver } from "holon-sh/webhooks";
+import { createReceiver } from "holon-sh/ext/webhooks";
 
 const receiver = createReceiver();
-const apps = createApps({ rooms: { endpoint } }, { webhook: { url: "https://app.example/hooks", receiver } });
+const apps = createApps({ rooms: { endpoint } }, { ext: { events: { webhook: { url: "https://app.example/hooks", receiver } } } });
 // Answer POSTs to /hooks with receiver(request), which returns the Response.
 
-const subscription = await apps.rooms.events.subscribe("room.said", { room: "lobby" });
+const subscription = await apps.rooms.ext.events.subscribe("room.said", { room: "lobby" });
 ```
 
 The receiver checks each delivery's signature and age, answers the server's challenge, drops repeats, and hands each event to its subscription. The client refreshes the subscription before it lapses and unsubscribes when it ends. A Holon app cannot serve its own routes yet, so a receiver runs in a server of your own.
