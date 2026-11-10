@@ -138,7 +138,7 @@ Poll, push and webhook delivery are here, with check functions, targeted emits, 
 
 ### Webhook delivery
 
-A server delivers by webhook too when `createEvents` is given the sketch's `webhookTtl`, the longest lifetime it grants a webhook subscription. Nothing else changes: `emit` reaches webhook subscribers as it does the others.
+A server delivers by webhook too when `createEvents` is given the sketch's `webhookTtl`, the longest lifetime it grants a webhook subscription. Nothing else changes: `emit` reaches webhook subscribers as it does the others. A type with a check function is offered by poll and push only, since webhook delivery sends what is emitted.
 
 ```ts
 const events = createEvents({ webhookTtl: 30 * 60_000 });

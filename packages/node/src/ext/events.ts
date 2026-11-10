@@ -86,7 +86,7 @@ export interface EventDefinition<A, D> {
    * what is emitted. Without it, emitted events are kept in memory and polls and streams are served from there.
    */
   check?: (cursor: string | null, args: A, context: SubscriptionContext) => EventResult<D> | Promise<EventResult<D>>;
-  /** The delivery modes this event type offers. Every mode served unless given. */
+  /** The delivery modes this event type offers. Every mode served unless given, except webhook for a type with a check function, which webhook delivery does not read. */
   delivery?: DeliveryModeName[];
   /**
    * Whether the caller may subscribe with these arguments. A subscription is refused with Forbidden when it may not,
@@ -581,10 +581,12 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
      * event from their arguments, and `transform` shapes its data for each. `check` returns what happened after a
      * cursor, for event types whose source keeps its own history.
      */
-    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, check, delivery = offered, authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D> {
+    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, check, delivery = offered.filter(mode => !check || mode !== "webhook"), authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D> {
       if (types.has(name)) throw new Error(`Event ${name} is already declared.`);
       const unknown = delivery.filter(mode => !offered.includes(mode));
       if (unknown.length || !delivery.length) throw new Error(`Event ${name} is delivered by ${delivery.join(", ") || "nothing"}, but only ${offered.join(", ")} are served.`);
+      // Webhook delivery sends what is emitted, and does not ask a check function.
+      if (check && delivery.includes("webhook")) throw new Error(`Event ${name} has a check function, which webhook delivery does not read.`);
       const type: Type<A, D> = {
         name, order: ++declared, description, inputSchema, payloadSchema, _meta, match, transform, check: check as Type["check"], interval: INTERVAL, delivery, authorize, onSubscribe, onUnsubscribe,
         sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(), owed: new Map(),

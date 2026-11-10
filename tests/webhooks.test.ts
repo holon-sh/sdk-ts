@@ -142,33 +142,33 @@ test("a subscription whose caller loses access is terminated while nothing is em
 });
 
 test("a subscription its type ends while it is being set up is refused, delivers nothing, and is torn down", { timeout: 10_000 }, async t => {
-  const reading = Promise.withResolvers<void>();
-  const checking = Promise.withResolvers<void>();
+  const answering = Promise.withResolvers<void>();
+  const challenged = Promise.withResolvers<void>();
   const teardowns: string[] = [];
   const delivered: string[] = [];
   const events = createEvents({ webhookTtl: 30 * 60_000, webhook: { allowInsecureLocalCallbacksForTesting: true } });
   const tick = events.event("tick", {
     inputSchema: z.object({}),
     payloadSchema: z.object({}),
-    // The first check, which setting up the subscription waits for, takes until the test lets it go.
-    check: async cursor => {
-      if (cursor === null) { checking.resolve(); await reading.promise; return { events: [], cursor: "0" }; }
-      return { events: [{ eventId: `after ${cursor}`, data: {} }], cursor: String(Number(cursor) + 1) };
-    },
     onUnsubscribe: () => { teardowns.push("torn down"); },
   });
   const { endpoint } = await serve(t, () => { const server = new McpServer({ name: "ticks", version: "1.0.0" }); events.serve(server); return server; }, admit);
   const root = await host(t, async incoming => {
     const message = JSON.parse(await incoming.text());
-    if (message.type === "verification") return Response.json({ challenge: message.challenge });
+    // The challenge, which setting up the subscription waits for, is answered when the test lets it be.
+    if (message.type === "verification") {
+      challenged.resolve();
+      await answering.promise;
+      return Response.json({ challenge: message.challenge });
+    }
     delivered.push(message.eventId ?? message.type);
     return new Response(null, { status: 204 });
   });
   const call = await client(t, endpoint);
   const subscribing = call("events/subscribe", { name: "tick", arguments: {}, delivery: { url: `${root}/hooks`, secret: `whsec_${randomBytes(32).toString("base64")}` } });
-  await checking.promise;
+  await challenged.promise;
   tick.remove();
-  reading.resolve();
+  answering.resolve();
   await assert.rejects(subscribing, (error: Refusal) => error.code === -32023);
   await wait(100);
   assert.deepEqual([teardowns, delivered], [["torn down"], []]);
