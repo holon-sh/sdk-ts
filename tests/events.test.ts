@@ -81,7 +81,7 @@ test("a subscription to a 2025 server is pushed its events, and ending it ends i
   const said = events.event<{ room: string }, { text: string }>("room.said", {
     inputSchema: z.object({ room: z.string() }),
     payloadSchema: z.object({ text: z.string() }),
-    onUnsubscribe: ({ id }) => { ended.push(id); },
+    onUnsubscribe: ({ subscriptionId }) => { ended.push(subscriptionId); },
   });
   const { endpoint } = await serveLegacy(t, () => {
     const server = new McpServer({ name: "rooms", version: "1.0.0" });
@@ -135,10 +135,22 @@ test("a poll returns what happened since its cursor, and says when events were s
 test("the server speaks the messages of the Events design sketch", async t => {
   const { factory, say } = rooms({ heartbeat: 20 });
   const { endpoint } = await serve(t, factory);
+  // The MCP SDK's client drops top-level capabilities it does not know, so the server's are read from the wire.
+  let advertised: any;
+  const tap: typeof fetch = async (input, init) => {
+    const response = await fetch(input, init);
+    // The capabilities come in the first answer; later answers include streams that do not end.
+    if (advertised) return response;
+    for (const line of (await response.clone().text()).split("\n")) {
+      const json = line.replace(/^data: /, "");
+      if (json.startsWith("{")) advertised ??= JSON.parse(json).result?.capabilities;
+    }
+    return response;
+  };
   const client = new Client(identity, { versionNegotiation: { mode: "auto" } });
-  await client.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
+  await client.connect(new StreamableHTTPClientTransport(new URL(endpoint), { fetch: tap }));
   t.after(() => client.close());
-  assert.deepEqual(client.getServerCapabilities()?.extensions, { "io.modelcontextprotocol/events": { listChanged: false } });
+  assert.deepEqual([advertised.events, advertised.extensions], [{ listChanged: false }, { "io.modelcontextprotocol/events": { listChanged: false } }]);
   const { events: [type] } = await client.request({ method: "events/list", params: {} }, loose);
   assert.deepEqual(Object.keys(type), ["name", "description", "delivery", "inputSchema", "payloadSchema"]);
   assert.deepEqual(type.inputSchema.required, ["room", "listener"]);
@@ -281,10 +293,10 @@ test("a stream asks the check function every interval, pushes what is emitted at
 test("a subscription keeps its id across streams, reconnects and polls, is set up once while held, and has what was emitted to it", async t => {
   const begun: Array<{ id: string; delivery: string; args: unknown }> = [];
   const ended: string[] = [];
-  const onSubscribe: EventDefinition<Listener, Said>["onSubscribe"] = ({ id, delivery, arguments: args }) => {
+  const onSubscribe: EventDefinition<Listener, Said>["onSubscribe"] = ({ subscriptionId: id, delivery, arguments: args }) => {
     begun.push({ id, delivery, args });
   };
-  const onUnsubscribe: EventDefinition<Listener, Said>["onUnsubscribe"] = ({ id }) => { ended.push(id); };
+  const onUnsubscribe: EventDefinition<Listener, Said>["onUnsubscribe"] = ({ subscriptionId }) => { ended.push(subscriptionId); };
   const { factory, say } = rooms({ pollSubscriptionTtl: 1200 }, { onSubscribe, onUnsubscribe, interval: 100 });
   // Every request comes from one signed-in user, through one client.
   const { endpoint, http } = await serve(t, factory, (request: IncomingMessage & { auth?: unknown }) => { request.auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } }; });
@@ -330,7 +342,7 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
 
 test("callers without an identity do not share a subscription, and what is emitted to one's stream does not reach the other", async t => {
   const begun: string[] = [];
-  const { factory, say } = rooms({}, { onSubscribe: ({ id }) => { begun.push(id); } });
+  const { factory, say } = rooms({}, { onSubscribe: ({ subscriptionId }) => { begun.push(subscriptionId); } });
   const { endpoint } = await serve(t, factory);
   const [first, second] = [await wire(t, endpoint), await wire(t, endpoint)];
   for (const { request } of [first, second]) {
@@ -386,7 +398,7 @@ test("a stream left while its subscription is being set up is torn down and free
     onSubscribe: async () => {
       if (!release) await new Promise<void>(resolve => { release = resolve; });
     },
-    onUnsubscribe: ({ id }) => { ended.push(id); },
+    onUnsubscribe: ({ subscriptionId }) => { ended.push(subscriptionId); },
   });
   const { endpoint } = await serve(t, factory);
   const { client } = await wire(t, endpoint);
@@ -437,7 +449,7 @@ test("a subscription the caller may not have is refused, and one the app ends is
   const subscriptions = new Map<string, string>();
   const { factory, said, say } = rooms({ heartbeat: 30, maxSubscriptions: 3 }, {
     authorize: ({ listener }) => !revoked.has(listener),
-    onSubscribe: ({ id, arguments: { listener } }) => { subscriptions.set(listener, id); },
+    onSubscribe: ({ subscriptionId, arguments: { listener } }) => { subscriptions.set(listener, subscriptionId); },
   });
   const { endpoint } = await serve(t, factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });

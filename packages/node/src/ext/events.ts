@@ -9,21 +9,21 @@ import type { AuthInfo, JSONRPCErrorResponse, McpServer, Server, StandardSchemaW
 
 /** The request a subscription came in, as Holon admitted it: read its caller with getContext. */
 export type SubscriptionContext = { authInfo?: AuthInfo | undefined } | undefined;
-/** How a subscription receives its events: the sketch's poll, push or webhook. */
-export type DeliveryModeName = "poll" | "push" | "webhook" | (string & {});
+/** How a subscription receives its events. */
+export type DeliveryModeName = "poll" | "push" | (string & {});
 /** A JSON-RPC error, as a subscription that is terminated or fails is told it. */
 export type EventError = JSONRPCErrorResponse["error"];
 /** A subscription as it begins: who asked, for what, and by which delivery mode. */
 export interface Subscription<A> {
   /**
-   * Names the subscription to `emit` and `terminate`. For a caller with an identity it is the same for the same caller,
-   * event type and arguments, so it survives a reconnect and a poll lease that lapses. The caller is the user, the
+   * The sketch's subscription_id: names the subscription to `emit` and `terminate`. For a caller with an identity it
+   * is the same for the same caller, event type and arguments, so it survives a reconnect and a poll lease that lapses. The caller is the user, the
    * client acting for them, the agent acting for the user and the token's scopes, as Holon admitted them; two streams
    * with the same id both receive what is emitted to it. A caller without a subject has no identity: each of its
    * streams has an id of its own, which ends with the stream, and its polls share one lease per arguments with every
    * such caller, to which nothing is emitted alone.
    */
-  readonly id: string;
+  readonly subscriptionId: string;
   readonly name: string;
   readonly delivery: DeliveryModeName;
   readonly arguments: A;
@@ -187,7 +187,7 @@ export interface EventsOptions {
 /** A delivery mode besides poll and push. It registers its requests on each server and is listed by events/list. */
 export interface DeliveryMode {
   readonly name: string;
-  serve(server: Server, internals: Internals): void;
+  serve(server: object, internals: Internals): void;
 }
 /** The event types of a process, served by each MCP server it creates. */
 export interface Events {
@@ -507,7 +507,7 @@ export function createEvents({
     callers.set(who, (callers.get(who) ?? 0) + 1);
     let entry = type.subscriptions.get(id);
     if (!entry) {
-      const subscription = { id, name: type.name, delivery, arguments: args, context };
+      const subscription = { subscriptionId: id, name: type.name, delivery, arguments: args, context };
       const ready = Promise.resolve().then(() => type.onSubscribe?.(subscription)).then(() => subscription);
       ready.catch(() => {});
       entry = { held: new Set(), ready };
@@ -660,7 +660,9 @@ export function createEvents({
       const underlying: Server = "server" in mcp ? mcp.server : mcp;
       // The custom methods are registered through the parts of the server this module uses.
       const server = underlying as unknown as Served;
-      server.registerCapabilities({ extensions: { [EVENTS_EXTENSION]: { listChanged } } });
+      // The sketch declares capabilities.events. The MCP SDK's client drops top-level capabilities it does not know,
+      // so the extension is declared under capabilities.extensions too, where SDK clients read it.
+      server.registerCapabilities({ events: { listChanged }, extensions: { [EVENTS_EXTENSION]: { listChanged } } });
       if (listChanged) {
         const reference = new WeakRef(server);
         served.add(reference);
