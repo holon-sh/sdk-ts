@@ -32,20 +32,23 @@ const described = error => ({
 const canonical = value => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]))
   : value;
-// Who asked, as Holon admitted them: the user, the client acting for them, and the agent when one acts for the user.
-// A caller without credentials is nobody in particular.
+// Who asked, as Holon admitted them: the user, the client acting for them, the agent when one acts for the user, and
+// what the token allows. A caller without a subject has no identity: nobody can tell it from another such caller.
 const caller = context => {
   const { authInfo } = context ?? {};
-  if (!authInfo) return null;
-  const { iss = null, sub = null, act = null } = authInfo.extra ?? {};
-  return JSON.stringify(canonical([iss, sub, authInfo.clientId ?? null, act]));
+  const { iss = null, sub, act = null } = authInfo?.extra ?? {};
+  if (typeof sub !== "string") return null;
+  return JSON.stringify(canonical([iss, sub, authInfo.clientId ?? null, act, [...authInfo.scopes ?? []].sort()]));
 };
+const hex = bytes => [...bytes].map(byte => byte.toString(16).padStart(2, "0")).join("");
 // A subscription's id is the same for the same caller, event type and arguments, so it survives reconnects and poll
 // leases, as a webhook subscription's does. It is made with the global crypto, which needs no node:crypto at load.
 const identify = async (who, name, args) => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([who, name, canonical(args)])));
-  return `sub_${[...new Uint8Array(digest, 0, 16)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`;
+  return `sub_${hex(new Uint8Array(digest, 0, 16))}`;
 };
+// A caller without an identity gets an id of its own for each stream.
+const unique = () => `sub_${hex(crypto.getRandomValues(new Uint8Array(16)))}`;
 // A teardown that fails has nobody to tell, and must not take the process down.
 const settle = run => { Promise.resolve().then(run).catch(() => {}); };
 const integer = (value, minimum) => value === undefined || Number.isInteger(value) && value >= minimum;
@@ -133,8 +136,8 @@ export function createEvents({
 
   // The occurrence a subscription receives, or nothing when it is not for it. An event emitted to one subscription
   // is for that one alone, and its arguments are not asked.
-  const shape = (type, { sequence, target, occurrence }, { id, arguments: args, context }) => {
-    if (target !== undefined ? target !== id : type.match && !type.match(occurrence.data, args, context)) return undefined;
+  const shape = (type, { sequence, target, occurrence }, { id, untargetable, arguments: args, context }) => {
+    if (target !== undefined ? untargetable || target !== id : type.match && !type.match(occurrence.data, args, context)) return undefined;
     const data = type.transform ? type.transform(occurrence.data, args, context) : occurrence.data;
     return { ...occurrence, data, ...(sequence !== undefined && { cursor: position(type, sequence) }) };
   };
@@ -151,14 +154,16 @@ export function createEvents({
     if (!integer(maxEvents, 1)) throw new ProtocolError(INVALID_PARAMS, "maxEvents must be a positive integer");
     const checked = await type.inputSchema["~standard"].validate(args);
     if (checked.issues) throw new ProtocolError(INVALID_PARAMS, `Invalid arguments for ${name}: ${checked.issues.map(issue => issue.message).join("; ")}`);
-    const id = await identify(caller(context), name, checked.value);
+    const who = caller(context);
+    // Polls share a lease per caller and arguments, and callers without an identity share one per arguments.
+    const lease = await identify(who, name, checked.value);
     if (type.authorize && !(await type.authorize(checked.value, context))) {
-      endSubscription(type, id, forbidden);
+      endSubscription(type, lease, forbidden);
       // This refusal is the answer the poll lease would have given, so the next poll begins afresh.
-      leases.delete(id);
+      leases.delete(lease);
       throw refusal(forbidden);
     }
-    return { type, subscription: { id, arguments: checked.value, context } };
+    return { type, subscription: { id: who === null ? unique() : lease, lease, arguments: checked.value, context } };
   };
 
   const endSubscription = (type, id, error) => {
@@ -171,12 +176,12 @@ export function createEvents({
   // delivery mode is told the app ended it; `close` is how the mode says its hold is over.
   const open = async (type, { id, delivery, arguments: args, context }, end) => {
     if (types.get(type.name) !== type) throw refusal(removed);
-    const who = caller(context);
+    // Callers without an identity cannot be told apart, so they count together as one.
+    const who = caller(context) ?? "anonymous";
     if (subscribed >= maxSubscriptions) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptions", max: maxSubscriptions } });
-    // Callers without credentials cannot be told apart, so only the limit on everyone holds them.
-    if (who !== null && (callers.get(who) ?? 0) >= maxSubscriptionsPerCaller) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptionsPerCaller", max: maxSubscriptionsPerCaller } });
+    if ((callers.get(who) ?? 0) >= maxSubscriptionsPerCaller) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptionsPerCaller", max: maxSubscriptionsPerCaller } });
     subscribed++;
-    if (who !== null) callers.set(who, (callers.get(who) ?? 0) + 1);
+    callers.set(who, (callers.get(who) ?? 0) + 1);
     let entry = type.subscriptions.get(id);
     if (!entry) {
       entry = { held: new Set() };
@@ -189,7 +194,7 @@ export function createEvents({
       if (closed) return;
       closed = true;
       subscribed--;
-      if (who !== null) callers.get(who) === 1 ? callers.delete(who) : callers.set(who, callers.get(who) - 1);
+      callers.get(who) === 1 ? callers.delete(who) : callers.set(who, callers.get(who) - 1);
       entry.held.delete(held);
       if (entry.held.size) return;
       if (type.subscriptions.get(id) === entry) type.subscriptions.delete(id);
@@ -213,10 +218,12 @@ export function createEvents({
   // Poll subscriptions are leased: the first poll of a subscription begins one, each poll renews it, and it ends
   // when polls stop for `pollLease`, a few of the intervals the poll was told to wait unless given.
   const leases = new Map();
-  const lease = async (type, subscribed) => {
-    let lent = leases.get(subscribed.id);
+  const lease = async (type, { lease: key, ...subscribed }) => {
+    // A lease shared by callers without an identity is nobody's in particular, so nothing is emitted to it alone.
+    const shared = key !== subscribed.id;
+    let lent = leases.get(key);
     if (lent && (lent.ended || lent.type !== type)) {
-      leases.delete(subscribed.id);
+      leases.delete(key);
       clearTimeout(lent.timer);
       lent.release?.();
       // The poll after one the app ended is answered with why, and the one after it begins afresh.
@@ -225,25 +232,26 @@ export function createEvents({
     }
     if (!lent) {
       lent = { type };
-      leases.set(subscribed.id, lent);
-      lent.opening = open(type, { ...subscribed, delivery: "poll" }, error => {
+      leases.set(key, lent);
+      lent.opening = open(type, { ...subscribed, id: key, delivery: "poll" }, error => {
         lent.ended = error;
         lent.release?.();
       });
       lent.opening.then(held => {
+        if (shared) held.untargetable = true;
         lent.release = () => held.close();
         if (lent.ended) held.close();
-      }, () => { if (leases.get(subscribed.id) === lent) leases.delete(subscribed.id); });
+      }, () => { if (leases.get(key) === lent) leases.delete(key); });
     }
     const held = await lent.opening;
     // Ended while it was being set up.
     if (lent.ended) {
-      leases.delete(subscribed.id);
+      leases.delete(key);
       throw refusal(lent.ended);
     }
     clearTimeout(lent.timer);
     lent.timer = setTimeout(() => {
-      if (leases.get(subscribed.id) === lent) leases.delete(subscribed.id);
+      if (leases.get(key) === lent) leases.delete(key);
       held.close();
     }, pollLease ?? Math.max(60_000, 3 * type.interval));
     lent.timer.unref?.();
@@ -279,7 +287,7 @@ export function createEvents({
       // A sink is told each event as it is emitted: a push stream is one, and a delivery mode adds its own.
       const type = {
         name, order: ++declared, description, inputSchema, payloadSchema, _meta, match, transform, check, interval: every, delivery, authorize, onSubscribe,
-        sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(),
+        sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(), owed: new Map(),
       };
       types.set(name, type);
       changed();
@@ -288,6 +296,13 @@ export function createEvents({
           const occurrence = { eventId, name, timestamp, data };
           // A type with a check function is asked for what polls are owed, so what it emits is pushed and not kept.
           if (type.check) {
+            // An event for one subscription that has no stream to take it is lost, and the subscription is told of
+            // a gap when it next polls or streams. The ids owed one are as many as the events a type keeps.
+            if (target !== undefined && ![...type.subscriptions.get(target)?.held ?? []].some(held => held.delivery !== "poll")) {
+              type.owed.delete(target);
+              type.owed.set(target, true);
+              if (type.owed.size > keptEvents) type.owed.delete(type.owed.keys().next().value);
+            }
             for (const sink of type.sinks) sink({ target, occurrence });
             return;
           }
@@ -356,9 +371,11 @@ export function createEvents({
       server.setRequestHandler("events/poll", { params }, async (request, ctx) => {
         const { type, subscription: subscribed } = await subscription(request, ctx.http, "poll");
         const held = await lease(type, subscribed);
-        const { events, start, ...rest } = await read(type, held, request.cursor, request);
+        // Each poll is answered for its own caller, with the lease's id.
+        const { events, start, truncated, ...rest } = await read(type, { ...subscribed, id: held.id, untargetable: held.untargetable }, request.cursor, request);
+        const lost = !held.untargetable && type.owed.delete(held.id);
         // A poll carries its cursor once, for the whole response.
-        return { events: events.map(({ cursor, ...event }) => event), ...rest, nextPollMs: type.interval };
+        return { events: events.map(({ cursor, ...event }) => event), ...rest, truncated: truncated || lost, nextPollMs: type.interval };
       });
 
       server.setRequestHandler("events/stream", { params }, async (request, ctx) => {
@@ -380,6 +397,11 @@ export function createEvents({
         if (signal.aborted) {
           held.close();
           return { _meta: {} };
+        }
+        // Ended while it was being set up: no stream is opened, and the request is refused.
+        if (ending) {
+          held.close();
+          throw refusal(ending);
         }
         signal.addEventListener("abort", finish, { once: true });
         // A stream that cannot be written to is over.
@@ -438,8 +460,12 @@ export function createEvents({
               }
               due = Date.now() + type.interval;
               if (result) {
-                // The stream is confirmed before anything else is said on it.
-                if (first || result.truncated) await notify("active", { cursor: result.start, truncated: result.truncated });
+                // A check function's gap is told after the events that follow it, at the position after them, since
+                // the position before them is not known and the client's cursor must not go back. The stream is
+                // confirmed before anything else is said on it.
+                const after = type.check && result.truncated && !first;
+                const truncated = result.truncated || first && type.owed.delete(held.id);
+                if (first || truncated && !after) await notify("active", { cursor: type.check && result.truncated ? cursor : result.start, truncated });
                 if (first) beat = heartbeats();
                 first = false;
                 for (const event of result.events) {
@@ -449,6 +475,7 @@ export function createEvents({
                 }
                 if (done) break;
                 cursor = result.cursor;
+                if (after) await notify("active", { cursor, truncated: true });
                 if (result.hasMore) {
                   due = 0;
                   behind = true;
@@ -470,7 +497,10 @@ export function createEvents({
             clearTimeout(timer);
             wake = () => {};
           }
-          if (ending) await notify("terminated", { error: ending });
+          if (ending) {
+            if (first) throw refusal(ending);
+            await notify("terminated", { error: ending });
+          }
         } finally {
           clearInterval(beat);
           type.sinks.delete(sink);

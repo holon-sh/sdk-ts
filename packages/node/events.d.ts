@@ -17,10 +17,12 @@ export interface EventError { code: number; message: string; data?: unknown }
 /** A subscription as it begins: who asked, for what, and by which delivery mode. */
 export interface Subscription<A> {
   /**
-   * Names the subscription to `emit` and `end`. It is the same for the same caller, event type and arguments, so it
-   * survives a reconnect and a poll lease that lapses: the caller is the user, the client acting for them and the
-   * agent acting for the user, as Holon admitted them. Callers without credentials are not told apart, so they share
-   * one id for the same arguments. Two streams with the same id both receive what is emitted to it.
+   * Names the subscription to `emit` and `end`. For a caller with an identity it is the same for the same caller,
+   * event type and arguments, so it survives a reconnect and a poll lease that lapses. The caller is the user, the
+   * client acting for them, the agent acting for the user and the token's scopes, as Holon admitted them; two streams
+   * with the same id both receive what is emitted to it. A caller without a subject has no identity: each of its
+   * streams has an id of its own, which ends with the stream, and its polls share one lease per arguments with every
+   * such caller, to which nothing is emitted alone.
    */
   readonly id: string;
   readonly name: string;
@@ -98,7 +100,8 @@ export interface Emitter<D> {
    * `subscription`, the occurrence goes to that subscription alone, whatever its arguments; it is kept like any
    * other, so a subscription that reconnects or polls again from its cursor still has it, or is told of a gap. An
    * event type with a check function pushes what it emits to open streams at once and does not keep it: polls and
-   * reconnecting streams learn of it from the check function.
+   * reconnecting streams learn of it from the check function, and one emitted to a subscription with no open stream
+   * is lost, so that subscription's next poll or stream is told of a gap.
    *
    * Emitting is synchronous. Occurrences emitted one after another in the same synchronous run reach each
    * subscription in that order, with no other occurrence of this type between them, whether polled or pushed. So a
@@ -152,8 +155,8 @@ export interface EventsOptions {
    */
   maxSubscriptions?: number;
   /**
-   * How many of those one caller may hold. A thousand unless given. Callers without credentials are not told apart,
-   * so only `maxSubscriptions` holds them.
+   * How many of those one caller may hold. A thousand unless given. Callers without an identity cannot be told
+   * apart, so they count together as one caller.
    */
   maxSubscriptionsPerCaller?: number;
   /** How many event types events/list returns at a time. A hundred unless given. */

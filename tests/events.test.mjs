@@ -253,7 +253,8 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
     return () => ended.push(id);
   };
   const { factory, say } = rooms({ pollLease: 1200 }, { onSubscribe, interval: 100 });
-  const { endpoint, http } = await serve(t, factory);
+  // Every request comes from one signed-in user, through one client.
+  const { endpoint, http } = await serve(t, factory, request => { request.auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } }; });
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
 
@@ -292,6 +293,25 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   again.cancel();
   await until(() => ended.length === 4);
   assert.equal(ended[3], begun[3].id);
+});
+
+test("callers without an identity do not share a subscription, and what is emitted to one's stream does not reach the other", async t => {
+  const begun = [];
+  const { factory, say } = rooms({}, { onSubscribe: ({ id }) => { begun.push(id); } });
+  const { endpoint } = await serve(t, factory);
+  const [first, second] = [await wire(t, endpoint), await wire(t, endpoint)];
+  for (const { request } of [first, second]) {
+    request("events/stream", { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor: null }).catch(() => {});
+  }
+  await until(() => first.heard.length && second.heard.length);
+  assert.equal(new Set(begun).size, 2);
+  const firstId = begun[0];
+  say("a", "ann", "for one stream", firstId);
+  say("a", "ann", "for both");
+  await until(() => [first, second].every(({ heard }) => heard.some(({ eventId }) => eventId === "for both")));
+  const said = ({ heard }) => heard.filter(({ kind }) => kind === "event").map(({ eventId }) => eventId);
+  // Which stream began first is not known, so the one that hears the targeted event must be the one it was for.
+  assert.deepEqual([said(first), said(second)].sort((x, y) => y.length - x.length), [["for one stream", "for both"], ["for both"]]);
 });
 
 test("a stream left while its subscription is being set up is torn down and frees its place", async t => {
