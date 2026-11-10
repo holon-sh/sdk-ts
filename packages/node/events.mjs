@@ -1,6 +1,7 @@
 // The server side of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
-// It serves the poll and push delivery modes of emit-only event types. Webhook delivery and check functions are not here.
+// It serves the poll and push delivery modes of emit-only event types. Another delivery mode is a module of its own,
+// given to createEvents, which reaches the event types through the internals below.
 import { ProtocolError } from "@modelcontextprotocol/server";
 
 /** The extension's identifier, under which a server declares it in capabilities.extensions. */
@@ -9,7 +10,8 @@ const SUBSCRIPTION = "io.modelcontextprotocol/subscriptionId";
 const INVALID_PARAMS = -32602;
 // The sketch's general-purpose codes, provisional until the specification allocates them.
 const NOT_FOUND = -32023;
-const DELIVERY = ["poll", "push"];
+/** Reaches what a delivery mode needs of the events it serves. Not for applications. */
+export const INTERNALS = Symbol.for("holon-sh.events.internals");
 // Requests are checked here, against each event type's own schema.
 const params = { "~standard": { version: 1, vendor: "holon-sh", validate: value => ({ value: value ?? {} }) } };
 
@@ -18,7 +20,8 @@ const params = { "~standard": { version: 1, vendor: "holon-sh", validate: value 
  * milliseconds, and each type keeps at most `maxEvents`, for polls and for streams that reconnect. A stream hears
  * from the server every `heartbeat` milliseconds, and a poll is told to come back after `nextPollMs`.
  */
-export function createEvents({ maxAge = 10 * 60_000, maxEvents = 10_000, heartbeat = 30_000, nextPollMs = 1000 } = {}) {
+export function createEvents({ maxAge = 10 * 60_000, maxEvents = 10_000, heartbeat = 30_000, nextPollMs = 1000, modes = [] } = {}) {
+  const delivery = ["poll", "push", ...modes.map(mode => mode.name)];
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
   // without node:crypto, which is not there when a server is evaluated for its contract.
   const epoch = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
@@ -64,21 +67,27 @@ export function createEvents({ maxAge = 10 * 60_000, maxEvents = 10_000, heartbe
     return { type, subscription: { arguments: checked.value, context } };
   };
 
+  // What a delivery mode works with: `subscription` checks a request and names its event type, `since` and `shape`
+  // give a subscription its occurrences, `position` is a type's cursor, and a type's `sinks` hear what is emitted.
+  const internals = { types, subscription, since, shape, position };
+
   return {
+    [INTERNALS]: internals,
     /**
      * Declares an event type and returns the function that emits it. `match` decides which subscriptions receive an
      * event from their arguments, and `transform` shapes its data for each.
      */
     event(name, { description, inputSchema, payloadSchema, match, transform }) {
       if (types.has(name)) throw new Error(`Event ${name} is already declared.`);
-      const type = { name, description, inputSchema, payloadSchema, match, transform, sequence: 0, dropped: 0, kept: [], streams: new Set() };
+      // A sink is told each event as it is emitted: a push stream is one, and a delivery mode adds its own.
+      const type = { name, description, inputSchema, payloadSchema, match, transform, sequence: 0, dropped: 0, kept: [], sinks: new Set() };
       types.set(name, type);
       return {
         emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString() } = {}) {
           const kept = { sequence: ++type.sequence, at: Date.now(), occurrence: { eventId, name, timestamp, data } };
           type.kept.push(kept);
           while (type.kept.length > maxEvents || type.kept[0].at < kept.at - maxAge) type.dropped = type.kept.shift().sequence;
-          for (const stream of type.streams) stream(kept);
+          for (const sink of type.sinks) sink(kept);
         },
       };
     },
@@ -92,11 +101,12 @@ export function createEvents({ maxAge = 10 * 60_000, maxEvents = 10_000, heartbe
         events: [...types.values()].map(type => ({
           name: type.name,
           ...(type.description && { description: type.description }),
-          delivery: DELIVERY,
+          delivery,
           inputSchema: json(type.inputSchema),
           payloadSchema: json(type.payloadSchema),
         })),
       }));
+      for (const mode of modes) mode.serve(server, internals);
       server.setRequestHandler("events/poll", { params }, async (request, ctx) => {
         const { type, subscription: subscribed } = await subscription(request, ctx.http);
         const { events, ...rest } = since(type, subscribed, request.cursor, request.maxAgeMs, request.maxEvents);
@@ -119,12 +129,12 @@ export function createEvents({ maxAge = 10 * 60_000, maxEvents = 10_000, heartbe
         const missed = since(type, subscribed, request.cursor, request.maxAgeMs);
         notify("active", { cursor: missed.events.length ? request.cursor : missed.cursor, truncated: missed.truncated });
         for (const event of missed.events) notify("event", event);
-        type.streams.add(live);
+        type.sinks.add(live);
         const beat = setInterval(() => notify("heartbeat", { cursor: position(type) }), heartbeat);
         signal.addEventListener("abort", closed, { once: true });
         await open;
         clearInterval(beat);
-        type.streams.delete(live);
+        type.sinks.delete(live);
         return { _meta: {} };
       });
     },

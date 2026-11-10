@@ -78,6 +78,14 @@ test("a poll returns what happened since its cursor, and says when events were s
   second.say("a", "ann", "three");
   assert.deepEqual(await take(resumed, 1), ["three"]);
   assert.equal(gaps, 1);
+
+  // A contract's schema for the event's data is held against what arrives.
+  const contract = { tools: [], events: [{ name: "room.said", payloadSchema: { type: "object", required: ["volume"] } }] };
+  const { rooms: typed } = createApps(identity, { rooms: contract }, { rooms: { endpoint: later.endpoint } });
+  t.after(() => typed.close());
+  const strict = await typed.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
+  second.say("a", "ann", "four");
+  await assert.rejects(take(strict, 1), /Invalid data of rooms room.said/);
 });
 
 test("the server speaks the messages of the Events design sketch", async t => {

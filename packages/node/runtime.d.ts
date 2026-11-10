@@ -19,10 +19,11 @@ export interface Binding {
 export type EndpointBinding = Binding;
 /** Calling application identity and its declared dependencies. */
 export interface Identity { name: string; version: string; requires?: Record<string, { name?: string; version?: string }> }
-/** Generation-time tool and JSON resource schemas. A null contract permits unvalidated callTool requests. */
+/** Generation-time tool, JSON resource and event schemas. A null contract permits unvalidated callTool requests. */
 export interface Contract {
   tools: Array<{ name: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown> }>;
   resources?: Array<{ uri: string; outputSchema: Record<string, unknown> }>;
+  events?: Array<{ name: string; inputSchema?: Record<string, unknown>; payloadSchema?: Record<string, unknown> }>;
 }
 /** Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources. */
 export type RuntimeClient = ToolClient<Record<string, Record<string, unknown>>, Record<string, unknown>, Record<string, unknown>>;

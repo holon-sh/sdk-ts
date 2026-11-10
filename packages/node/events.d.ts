@@ -36,6 +36,13 @@ export interface EventsOptions {
   heartbeat?: number;
   /** How long a poll is told to wait before the next, in milliseconds. One second unless given. */
   nextPollMs?: number;
+  /** Delivery modes besides poll and push, each from a module of its own. */
+  modes?: DeliveryMode[];
+}
+/** A delivery mode besides poll and push. It registers its requests on each server and is listed by events/list. */
+export interface DeliveryMode {
+  readonly name: string;
+  serve(server: object, internals: object): void;
 }
 /** The event types of a process, served by each MCP server it creates. */
 export interface Events {

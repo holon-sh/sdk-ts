@@ -236,10 +236,14 @@ export function createApps(identity, contracts, bindings, options) {
         cursor = next ?? null;
         if (truncated) onGap?.();
       };
+      // The client checks an event's data against the contract it was compiled against, as it does a tool's output.
+      const expected = contract?.events?.find(type => type.name === event)?.payloadSchema;
+      let valid;
       const deliver = ({ cursor: _, _meta, ...occurrence }) => {
         if (seen.has(occurrence.eventId)) return;
         seen.add(occurrence.eventId);
         if (seen.size > 1024) seen.delete(seen.values().next().value);
+        if (expected) validate(valid ??= validator(expected), occurrence.data, `data of ${name} ${event}`);
         queue.push(occurrence);
         wake();
       };
@@ -254,7 +258,7 @@ export function createApps(identity, contracts, bindings, options) {
           let wait = 1000;
           try {
             const result = await session({ signal: ended }, client => client.request({ method: "events/poll", params: { ...request, cursor } }, anything, patient({ signal: ended })));
-            for (const occurrence of result.events ?? []) deliver(occurrence);
+            try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
             reach(result.cursor, result.truncated);
             established.resolve();
             // A server that asks for a tight loop is not obeyed.
@@ -297,7 +301,10 @@ export function createApps(identity, contracts, bindings, options) {
             await untilAborted(connection.ready, ended);
             const on = (method, handle) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything }, params => { heard(); handle(params); });
             on("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
-            on("event", occurrence => { deliver(occurrence); reach(occurrence.cursor); });
+            on("event", occurrence => {
+              try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
+              reach(occurrence.cursor);
+            });
             on("heartbeat", ({ cursor: next }) => reach(next));
             // The server recovers from an error by itself, and the stream stays open.
             on("error", () => {});
@@ -315,7 +322,7 @@ export function createApps(identity, contracts, bindings, options) {
         }
       };
       void (delivery === "push" ? stream() : poll())
-        .catch(error => { failure = error; })
+        .catch(error => { failure ??= error; })
         .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
       await active;
       return {
