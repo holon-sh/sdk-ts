@@ -1,23 +1,25 @@
 import { test, type TestContext } from "node:test";
-import assert from "node:assert/strict";
 import type { IncomingMessage } from "node:http";
+import assert from "node:assert/strict";
 import { Client, InMemoryTransport, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { McpServer, ProtocolError, type AuthInfo } from "@modelcontextprotocol/server";
+import { McpServer, ProtocolError } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApps, type EventOccurrence, type Subscription } from "holon-sh/runtime";
-import { createEvents, type EventDefinition, type EventError, type EventsOptions, type Subscription as Subscribed } from "holon-sh/ext/events";
-import { serve } from "./helpers.ts";
+import { createApps, type Subscription } from "holon-sh/runtime";
+import { createEvents, type EventDefinition, type EventsOptions } from "holon-sh/ext/events";
+import { serve, serveLegacy } from "./helpers.ts";
 
 const identity = { name: "test", version: "1.0.0" };
-
-interface Listening { room: string; listener: string }
-interface Said { room: string; speaker: string; text: string }
-interface Spoken { text: string }
+// Wire messages are checked by the assertions that read them.
+const loose = z.any();
+type Listener = { room: string; listener: string };
+// What a request answers, as the assertions read it.
+type Answer = { events: Array<Record<string, any>>; [field: string]: any };
+type Said = { room: string; speaker: string; text: string };
 
 // A server whose rooms say things: a subscription names a room and hears what the others in it say.
-function rooms(options?: EventsOptions, definition?: Partial<EventDefinition<Listening, Said>>) {
+function rooms(options: EventsOptions = {}, definition: Partial<EventDefinition<Listener, Said>> = {}) {
   const events = createEvents(options);
-  const said = events.event<Listening, Said>("room.said", {
+  const said = events.event<Listener, Said>("room.said", {
     description: "Someone said something in a room",
     inputSchema: z.object({ room: z.string(), listener: z.string() }),
     payloadSchema: z.object({ text: z.string() }),
@@ -33,28 +35,20 @@ function rooms(options?: EventsOptions, definition?: Partial<EventDefinition<Lis
   return { factory, said, say: (room: string, speaker: string, text: string, to?: string) => said.emit({ room, speaker, text }, { eventId: text, subscription: to }) };
 }
 
-// Reads from a subscription without ending it, as take does when it stops. Without a contract the runtime leaves an
-// event's data unknown, so next and take read it as what the rooms say.
-const iterators = new WeakMap<Subscription, AsyncIterator<EventOccurrence>>();
+// Reads from a subscription without ending it, as take does when it stops.
+const iterators = new WeakMap<Subscription, AsyncIterator<{ data: any }>>();
 async function next(subscription: Subscription, count: number) {
   if (!iterators.has(subscription)) iterators.set(subscription, subscription[Symbol.asyncIterator]());
   const texts: string[] = [];
-  while (texts.length < count) texts.push(((await iterators.get(subscription)!.next()).value.data as Spoken).text);
+  while (texts.length < count) texts.push((await iterators.get(subscription)!.next()).value.data.text);
   return texts;
 }
 
-async function take(subscription: Subscription, count: number) {
+async function take(subscription: AsyncIterable<{ data: any }>, count: number) {
   const texts: string[] = [];
-  for await (const { data } of subscription) if (texts.push((data as Spoken).text) === count) break;
+  for await (const { data } of subscription) if (texts.push(data.text) === count) break;
   return texts;
 }
-
-// The client leaves what it reads with a loose schema untyped: these are the wire messages as the tests read them.
-type Listed = { events: { name: string; delivery: string[]; inputSchema: { required: string[] }; _meta?: Record<string, unknown> }[]; nextCursor?: string };
-type Polled = { events: { eventId: string; name: string; timestamp: string; data: unknown }[]; cursor: string | null; truncated: boolean; hasMore: boolean; nextPollMs: number; _meta?: Record<string, unknown> };
-type Received = { kind: string; cursor?: string | null; _meta?: Record<string, unknown>; [field: string]: unknown };
-// A notification as wire keeps it, under the id of the subscription it is for.
-type Heard = { kind: string; id: string; eventId?: string; cursor?: string | null; truncated?: boolean; error?: EventError };
 
 test("a subscription is pushed the events its arguments match, and resumes from its cursor when its stream drops", async t => {
   const { factory, say } = rooms();
@@ -79,6 +73,33 @@ test("a subscription is pushed the events its arguments match, and resumes from 
 
   await assert.rejects(app.ext.events.subscribe("room.left", {}), /no event room.left/);
   await assert.rejects(app.ext.events.subscribe("room.said", { room: 1 }), /Invalid arguments|status|400/);
+});
+
+test("a subscription to a 2025 server is pushed its events, and ending it ends its session", async t => {
+  const events = createEvents();
+  const ended: string[] = [];
+  const said = events.event<{ room: string }, { text: string }>("room.said", {
+    inputSchema: z.object({ room: z.string() }),
+    payloadSchema: z.object({ text: z.string() }),
+    onSubscribe: ({ id }) => () => { ended.push(id); },
+  });
+  const { endpoint } = await serveLegacy(t, () => {
+    const server = new McpServer({ name: "rooms", version: "1.0.0" });
+    events.serve(server);
+    return server;
+  });
+  const methods: string[] = [];
+  const counting: typeof fetch = (input, init) => {
+    methods.push(init?.method ?? "GET");
+    return fetch(input, init);
+  };
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint, fetch: counting } });
+  t.after(() => app!.close());
+  // A 2025 server answers its initialization as a stream too, which is not the subscription's.
+  const subscription = await app!.ext.events.subscribe("room.said", { room: "a" });
+  said.emit({ text: "one" }, { eventId: "one" });
+  assert.deepEqual(await take(subscription, 1), ["one"]);
+  await until(() => ended.length === 1 && methods.includes("DELETE"));
 });
 
 test("a poll returns what happened since its cursor, and says when events were skipped", async t => {
@@ -117,13 +138,12 @@ test("the server speaks the messages of the Events design sketch", async t => {
   const client = new Client(identity, { versionNegotiation: { mode: "auto" } });
   await client.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
   t.after(() => client.close());
-  const loose = z.looseObject({});
-  assert.deepEqual(client.getServerCapabilities()!.extensions, { "io.modelcontextprotocol/events": { listChanged: false } });
-  const { events: [type] } = await client.request({ method: "events/list", params: {} }, loose) as Listed;
+  assert.deepEqual(client.getServerCapabilities()?.extensions, { "io.modelcontextprotocol/events": { listChanged: false } });
+  const { events: [type] } = await client.request({ method: "events/list", params: {} }, loose);
   assert.deepEqual(Object.keys(type), ["name", "description", "delivery", "inputSchema", "payloadSchema"]);
   assert.deepEqual(type.inputSchema.required, ["room", "listener"]);
 
-  const poll = (cursor: string | null) => client.request({ method: "events/poll", params: { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor } }, loose) as Promise<Polled>;
+  const poll = (cursor: string | null) => client.request({ method: "events/poll", params: { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor } }, loose);
   const { _meta, ...start } = await poll(null);
   assert.deepEqual({ ...start, cursor: typeof start.cursor }, { events: [], cursor: "string", truncated: false, hasMore: false, nextPollMs: 1000 });
   say("a", "ann", "one");
@@ -131,7 +151,7 @@ test("the server speaks the messages of the Events design sketch", async t => {
   assert.deepEqual(Object.keys(polled), ["eventId", "name", "timestamp", "data"]);
   assert.equal((await poll("someone else's cursor")).truncated, true);
 
-  const received: Received[] = [];
+  const received: any[] = [];
   for (const kind of ["active", "event", "heartbeat"])
     client.setNotificationHandler(`notifications/events/${kind}`, { params: loose }, params => { received.push({ kind, ...params }); });
   const stop = new AbortController();
@@ -139,15 +159,13 @@ test("the server speaks the messages of the Events design sketch", async t => {
   while (!received.some(({ kind }) => kind === "heartbeat")) await new Promise(resolve => setTimeout(resolve, 5));
   stop.abort();
   await assert.rejects(stream);
-  const [active, event, heartbeat] = ["active", "event", "heartbeat"].map(kind => received.find(message => message.kind === kind)!);
-  const subscriptionId = active._meta!["io.modelcontextprotocol/subscriptionId"];
+  const [active, event, heartbeat] = ["active", "event", "heartbeat"].map(kind => received.find(message => message.kind === kind));
+  const subscriptionId = active._meta["io.modelcontextprotocol/subscriptionId"];
   assert.deepEqual(active, { kind: "active", cursor: start.cursor, truncated: false, _meta: { "io.modelcontextprotocol/subscriptionId": subscriptionId } });
   assert.deepEqual(event, { kind: "event", ...polled, cursor: event.cursor, _meta: active._meta });
   assert.deepEqual(heartbeat, { kind: "heartbeat", cursor: event.cursor, _meta: active._meta });
   assert.equal(received[0].kind, "active");
 });
-
-const loose = z.looseObject({});
 
 // A client that speaks the wire messages, and keeps every events notification it hears.
 async function wire(t: TestContext, endpoint: string) {
@@ -155,10 +173,10 @@ async function wire(t: TestContext, endpoint: string) {
   await client.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
   const streams = new AbortController();
   t.after(() => { streams.abort(); return client.close(); });
-  const heard: Heard[] = [];
+  const heard: any[] = [];
   for (const kind of ["active", "event", "heartbeat", "error", "terminated"])
-    client.setNotificationHandler(`notifications/events/${kind}`, { params: loose }, ({ _meta, ...params }) => { heard.push({ kind, id: (_meta as Record<string, string>)["io.modelcontextprotocol/subscriptionId"], ...params }); });
-  const request = <T = Polled>(method: string, params: Record<string, unknown>) => client.request({ method, params }, loose, method === "events/stream" ? { signal: streams.signal } : {}) as Promise<T>;
+    client.setNotificationHandler(`notifications/events/${kind}`, { params: loose }, ({ _meta, ...params }) => { heard.push({ kind, id: _meta["io.modelcontextprotocol/subscriptionId"], ...params }); });
+  const request = (method: string, params: Record<string, unknown>): Promise<Answer> => client.request({ method, params }, loose, method === "events/stream" ? { signal: streams.signal } : {});
   return { client, heard, request };
 }
 
@@ -169,7 +187,7 @@ async function until(condition: () => unknown) {
   }
 }
 
-const refusedWith = (code: number, data?: unknown) => (error: EventError) => {
+const refusedWith = (code: number, data?: unknown) => (error: any) => {
   assert.equal(error.code, code);
   if (data) assert.deepEqual(error.data, data);
   return true;
@@ -177,9 +195,9 @@ const refusedWith = (code: number, data?: unknown) => (error: EventError) => {
 
 // A server over a ledger that keeps its own history: a cursor is a position in the ledger, so it means the same to
 // any process that reads it.
-interface Line { id: string; account: string; amount: number; at: string }
+type Line = { id: string; account: string; amount: number; at: string };
 type Ledger = Line[] & { unavailable?: boolean };
-function ledgers(log: Ledger, options?: EventsOptions, definition?: Partial<EventDefinition<{ account: string }, { amount: number }>>) {
+function ledgers(log: Ledger, options: EventsOptions = {}, definition: Partial<EventDefinition<{ account: string }, { amount: number }>> = {}) {
   const events = createEvents(options);
   const entry = events.event<{ account: string }, { amount: number }>("ledger.entry", {
     inputSchema: z.object({ account: z.string() }),
@@ -205,7 +223,7 @@ test("a check function answers polls from its source's own cursor, cut short by 
   const write = (id: string, account: string, amount: number, at = new Date().toISOString()) => log.push({ id, account, amount, at });
   const { endpoint } = await serve(t, ledgers(log, {}, { interval: 5000 }).factory);
   const { request } = await wire(t, endpoint);
-  const poll = (cursor: string | null, more?: { maxEvents?: number; maxAgeMs?: number }) => request("events/poll", { name: "ledger.entry", arguments: { account: "a" }, cursor, ...more });
+  const poll = (cursor: string | null, more?: Record<string, unknown>) => request("events/poll", { name: "ledger.entry", arguments: { account: "a" }, cursor, ...more });
   write("before", "a", 1);
   const { _meta, ...start } = await poll(null);
   assert.deepEqual(start, { events: [], cursor: "1", truncated: false, hasMore: false, nextPollMs: 5000 });
@@ -217,7 +235,7 @@ test("a check function answers polls from its source's own cursor, cut short by 
   assert.deepEqual([first.events.map(event => event.eventId), first.cursor, first.hasMore], [["one"], "2", true]);
   const second = await poll(first.cursor, { maxEvents: 1 });
   assert.deepEqual([second.events.map(event => event.eventId), second.cursor, second.hasMore], [["two"], "4", false]);
-  assert.deepEqual(second.events[0], { eventId: "two", name: "ledger.entry", timestamp: log[3].at, data: { amount: 30 } });
+  assert.deepEqual(second.events[0], { eventId: "two", name: "ledger.entry", timestamp: log[3]!.at, data: { amount: 30 } });
 
   write("long ago", "a", 40, new Date(Date.now() - 3_600_000).toISOString());
   write("just now", "a", 50);
@@ -261,16 +279,15 @@ test("a stream asks the check function every interval, pushes what is emitted at
 });
 
 test("a subscription keeps its id across streams, reconnects and polls, is set up once while held, and has what was emitted to it", async t => {
-  const begun: { id: string; delivery: string; args: Listening }[] = [];
+  const begun: Array<{ id: string; delivery: string; args: unknown }> = [];
   const ended: string[] = [];
-  const onSubscribe = ({ id, delivery, arguments: args }: Subscribed<Listening>) => {
+  const onSubscribe: EventDefinition<Listener, Said>["onSubscribe"] = ({ id, delivery, arguments: args }) => {
     begun.push({ id, delivery, args });
     return () => ended.push(id);
   };
   const { factory, say } = rooms({ pollLease: 1200 }, { onSubscribe, interval: 100 });
-  // Every request comes from one signed-in user, through one client. The MCP handler reads the caller from the
-  // request's auth, which Node's request type does not declare.
-  const { endpoint, http } = await serve(t, factory, request => { (request as IncomingMessage & { auth?: AuthInfo }).auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } }; });
+  // Every request comes from one signed-in user, through one client.
+  const { endpoint, http } = await serve(t, factory, (request: IncomingMessage & { auth?: unknown }) => { request.auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } }; });
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
 
@@ -308,7 +325,7 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   polled.cancel();
   again.cancel();
   await until(() => ended.length === 4);
-  assert.equal(ended[3], begun[3].id);
+  assert.equal(ended[3], begun[3]!.id);
 });
 
 test("callers without an identity do not share a subscription, and what is emitted to one's stream does not reach the other", async t => {
@@ -325,20 +342,20 @@ test("callers without an identity do not share a subscription, and what is emitt
   say("a", "ann", "for one stream", firstId);
   say("a", "ann", "for both");
   await until(() => [first, second].every(({ heard }) => heard.some(({ eventId }) => eventId === "for both")));
-  const said = ({ heard }: { heard: Heard[] }) => heard.filter(({ kind }) => kind === "event").map(({ eventId }) => eventId);
+  const said = ({ heard }: { heard: any[] }) => heard.filter(({ kind }) => kind === "event").map(({ eventId }) => eventId);
   // Which stream began first is not known, so the one that hears the targeted event must be the one it was for.
   assert.deepEqual([said(first), said(second)].sort((x, y) => y.length - x.length), [["for one stream", "for both"], ["for both"]]);
 });
 
 test("an event that cannot be shaped for a subscription is skipped for it, told once on a stream, and what follows still arrives", async t => {
   const events = createEvents({ heartbeat: 60_000 });
-  const noted = events.event("note.added", {
+  const noted = events.event<Record<string, never>, { text: string }>("note.added", {
     inputSchema: z.object({}),
     payloadSchema: z.object({ text: z.string() }),
-    transform: ({ text }: Spoken) => {
+    transform: ({ text }) => {
       if (text === "unshapeable") throw new Error("cannot shape");
       // What cannot be sent as JSON fails the same way.
-      if (text === "circular") { const loop: { loop?: unknown } = {}; loop.loop = loop; return loop; }
+      if (text === "circular") { const loop: Record<string, unknown> = {}; loop.loop = loop; return loop; }
       return { text };
     },
   });
@@ -356,18 +373,18 @@ test("an event that cannot be shaped for a subscription is skipped for it, told 
   await until(() => heard.some(({ eventId }) => eventId === "after"));
   noted.emit({ text: "later" }, { eventId: "later" });
   await until(() => heard.some(({ eventId }) => eventId === "later"));
-  assert.deepEqual(heard.slice(1).map(({ kind, eventId, error }) => kind === "error" ? (error!.data as { eventId: string }).eventId : eventId), ["unshapeable", "circular", "after", "later"]);
+  assert.deepEqual(heard.slice(1).map(({ kind, eventId, error }) => kind === "error" ? error.data.eventId : eventId), ["unshapeable", "circular", "after", "later"]);
   assert.equal(logged.mock.callCount(), 2);
   const polled = await request("events/poll", { name: "note.added", arguments: {}, cursor: start });
   assert.deepEqual(polled.events.map(({ eventId }) => eventId), ["after", "later"]);
 });
 
 test("a stream left while its subscription is being set up is torn down and frees its place", async t => {
-  let release: ((value?: unknown) => void) | undefined;
+  let release: (() => void) | undefined;
   const ended: string[] = [];
   const { factory } = rooms({ maxSubscriptions: 1 }, {
     onSubscribe: async ({ id }) => {
-      if (!release) await new Promise(resolve => { release = resolve; });
+      if (!release) await new Promise<void>(resolve => { release = resolve; });
       return () => ended.push(id);
     },
   });
@@ -380,7 +397,7 @@ test("a stream left while its subscription is being set up is torn down and free
   await assert.rejects(stream);
   // The server hears that the request was left before the setup finishes.
   await new Promise(resolve => setTimeout(resolve, 200));
-  release!();
+  release?.();
   await until(() => ended.length === 1);
   const { request } = await wire(t, endpoint);
   assert.equal((await request("events/poll", { name: "room.said", arguments: { room: "a", listener: "cat" }, cursor: null })).truncated, false);
@@ -455,10 +472,10 @@ test("events/list pages through the event types, and removing one ends its subsc
   };
   const { endpoint } = await serve(t, factory);
   const { client, heard, request } = await wire(t, endpoint);
-  assert.deepEqual(client.getServerCapabilities()!.extensions, { "io.modelcontextprotocol/events": { listChanged: true } });
-  const first = await request<Listed>("events/list", {});
+  assert.deepEqual(client.getServerCapabilities()?.extensions, { "io.modelcontextprotocol/events": { listChanged: true } });
+  const first = await request("events/list", {});
   assert.deepEqual(first.events.map(({ name, delivery, _meta }) => ({ name, delivery, _meta })), [{ name: "alarm.rang", delivery: ["push"], _meta: { "example.com/sound": "bell" } }]);
-  const second = await request<Listed>("events/list", { cursor: first.nextCursor });
+  const second = await request("events/list", { cursor: first.nextCursor });
   assert.deepEqual([second.events.map(({ name }) => name), second.nextCursor], [["door.opened"], undefined]);
   await assert.rejects(request("events/poll", { name: "alarm.rang", arguments: {}, cursor: null }), refusedWith(-32026, { feature: "deliveryMode", value: "poll" }));
 
@@ -478,7 +495,7 @@ test("events/list pages through the event types, and removing one ends its subsc
   assert.deepEqual(Object.keys(await stream), ["_meta"]);
   assert.deepEqual(heard.at(-1), { kind: "terminated", id: heard[0].id, error: { code: -32023, message: "NotFound", data: { kind: "event" } } });
   await until(() => changes === 1);
-  assert.deepEqual((await request<Listed>("events/list", {})).events.map(({ name }) => name), ["door.opened"]);
+  assert.deepEqual((await request("events/list", {})).events.map(({ name }) => name), ["door.opened"]);
   await assert.rejects(request("events/poll", { name: "alarm.rang", arguments: {}, cursor: null }), refusedWith(-32023, { kind: "event" }));
 });
 

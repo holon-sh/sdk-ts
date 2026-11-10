@@ -69,7 +69,7 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 
 ## Events
 
-A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it, so it lives under `ext`: the `holon-sh/ext/events` and `holon-sh/ext/webhooks` modules, and `ext.events` on each client.
+A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it, so it lives under `ext`: `holon-sh/ext/events` and `holon-sh/ext/webhooks` on a server, and `ext.events` on a client. Expect what is there to change.
 
 A server declares an event type and emits its occurrences:
 
@@ -135,7 +135,7 @@ said.remove();  // stops offering the type; createEvents({ listChanged: true }) 
 
 A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. `createEvents` takes what each type keeps (`keep: { events, age }`), the `interval` of polls and checks, and limits on subscriptions in all and per caller.
 
-Poll and push delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery is below. Typed event names are not here yet. A client learns that the event types changed only on a connection that lasts, such as stdio: over stateless HTTP it lists them again.
+Poll and push delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Typed event names are not here yet. A client learns that the event types changed only on a connection that lasts, such as stdio: over stateless HTTP it lists them again.
 
 ### Webhook delivery
 

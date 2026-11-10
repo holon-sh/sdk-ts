@@ -7,7 +7,7 @@ import { ProtocolError } from "@modelcontextprotocol/server";
 import type { Server, ServerContext, StandardSchemaV1 } from "@modelcontextprotocol/server";
 import type { BlockList, LookupFunction } from "node:net";
 import { getContext } from "../context.js";
-import type { DeliveryMode, EventError, EventType, Internals, Owed, Shaped, SubscriptionContext } from "./events.js";
+import type { DeliveryMode, EventError, EventTypeState, Internals, Owed, Occurrence, SubscriptionContext } from "./events.js";
 
 /** A webhook subscription as the server keeps it. Its secret signs deliveries, so a store keeps it as it would a key. */
 export interface WebhookSubscription {
@@ -216,10 +216,10 @@ async function post(url: string, headers: Record<string, string>, body: string, 
 }
 
 /** A message waiting to be sent to a subscription's callback: an event, or a control envelope. */
-interface Entry { state: State; id: string; tries: number; body(): string; event?: Shaped; cursor?: string | null | undefined; settled?: boolean }
+interface Entry { state: State; id: string; tries: number; body(): string; event?: Occurrence; cursor?: string | null | undefined; settled?: boolean }
 /** What delivering to one subscription has come to. */
 interface State {
-  type: EventType;
+  type: EventTypeState;
   opened?: { close(): void };
   queue: Entry[];
   held: Entry[];
@@ -272,7 +272,7 @@ export function webhooks({
   const probed = new Map<string, Map<string, number>>();
   // Deliveries running to each endpoint, and those waiting for one of them to finish.
   const endpoints = new Map<string, { running: number; waiting: Array<() => void> }>();
-  const attached = new WeakSet<EventType>();
+  const attached = new WeakSet<EventTypeState>();
   let internals!: Internals;
   let loaded: Promise<void> | undefined;
 
@@ -396,7 +396,7 @@ export function webhooks({
     setTimeout(() => quietly(attempt(record, entry)), backoff * 5 ** (entry.tries - 1)).unref?.();
   };
 
-  const enqueue = (record: WebhookSubscription, event: Shaped) => {
+  const enqueue = (record: WebhookSubscription, event: Occurrence) => {
     const state = states.get(record);
     if (!state) return;
     // Beyond what may be in flight, events are skipped, and the client is told of the gap.
@@ -431,7 +431,7 @@ export function webhooks({
   // against the limits, with the type's onSubscribe run; `ready` runs once it has; and it is sent what it missed
   // since the cursor first. An end that arrives meanwhile is kept, and once setup is done the subscription ends with
   // it, having delivered nothing.
-  const begin = async (type: EventType, record: WebhookSubscription, cursor: string | null | undefined, maxAgeMs?: number, ready?: () => Promise<void>) => {
+  const begin = async (type: EventTypeState, record: WebhookSubscription, cursor: string | null | undefined, maxAgeMs?: number, ready?: () => Promise<void>) => {
     const state: State = { type, queue: [], held: [], active: true, outcomes: [], gap: false, unknown: 0 };
     let ending: EventError | undefined;
     const end = (error: EventError) => {
@@ -468,7 +468,7 @@ export function webhooks({
 
   // A kept subscription resumes from where its type is now, once its type is declared. One the server refuses is
   // ended; one that fails otherwise, as a check or onSubscribe may once, is tried again, a little later each time.
-  const resume = async (type: EventType, record: WebhookSubscription, wait = 1000): Promise<void> => {
+  const resume = async (type: EventTypeState, record: WebhookSubscription, wait = 1000): Promise<void> => {
     if (expired(record) || internals.types.get(type.name) !== type) return void await store?.remove(record.id);
     try { await begin(type, record, null); } catch (error) {
       const code = codeOf(error);
@@ -479,7 +479,7 @@ export function webhooks({
   };
 
   // Each emitted event goes to the subscriptions of its type it is for.
-  const attach = (type: EventType) => {
+  const attach = (type: EventTypeState) => {
     if (attached.has(type)) return;
     attached.add(type);
     type.sinks.add(emitted => {

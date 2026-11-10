@@ -1,7 +1,8 @@
 import { Client, isInputRequiredResult, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, CallToolResult, InputRequiredResult, InputResponses, PriorDiscovery, ReadResourceResult, StandardSchemaV1, Tool } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, PriorDiscovery, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
-import { setTimeout as sleep } from "node:timers/promises";
+import { EXTENSION } from "./ext/files.js";
+import { acceptUploadRequests, downloads, isUploadRequest, prepare, settings, upload } from "./ext/files.client.js";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 import type { WebhookReceiver } from "./ext/webhooks.js";
@@ -21,6 +22,8 @@ export interface Binding {
   installationUID?: string;
   /** Close the session after every call instead of keeping one connection open. */
   scoped?: boolean;
+  /** Origins the server may name as file upload or download targets, e.g. "https://storage.example.com". Unset, any https origin on a globally reachable address is allowed; set, only these, which may also be http on loopback or have a non-global address. */
+  fileOrigins?: string[];
 }
 /** Alias for an endpoint binding. */
 export type EndpointBinding = Binding;
@@ -34,11 +37,11 @@ export interface Contract {
 }
 /** Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources. */
 export type RuntimeClient = ToolClient<Record<string, Record<string, unknown>>, Record<string, unknown>, Record<string, unknown>>;
-/** The subset of an MCP client a session must provide. */
+/** The subset of an MCP client a session must provide. A tool call may also resolve to the server's input_required question. */
 export interface ToolSession {
-  callTool(request: { name: string; arguments?: Record<string, unknown> }, options?: Record<string, unknown>): Promise<any>;
-  readResource(request: { uri: string }, options?: Record<string, unknown>): Promise<any>;
-  listTools(params?: undefined, options?: Record<string, unknown>): Promise<any>;
+  callTool(request: CallToolRequest["params"], options?: CallToolRequestOptions): Promise<CallToolResult | InputRequiredResult>;
+  readResource(request: ReadResourceRequest["params"], options?: CacheableRequestOptions): Promise<ReadResourceResult>;
+  listTools(params?: ListToolsRequest["params"], options?: CacheableRequestOptions): Promise<ListToolsResult>;
 }
 /** Optional validation, binding resolution, and host-session hooks. */
 export interface CreateOptions<B = Binding> {
@@ -65,8 +68,6 @@ const LEGACY_VERDICT_MS = 10 * 60 * 1000;
 type Endpoint = Binding & { [DISCOVERY]?: string };
 /** Without an endpoint, a binding is served by the session hook or not at all. */
 type Resolved = Endpoint | { endpoint?: undefined };
-/** The MCP client calls a session serves, whether the runtime's own client or a host's. */
-type Session = Pick<Client, "callTool" | "readResource" | "listTools">;
 /** Checks a value against one JSON Schema; errors describes the last failure. */
 type Check = ReturnType<NonNullable<CreateOptions["validator"]>>;
 
@@ -91,14 +92,15 @@ function defaultValidator(schema: object): Check {
 
 interface Connection {
   client: Client;
+  resolved: Endpoint;
+  authorization?: string;
   ready: Promise<void>;
   /** Whether the server answered any request on this connection. */
   answered: boolean;
   close(): Promise<void>;
 }
 
-function environment(identity: Identity, name: string): Endpoint | undefined {
-  if (!Object.hasOwn(identity.requires ?? {}, name)) return undefined;
+function environment(name: string): Endpoint {
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
   const endpoint = process.env[`${prefix}URL`];
   // Environment-bound dependencies connect for one call at a time, sending <NAME>_MCP_TOKEN as the bearer token when it is set.
@@ -109,6 +111,18 @@ function environment(identity: Identity, name: string): Endpoint | undefined {
 
 function validate(check: Check, value: unknown, label: string): void {
   if (!check(value)) throw new Error(`Invalid ${label}: ${JSON.stringify(check.errors)}`);
+}
+
+function sleep(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, milliseconds);
+    signal?.addEventListener("abort", done, { once: true });
+  });
 }
 
 function untilAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -129,21 +143,22 @@ function patient(options?: CacheableRequestOptions): CacheableRequestOptions {
 }
 
 // Requests outside the core protocol are checked by their callers.
-function anything<T>(): StandardSchemaV1<unknown, T> {
-  return { "~standard": { version: 1, vendor: "holon-sh", validate: value => ({ value: (value ?? {}) as T }) } };
-}
+const anything = { "~standard": { version: 1 as const, vendor: "holon-sh", validate: (value: unknown) => ({ value: (value ?? {}) as any }) } };
 // A stream that has said nothing for twice the longest heartbeat interval is dead: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#lifecycle
 const QUIET = 60_000;
-// The protocol's refusals, which end a subscription: an invalid request, an event type that is gone, lost access,
-// and a delivery mode not offered.
-const REFUSALS = [-32602, -32023, -32024, -32026];
-
-/** What the Events extension's requests and notifications carry, as the sketch defines them. */
-interface Delivered extends EventOccurrence { cursor?: string | null; _meta?: unknown }
-interface Polled { events?: Delivered[]; cursor?: string | null; truncated?: boolean; hasMore?: boolean; nextPollMs?: number }
-interface Subscribed { id: string; cursor?: string | null; truncated?: boolean; refreshBefore?: string | null }
-interface Ended { code?: number; message?: string; data?: unknown }
-interface Envelope extends Partial<Delivered> { type?: string; error?: Ended }
+/** An occurrence as the server sends it, at the cursor after it. */
+type Sent = EventOccurrence & { cursor?: string | null; _meta?: unknown };
+/** One page of events/list. */
+type Listed = { events?: EventType[]; nextCursor?: string };
+/** What an events/poll answers. */
+type Polled = { events?: Sent[]; cursor?: string | null; truncated?: boolean; hasMore?: boolean; nextPollMs?: number };
+/** What an events/subscribe answers. */
+type Subscribed = { id: string; cursor?: string | null; truncated?: boolean; refreshBefore?: string | null };
+/** How a server says a subscription ended. */
+type Ended = { code?: number; message?: string; data?: unknown };
+// A server's refusal ends a subscription: a client error, or an answer that the event type is gone, that access was
+// lost, or that the request is no longer valid. Anything else is tried again from the cursor.
+const refused = (error: any): boolean => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500 || [-32602, -32023, -32024, -32026].includes(error?.code);
 
 /** Construct only the explicitly bound dependencies. Unknown names throw; an empty binding map selects none. Used by generated createApps factories. */
 export function bindApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>> {
@@ -156,7 +171,7 @@ export function bindApps<B = Binding>(identity: Identity, contracts: Record<stri
 
 /** Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated clients. */
 export function createApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>> {
-  const { validator = defaultValidator, resolve = (name: string) => environment(identity, name), session: hosted, ext } = options ?? {};
+  const { validator = defaultValidator, resolve = environment, session: hosted, ext } = options ?? {};
   const webhook = ext?.events?.webhook;
   const apps: Record<string, RuntimeClient> = Object.create(null);
   // Without explicit bindings, every declared dependency gets a client; those without a contract are untyped.
@@ -169,18 +184,20 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     const connect = (resolved: Endpoint, prior?: PriorDiscovery): Connection => {
       // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
-      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} } }, versionNegotiation: { mode: "auto" } });
-      const transport = new StreamableHTTPClientTransport(new URL(resolved.endpoint), { authProvider: resolved.authProvider, fetch: async (input, init) => {
+      const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
+      const endpoint = new URL(resolved.endpoint);
+      const transport = acceptUploadRequests(new StreamableHTTPClientTransport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
+        if (String(input) === endpoint.href) current.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
         const response = await (resolved.fetch ?? fetch)(input, init);
         current.answered ||= response.ok;
         return response;
-      }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } });
+      }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }));
       transport.onclose = () => { if (connection === current) connection = undefined; };
       const ready = client.connect(transport, { prior }).catch(async (error: unknown) => {
         await transport.close();
         throw error;
       });
-      const current: Connection = { client, ready, answered: false, close: async () => {
+      const current: Connection = { client, resolved, ready, answered: false, close: async () => {
         await transport.terminateSession().catch(() => {});
         await transport.close();
         await ready.catch(() => {});
@@ -189,14 +206,11 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     };
     // The session hook serves bindings the runtime does not connect to itself.
     const host = binding ? hosted?.(name, binding) : undefined;
-    const session = async <T>(options: CallOptions | undefined, run: (client: Session) => Promise<T>): Promise<T> => {
+    const session = async <T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T> => {
       options?.signal?.throwIfAborted();
       if (host) return run(host);
       const resolved = current();
-      if (!resolved) throw new Error(Object.hasOwn(identity.requires ?? {}, name)
-        ? `Dependency ${name} is unavailable. Provide a binding.`
-        : `Dependency ${name} is not declared by this application.`);
-      if (!resolved.endpoint) throw new Error(`Dependency ${name} binding has no endpoint.`);
+      if (!resolved?.endpoint) throw new Error(`Dependency ${name} is unavailable. Provide a binding.`);
       // Bindings marked scoped connect for one call at a time.
       const scoped = resolved.scoped === true;
       const key = resolved[DISCOVERY];
@@ -209,7 +223,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
           const discover = active.client.getDiscoverResult();
           discovered.set(name, { key, prior: discover ? { kind: "modern", discover } : { kind: "legacy" }, expires: discover ? Infinity : Date.now() + LEGACY_VERDICT_MS });
         }
-        return await run(active.client);
+        return await run(active.client, active);
       } catch (error) {
         // A server that no longer speaks the discovered protocol rejects the first request without running it.
         if (!prior || active.answered || !(SdkHttpError.isInstance(error) && error.status === 400)) throw error;
@@ -224,21 +238,41 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
       // A contract's tool is the tool as its server listed it.
       const sent = { ...patient(options), allowInputRequired: true, ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } as Tool }) };
-      const result = await session(options, async client => {
-        let result: CallToolResult | InputRequiredResult = await client.callTool(request, sent);
-        // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
-        for (let round = 0; elicit && isInputRequiredResult(result) && round < 10; round++) {
+      const label = `${name}.${request.name}`;
+      const result = await session(options, async (client, connection) => {
+        const { arguments: args, files } = await prepare(request.arguments, {
+          label, connection,
+          schema: async () => tool?.definition.inputSchema ?? (await client.listTools(undefined, patient(options))).tools.find(({ name }) => name === request.name)?.inputSchema,
+        });
+        // The SDK's request type leaves out the continuation fields the protocol carries.
+        let next: typeof request = files.size ? { ...request, arguments: args } : request;
+        let uploaded = false;
+        for (let round = 0; ;) {
+          let result: CallToolResult | InputRequiredResult;
+          try {
+            result = await client.callTool(next, sent);
+          } catch (error) {
+            if (connection && isUploadRequest(error)) {
+              if (uploaded) throw new Error(`${label}: the server asked for a second upload; the tool did not run.`);
+              const requestState = await upload(error.data, files, connection, options.signal, label);
+              uploaded = true;
+              const { inputResponses, ...retry } = next;
+              next = { ...retry, requestState };
+              continue;
+            }
+            if (uploaded) throw new Error(`${label}: the outcome is unknown; the tool may have run (${(error as { message?: unknown } | null | undefined)?.message ?? error}).`, { cause: error });
+            throw error;
+          }
+          // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
+          if (!elicit || !isInputRequiredResult(result) || round++ === 10) return connection ? downloads(result, connection, settings(connection) !== undefined) : result;
           const inputResponses: InputResponses = {};
           for (const [key, question] of Object.entries(result.inputRequests ?? {})) {
             // Every client declares elicitation alone, so it answers nothing else and such a question reaches the caller.
             if (question.method !== "elicitation/create") return result;
             inputResponses[key] = await elicit(question.params);
           }
-          // The SDK's request type leaves out the continuation fields the protocol carries.
-          const next: typeof request = { ...request, inputResponses, requestState: result.requestState };
-          result = await client.callTool(next, sent);
+          next = { ...next, inputResponses, requestState: result.requestState };
         }
-        return result;
       });
       if (isInputRequiredResult(result)) return result;
       // The server validates arguments; the client checks the output against the contract it was compiled against.
@@ -273,7 +307,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         const resolved = current();
         if (!resolved?.endpoint) throw new Error(`Watching ${name} ${resource.uri} requires an endpoint binding.`);
         // An abort ends the wait between attempts early instead of failing it.
-        for (let established = false; !signal?.aborted; await sleep(1000, undefined, { signal }).catch(() => {})) {
+        for (let established = false; !signal?.aborted; await sleep(1000, signal)) {
           const current = connect(resolved);
           let failure: unknown;
           try {
@@ -301,27 +335,22 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       resources[resource.uri] = Object.freeze({ read, watch });
     }
     // MCP Events, the draft extension: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
-    // Its requests need the runtime's own connection, which a host's session does not give.
-    const request = <T>(client: Session, method: string, params: Record<string, unknown>, options?: CacheableRequestOptions): Promise<T> => {
-      if (!("request" in client)) throw new Error(`Events of ${name} need an endpoint binding.`);
-      return (client as Client).request({ method, params }, anything<T>(), options);
-    };
     const list = (options?: CallOptions) => session(options, async client => {
       const events: EventType[] = [];
       for (let cursor: string | undefined; ;) {
-        const page = await request<{ events?: EventType[]; nextCursor?: string }>(client, "events/list", { ...(cursor && { cursor }) }, patient(options));
+        const page = await (client as Client).request({ method: "events/list", params: { ...(cursor && { cursor }) } }, anything, patient(options)) as Listed;
         events.push(...page.events ?? []);
         if (!(cursor = page.nextCursor)) return events;
       }
     });
-    const subscribe = async (event: string, args: Record<string, unknown> = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
+    const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
       const resolved = current();
       if (!resolved?.endpoint) throw new Error(`Subscribing to ${name} ${event} requires an endpoint binding.`);
-      const endpoint: Endpoint = resolved;
-      const offered = (await list({ signal })).find(type => type.name === event)?.delivery;
+      const endpoint = resolved;
+      const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
       if (!offered) throw new Error(`${name} has no event ${event}.`);
       // A webhook ties up no connection, push hears of an event at once, and poll works wherever a request does: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#delivery-mode-selection
-      const delivery = options.delivery ?? (webhook && offered.includes("webhook") ? "webhook" : offered.includes("push") ? "push" : offered.includes("poll") ? "poll" : undefined);
+      const delivery = options.delivery ?? ([...(webhook ? ["webhook"] as const : []), "push", "poll"] as const).find(mode => offered.includes(mode));
       if (!delivery || !offered.includes(delivery)) throw new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`);
       if (delivery === "webhook" && !webhook) throw new Error(`Webhook delivery of ${name} ${event} needs the ext.events.webhook option of createApps.`);
       const cancelled = new AbortController();
@@ -340,33 +369,23 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       // The client checks an event's data against the contract it was compiled against, as it does a tool's output.
       const expected = contract?.events?.find(type => type.name === event)?.payloadSchema;
       let valid: Check | undefined;
-      const deliver = ({ cursor: _, _meta, ...occurrence }: Delivered) => {
+      const deliver = ({ cursor: _, _meta, ...occurrence }: Sent) => {
         if (seen.has(occurrence.eventId)) return;
         seen.add(occurrence.eventId);
-        const oldest = seen.values().next();
-        if (seen.size > 1024 && !oldest.done) seen.delete(oldest.value);
+        if (seen.size > 1024) seen.delete(seen.values().next().value!);
         if (expected) validate(valid ??= validator(expected), occurrence.data, `data of ${name} ${event}`);
         queue.push(occurrence);
         wake();
       };
-      const asked = { name: event, arguments: args, ...(maxAgeMs !== undefined && { maxAgeMs }) };
+      const request = { name: event, arguments: args, ...(maxAgeMs !== undefined && { maxAgeMs }) };
       let confirmed = false;
-      let established!: { resolve(): void; reject(reason: unknown): void };
+      let established!: { resolve: () => void; reject: (reason: unknown) => void };
       const active = new Promise<void>((resolve, reject) => { established = { resolve: () => { confirmed = true; resolve(); }, reject }; });
-      // A server's refusal ends the subscription. Anything else is tried again from the cursor.
-      const refused = (error: unknown) => {
-        const status = SdkHttpError.isInstance(error) ? error.status : undefined;
-        const code = (error as Ended | undefined)?.code;
-        return status !== undefined && status >= 400 && status < 500 || code !== undefined && REFUSALS.includes(code);
-      };
-      // An abort ends a wait between attempts early instead of failing it.
-      const pause = (milliseconds: number, until: AbortSignal) => sleep(milliseconds, undefined, { signal: until }).catch(() => {});
-      const ending = (error: Ended) => Object.assign(new Error(`${name} ended the subscription to ${event}: ${error.message}`), { code: error.code, data: error.data });
       const poll = async () => {
         while (!ended.aborted) {
           let wait = 1000;
           try {
-            const result = await session({ signal: ended }, client => request<Polled>(client, "events/poll", { ...asked, cursor }, patient({ signal: ended })));
+            const result = await session({ signal: ended }, client => (client as Client).request({ method: "events/poll", params: { ...request, cursor } }, anything, patient({ signal: ended })) as Promise<Polled>);
             try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
             reach(result.cursor, result.truncated);
             established.resolve();
@@ -376,18 +395,20 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             if (ended.aborted) return;
             if (!confirmed || refused(error)) throw error;
           }
-          await pause(wait, ended);
+          await sleep(wait, ended);
         }
       };
       const stream = async () => {
         while (!ended.aborted) {
           const quiet = new AbortController();
           // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
+          // Only the stream's own response is watched: a 2025 server answers its initialization as a stream too.
           const watched: typeof fetch = async (input, init) => {
             const response = await (endpoint.fetch ?? fetch)(input, init);
-            if (!response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
+            const streaming = typeof init?.body === "string" && init.body.includes('"method":"events/stream"');
+            if (!streaming || !response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
             const reader = response.body.getReader();
-            const body = new ReadableStream<Uint8Array>({
+            const body = new ReadableStream({
               pull: controller => reader.read().then(({ done, value }) => {
                 if (!done) return controller.enqueue(value);
                 controller.close();
@@ -405,29 +426,29 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             clearTimeout(timer);
             timer = setTimeout(() => quiet.abort(), QUIET);
           };
-          let terminated: Ended | undefined;
+          let terminated: { code?: number; message?: string; data?: unknown } | undefined;
           try {
             await untilAborted(connection.ready, ended);
-            const on = <P>(method: string, handle: (params: P) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything<P>() }, params => { heard(); handle(params); });
-            on<{ cursor?: string | null; truncated?: boolean }>("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
-            on<Delivered>("event", occurrence => {
+            const on = (method: string, handle: (params: any) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything }, params => { heard(); handle(params); });
+            on("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
+            on("event", occurrence => {
               try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
               reach(occurrence.cursor);
             });
-            on<{ cursor?: string | null }>("heartbeat", ({ cursor: next }) => reach(next));
+            on("heartbeat", ({ cursor: next }) => reach(next));
             // The server recovers from an error by itself, and the stream stays open.
             on("error", () => {});
-            on<{ error: Ended }>("terminated", ({ error }) => { terminated = error; quiet.abort(); });
+            on("terminated", ({ error }) => { terminated = error; quiet.abort(); });
             heard();
-            await connection.client.request({ method: "events/stream", params: { ...asked, cursor } }, anything(), { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
+            await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, anything, { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
           } catch (error) {
             if (!terminated && !ended.aborted && (!confirmed || refused(error))) throw error;
           } finally {
             clearTimeout(timer);
             await connection.close();
           }
-          if (terminated) throw ending(terminated);
-          await pause(1000, ended);
+          if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated.message}`), { code: terminated.code, data: terminated.data });
+          await sleep(1000, ended);
         }
       };
       // The server POSTs to the application's receiver, which hands this subscription its deliveries. The subscription
@@ -436,11 +457,11 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         let terminated: Ended | undefined;
         const stopped = new AbortController();
         const listening = receiver.listen(body => {
-          const message = body as Envelope | undefined;
+          const message = body as (Partial<Sent> & { type?: string; error?: Ended }) | undefined;
           if (message?.type === "gap") return reach(message.cursor, true);
           if (message?.type === "terminated") { terminated = message.error ?? {}; return stopped.abort(); }
-          if (message?.type || !message) return;
-          try { deliver(message as Delivered); } catch (error) { failure = error; return cancelled.abort(); }
+          if (!message || message.type) return;
+          try { deliver(message as Sent); } catch (error) { failure = error; return cancelled.abort(); }
           reach(message.cursor);
         });
         const until = AbortSignal.any([ended, stopped.signal]);
@@ -448,9 +469,9 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         // Failed refreshes are tried again sooner than the grant ends, a little later each time.
         let retry = 1000;
         try {
-          for (let wait = 0; !until.aborted; await pause(wait, until)) {
+          for (let wait = 0; !until.aborted; await sleep(wait, until)) {
             try {
-              const result = await session({ signal: until }, client => request<Subscribed>(client, "events/subscribe", { ...asked, ...target, delivery: { ...target.delivery, secret: listening.secret }, cursor }, patient({ signal: until })));
+              const result = await session({ signal: until }, client => (client as Client).request({ method: "events/subscribe", params: { ...request, ...target, delivery: { ...target.delivery, secret: listening.secret }, cursor } }, anything, patient({ signal: until })) as Promise<Subscribed>);
               listening.bind(result.id);
               reach(result.cursor, result.truncated);
               established.resolve();
@@ -467,16 +488,16 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             }
           }
         } finally {
-          if (listening.close() && !terminated) await session({}, client => request(client, "events/unsubscribe", target, patient({}))).catch(() => {});
+          if (listening.close() && !terminated) await session({}, client => (client as Client).request({ method: "events/unsubscribe", params: target }, anything, patient({}))).catch(() => {});
         }
-        if (terminated) throw ending(terminated);
+        if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated.message}`), { code: terminated.code, data: terminated.data });
       };
       void (delivery === "push" ? stream() : delivery === "webhook" ? hook(webhook!) : poll())
         .catch(error => { failure ??= error; })
         .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
       await active;
       return {
-        delivery: delivery as Subscription["delivery"],
+        delivery,
         get cursor() { return cursor; },
         cancel: () => cancelled.abort(),
         [Symbol.asyncIterator]: () => ({
@@ -491,10 +512,8 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         }),
       };
     };
-    // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds, and
-    // subscribe to their contract's events.
-    const events = Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] });
-    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, ext: Object.freeze({ events }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
+    // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
+    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, ext: Object.freeze({ events: Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] }) }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
   }
   return Object.freeze(apps);
 }
