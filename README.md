@@ -130,12 +130,12 @@ const said = events.event("room.said", {
 });
 
 said.end(id);   // ends one subscription; said.end() ends them all
-said.remove();  // stops offering the type, with createEvents({ listChanged: true })
+said.remove();  // stops offering the type; createEvents({ listChanged: true }) also tells clients
 ```
 
-Every event a server keeps or queues is bounded. `createEvents` keeps at most `maxEvents` and `maxBytes` of each type, and a stream whose reader stops reading is sent at most `maxQueued` and `maxQueuedBytes` before the server stops; once the reader catches up it is told of a gap, through `onGap`, and goes on from the newest. An event type whose events each hold a whole record can give a `key`, and then the newest event for a key replaces the one before it, so a client that falls behind catches up on records rather than on every change.
+Every event a server keeps or queues is bounded. `createEvents` keeps at most `keep.events` and `keep.bytes` of each type, and a stream whose reader stops reading is sent at most `maxQueued` and `maxQueuedBytes` before the server stops; once the reader catches up it is told of a gap, through `onGap`, and goes on from the newest. An event type whose events each hold a whole record can give a `key`, and then the newest event for a key replaces the one before it, so a client that falls behind catches up on records rather than on every change.
 
-A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when the stream closes or polls stop for a while. `createEvents` takes limits on subscriptions, how long events are kept, and how often streams and polls are served.
+A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. Its `id` is the same for the same caller, event type and arguments, so what is emitted to it while its client reconnects is still delivered. `createEvents` takes what each type keeps (`keep: { events, age, bytes }`), the `interval` of polls and checks, and limits on subscriptions in all and per caller.
 
 Poll and push delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery and typed event names are not. A client learns that the event types changed only on a connection that lasts, such as stdio: over stateless HTTP it lists them again.
 
