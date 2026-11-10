@@ -10,5 +10,4 @@ export async function sha256(blob) {
   return (await base64(new Blob([digest]))).replace(/=+$/, "").replaceAll("+", "-").replaceAll("/", "_");
 }
 
-// A browser limits what fetch reaches, which meets the extension's address rule.
 export const fetchGlobal = (url, init) => fetch(url, init);

@@ -4,19 +4,15 @@ import { isIP } from "node:net";
 
 export const base64 = async blob => Buffer.from(await blob.arrayBuffer()).toString("base64");
 
-// Streams, so a file-backed Blob (fs.openAsBlob) is never read into memory at once.
 export async function sha256(blob) {
   const hash = createHash("sha256");
   for await (const chunk of blob.stream()) hash.update(chunk);
   return hash.digest("base64url");
 }
 
-// Node's fetch connects anywhere, so a url target goes through an undici agent whose lookup only returns globally
-// reachable addresses: the check happens on the address actually connected to. Loaded on the first url target.
 let loaded;
 export async function fetchGlobal(url, init) {
   const { fetch, agent, global } = await (loaded ??= load());
-  // net.connect skips lookup for an IP literal.
   const host = new URL(url).hostname.replace(/^\[(.*)\]$/, "$1");
   if (isIP(host) && !global(host)) throw new TypeError("fetch failed", { cause: new Error("the address is not globally reachable") });
   return fetch(url, { ...init, dispatcher: agent });
@@ -25,7 +21,6 @@ export async function fetchGlobal(url, init) {
 async function load() {
   const [{ Agent, fetch }, { default: ipaddr }] = await Promise.all([import("undici"), import("ipaddr.js")]);
   const nat64 = ipaddr.parseCIDR("64:ff9b::/96");
-  // ipaddr.js names every special-purpose range; what is left is global unicast. NAT64 addresses carry an IPv4 address.
   const global = address => {
     let ip = ipaddr.process(address);
     if (ip.kind() === "ipv6" && ip.match(nat64)) ip = new ipaddr.IPv4(ip.toByteArray().slice(12));

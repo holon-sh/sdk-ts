@@ -85,11 +85,9 @@ export function createApps(identity, contracts, bindings, options) {
     const connect = (resolved, discover) => {
       // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
       // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
-      // Every request declares the files extension, tools/list included, with the same settings.
       const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
       const endpoint = new URL(resolved.endpoint);
       const transport = acceptUploadRequests(new StreamableHTTPClientTransport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
-        // A file target with credentials "include" gets the Authorization value of the MCP requests, and no other.
         if (String(input) === endpoint.href) current.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
         const response = await (resolved.fetch ?? fetch)(input, init);
         current.answered ||= response.ok;
@@ -143,7 +141,6 @@ export function createApps(identity, contracts, bindings, options) {
           ...patient(options), allowInputRequired: true,
           ...(tool && { toolDefinition: { ...tool.definition, outputSchema: undefined } }),
         });
-        // Blobs at the tool's file arguments become FileInputs, sent the same on every request of the call.
         const { arguments: args, files } = await prepare(request.arguments, {
           label, connection, settings: () => settings(client),
           schema: async () => tool?.definition.inputSchema ?? (await client.listTools(undefined, patient(options))).tools.find(({ name }) => name === request.name)?.inputSchema,
@@ -159,12 +156,10 @@ export function createApps(identity, contracts, bindings, options) {
               if (uploaded) throw new Error(`${label}: the server asked for a second upload; the tool did not run.`);
               await upload(error.data, files, connection, options.signal, label);
               uploaded = true;
-              // requestState carries the answers so far, so the retry does not repeat them.
               const { inputResponses, ...retry } = next;
               next = { ...retry, requestState: error.data.requestState };
               continue;
             }
-            // The retry that answers an upload request, and every later one, may have run the tool, so it is never resent.
             if (uploaded) throw new Error(`${label}: the outcome is unknown; the tool may have run (${error?.message ?? error}).`, { cause: error });
             throw error;
           }

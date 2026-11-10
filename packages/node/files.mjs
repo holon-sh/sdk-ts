@@ -7,18 +7,14 @@ export const EXTENSION = "io.modelcontextprotocol/files";
 const list = value => Array.isArray(value) ? value : [];
 const isObject = value => typeof value === "object" && value !== null && !Array.isArray(value);
 const isPlain = value => isObject(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value));
-// A member whose value is null is absent.
 const present = value => isObject(value) ? Object.fromEntries(Object.entries(value).filter(([, member]) => member !== null)) : undefined;
 const quoted = name => name === undefined ? "a file" : JSON.stringify(name);
 
-// The server's settings, unless it did not advertise the extension or sent a revision this client does not know.
 export function settings(client) {
   const advertised = client.getServerCapabilities()?.extensions?.[EXTENSION];
   return isObject(advertised) && advertised.revision == null ? advertised : undefined;
 }
 
-// upload_required results that acceptUploadRequests turned into errors. Only this module adds to it, so no error a
-// server sends can pass for one.
 const uploadRequests = new WeakSet();
 export const isUploadRequest = error => uploadRequests.has(error?.data);
 
@@ -48,7 +44,6 @@ function contains(value) {
 const resolve = (root, ref) => ref.slice(1).split("/").slice(1)
   .reduce((node, token) => node === null || typeof node !== "object" ? undefined : node[decodeURIComponent(token).replaceAll("~1", "/").replaceAll("~0", "~")], root);
 
-// The schemas that apply at one position: each one, its local $ref target and its anyOf, oneOf and allOf branches.
 function expand(schemas, root, seen = new Set()) {
   return schemas.flatMap(schema => {
     if (!isObject(schema) || seen.has(schema)) return [];
@@ -80,8 +75,6 @@ function baseName(name) {
   return base && base !== "." && base !== ".." ? base : undefined;
 }
 
-// Replaces each Blob at a position the tool's schema marks x-mcp-file with a FileInput. Files that fit the server's
-// inline budget, smallest first, travel as data; the rest wait for the server's upload request.
 export async function prepare(args, { label, connection, settings, schema }) {
   const files = new Map();
   if (!contains(args)) return { arguments: args, files };
@@ -131,8 +124,6 @@ function parse(url) {
   try { return new URL(url); } catch { return undefined; }
 }
 
-// The Targets rules: shape, url or path, headers, form, credentials and which addresses may be reached. Returns how to
-// send; an error names the rule broken, never a value, because targets are secrets.
 function check(raw, kind, { resolved }) {
   const target = present(raw);
   const fail = reason => { throw new Error(reason); };
@@ -181,11 +172,9 @@ function check(raw, kind, { resolved }) {
   if (target.url !== undefined) {
     url = parse(target.url);
     if (!url || url.username || url.password) fail("url is not an absolute URL without userinfo");
-    // An origin on fileOrigins is the operator allowlist: it may be http on loopback or have a non-global address.
     allowlisted = origins?.has(url.origin) ?? false;
     if (origins && !allowlisted) fail("url is not on fileOrigins");
     if (url.protocol !== "https:" && !(url.protocol === "http:" && allowlisted && loopback(url.hostname))) fail("url is not https");
-    // Without a canonical URI from authorization, the server's origin is the MCP address's.
     if (include && url.origin !== endpoint.origin) fail("credentials include is honored only at the server's origin");
   } else {
     if (!PATH.test(target.path)) fail("path is not a valid path");
@@ -197,13 +186,10 @@ function check(raw, kind, { resolved }) {
   return { url: url.href, path: target.path !== undefined, allowlisted, include, headers: target.headers ?? {}, method: target.method ?? "PUT", form, size: target.size, expiresAt: target.expiresAt };
 }
 
-// No redirects, no cookies or other ambient credentials, and the MCP Authorization value only where a target asks for it.
 function send(target, init, { resolved, authorization }) {
   const headers = new Headers(target.headers);
   if (target.include && authorization) headers.set("authorization", authorization);
-  // A path is under the MCP address, so it routes like the MCP requests.
   if (target.path && resolved.installationUID) headers.set("x-holon-installation-uid", resolved.installationUID);
-  // Not the binding's fetch: it may add the caller's own credentials, which only an include target may carry.
   const transport = target.path || target.allowlisted ? fetch : fetchGlobal;
   return transport(target.url, { ...init, headers, credentials: "omit", redirect: "error" });
 }
@@ -221,7 +207,6 @@ function multipart({ fields, fileField }, { blob, input }) {
   return { body: new Blob(parts), type: `multipart/form-data; boundary=${boundary}` };
 }
 
-// A failed PUT is sent again up to twice; a POST never is, since the target may have applied it.
 async function transfer(target, file, connection, signal) {
   const { body, type } = target.form ? multipart(target.form, file) : { body: file.blob.slice(0, file.blob.size, "") };
   for (let attempt = 0; ; attempt++) {
@@ -242,8 +227,6 @@ async function transfer(target, file, connection, signal) {
   }
 }
 
-// Answers an upload request: every target is checked before any transfer starts, the files go concurrently, and the
-// first failure stops the rest. Every failure leaves the tool not run; nothing says whether bytes were stored.
 export async function upload(request, files, connection, signal, label) {
   const fail = reason => new Error(`${label}: ${reason}; the tool did not run.`);
   if (typeof request.requestState !== "string") throw fail("the server's upload request has no requestState");
@@ -303,7 +286,6 @@ function download(raw, connection) {
   return Object.freeze({ ...Object.fromEntries(Object.entries({ name, mimeType, size, digest, expiresAt }).filter(([, value]) => value !== undefined)), blob });
 }
 
-// Download targets leave the result, so it can be logged or shown to a model; the caller fetches through the handles.
 export function downloads(result, connection, enabled) {
   if (result.resultType === "input_required" || !isObject(result._meta) || !(EXTENSION in result._meta)) return result;
   const { [EXTENSION]: meta, ...rest } = result._meta;
