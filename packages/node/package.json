@@ -16,7 +16,7 @@
     "access": "public"
   },
   "holon": {
-    "contractVersion": 2
+    "contractVersion": 3
   },
   "exports": {
     "./runtime": {
