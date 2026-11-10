@@ -340,7 +340,8 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       if (!offered) throw new Error(`${name} has no event ${event}.`);
       // Push hears of an event at once, and poll works wherever a request does. Webhook delivery is not supported.
       const delivery = options.delivery ?? (["push", "poll"] as const).find(mode => offered.includes(mode));
-      if (!delivery || !offered.includes(delivery)) throw new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`);
+      // The sketch's NoCompatibleDeliveryMode: none of the modes the server offers is one this client uses.
+      if (!delivery || !offered.includes(delivery)) throw Object.assign(new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`), { name: "NoCompatibleDeliveryMode" });
       const cancelled = new AbortController();
       const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
       let cursor = options.cursor ?? null;

@@ -63,6 +63,7 @@ export interface EventType {
   inputSchema?: Record<string, unknown>;
   /** JSON Schema of an occurrence's data. */
   payloadSchema?: Record<string, unknown>;
+  _meta?: Record<string, unknown>;
 }
 /** One occurrence of an event. `eventId` is stable, so an occurrence delivered twice is yielded once. */
 export interface EventOccurrence<Data = unknown> { eventId: string; name: string; timestamp: string; data: Data }
@@ -73,7 +74,7 @@ export interface SubscribeOptions {
   cursor?: string | null;
   /** Do not replay events older than this many milliseconds. */
   maxAgeMs?: number;
-  /** The delivery mode to use. Without one, push where the server offers it, and poll otherwise. */
+  /** The delivery mode to use. Without one, push where the server offers it, and poll otherwise. One the server does not offer rejects with an error named NoCompatibleDeliveryMode. */
   delivery?: "push" | "poll";
   /** Called when the server skipped events, for example after it restarted. Read the current state again. */
   onGap?: () => void;

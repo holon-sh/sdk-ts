@@ -123,17 +123,17 @@ An event type may also say who may subscribe, and hear when subscriptions begin 
 const said = events.event("room.said", {
   // ...
   authorize: ({ room }, context) => mayRead(getContext(context).principal, room),
-  onSubscribe: ({ id, arguments: { room } }) => {
-    const listener = upstream.join(room, text => said.emit({ room, text }, { subscription: id }));
-    return () => listener.leave();
+  onSubscribe: ({ subscriptionId, arguments: { room } }) => {
+    listeners.set(subscriptionId, upstream.join(room, text => said.emit({ room, text }, { subscriptionId })));
   },
+  onUnsubscribe: ({ subscriptionId }) => listeners.get(subscriptionId)?.leave(),
 });
 
-said.end(id);   // ends one subscription; said.end() ends them all
-said.remove();  // stops offering the type; createEvents({ listChanged: true }) also tells clients
+said.terminate(subscriptionId);  // terminates one subscription; said.terminate() terminates them all
+said.remove();                   // stops offering the type; createEvents({ listChanged: true }) also tells clients
 ```
 
-A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. `createEvents` takes what each type keeps (`keep: { events, age }`), the `interval` of polls and checks, and limits on subscriptions in all and per caller.
+A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. `createEvents` takes the sketch's `emitBuffer: { maxAge, maxEvents }` and `pollSubscriptionTtl`, the `interval` of polls and checks, and limits on subscriptions in all and per caller. Names follow the design sketch.
 
 Poll and push delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery and typed event names are not. A client learns that the event types changed only on a connection that lasts, such as stdio: over stateless HTTP it lists them again.
 
