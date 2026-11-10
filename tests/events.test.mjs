@@ -314,6 +314,38 @@ test("callers without an identity do not share a subscription, and what is emitt
   assert.deepEqual([said(first), said(second)].sort((x, y) => y.length - x.length), [["for one stream", "for both"], ["for both"]]);
 });
 
+test("an event that cannot be shaped for a subscription is skipped for it, told once on a stream, and what follows still arrives", async t => {
+  const events = createEvents({ heartbeat: 60_000 });
+  const noted = events.event("note.added", {
+    inputSchema: z.object({}),
+    payloadSchema: z.object({ text: z.string() }),
+    transform: ({ text }) => {
+      if (text === "unshapeable") throw new Error("cannot shape");
+      // What cannot be sent as JSON fails the same way.
+      if (text === "circular") { const loop = {}; loop.loop = loop; return loop; }
+      return { text };
+    },
+  });
+  const { endpoint } = await serve(t, () => {
+    const server = new McpServer({ name: "notes", version: "1.0.0" });
+    events.serve(server);
+    return server;
+  });
+  const { heard, request } = await wire(t, endpoint);
+  const start = noted.cursor();
+  request("events/stream", { name: "note.added", arguments: {}, cursor: null }).catch(() => {});
+  await until(() => heard.length);
+  const logged = t.mock.method(console, "error", () => {});
+  for (const text of ["unshapeable", "circular", "after"]) noted.emit({ text }, { eventId: text });
+  await until(() => heard.some(({ eventId }) => eventId === "after"));
+  noted.emit({ text: "later" }, { eventId: "later" });
+  await until(() => heard.some(({ eventId }) => eventId === "later"));
+  assert.deepEqual(heard.slice(1).map(({ kind, eventId, error }) => kind === "error" ? error.data.eventId : eventId), ["unshapeable", "circular", "after", "later"]);
+  assert.equal(logged.mock.callCount(), 2);
+  const polled = await request("events/poll", { name: "note.added", arguments: {}, cursor: start });
+  assert.deepEqual(polled.events.map(({ eventId }) => eventId), ["after", "later"]);
+});
+
 test("a stream left while its subscription is being set up is torn down and frees its place", async t => {
   let release;
   const ended = [];
