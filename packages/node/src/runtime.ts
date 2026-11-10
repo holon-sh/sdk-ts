@@ -1,5 +1,5 @@
 import { Client, isInputRequiredResult, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, CallToolResult, InputRequiredResult, InputResponses, PriorDiscovery, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, PriorDiscovery, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests, downloads, isUploadRequest, prepare, settings, upload } from "./ext/files.client.js";
@@ -35,11 +35,11 @@ export interface Contract {
 }
 /** Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources. */
 export type RuntimeClient = ToolClient<Record<string, Record<string, unknown>>, Record<string, unknown>, Record<string, unknown>>;
-/** The subset of an MCP client a session must provide. */
+/** The subset of an MCP client a session must provide. A tool call may also resolve to the server's input_required question. */
 export interface ToolSession {
-  callTool(request: { name: string; arguments?: Record<string, unknown> }, options?: Record<string, unknown>): Promise<any>;
-  readResource(request: { uri: string }, options?: Record<string, unknown>): Promise<any>;
-  listTools(params?: undefined, options?: Record<string, unknown>): Promise<any>;
+  callTool(request: CallToolRequest["params"], options?: CallToolRequestOptions): Promise<CallToolResult | InputRequiredResult>;
+  readResource(request: ReadResourceRequest["params"], options?: CacheableRequestOptions): Promise<ReadResourceResult>;
+  listTools(params?: ListToolsRequest["params"], options?: CacheableRequestOptions): Promise<ListToolsResult>;
 }
 /** Optional validation, binding resolution, and host-session hooks. */
 export interface CreateOptions<B = Binding> {
@@ -61,8 +61,6 @@ const LEGACY_VERDICT_MS = 10 * 60 * 1000;
 type Endpoint = Binding & { [DISCOVERY]?: string };
 /** Without an endpoint, a binding is served by the session hook or not at all. */
 type Resolved = Endpoint | { endpoint?: undefined };
-/** The MCP client calls a session serves, whether the runtime's own client or a host's. */
-type Session = Pick<Client, "callTool" | "readResource" | "listTools">;
 /** Checks a value against one JSON Schema; errors describes the last failure. */
 type Check = ReturnType<NonNullable<CreateOptions["validator"]>>;
 
@@ -95,8 +93,7 @@ interface Connection {
   close(): Promise<void>;
 }
 
-function environment(identity: Identity, name: string): Endpoint | undefined {
-  if (!Object.hasOwn(identity.requires ?? {}, name)) return undefined;
+function environment(name: string): Endpoint {
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
   const endpoint = process.env[`${prefix}URL`];
   // Environment-bound dependencies connect for one call at a time, sending <NAME>_MCP_TOKEN as the bearer token when it is set.
@@ -149,7 +146,7 @@ export function bindApps<B = Binding>(identity: Identity, contracts: Record<stri
 
 /** Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated clients. */
 export function createApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>> {
-  const { validator = defaultValidator, resolve = (name: string) => environment(identity, name), session: hosted } = options ?? {};
+  const { validator = defaultValidator, resolve = environment, session: hosted } = options ?? {};
   const apps: Record<string, RuntimeClient> = Object.create(null);
   // Without explicit bindings, every declared dependency gets a client; those without a contract are untyped.
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
@@ -183,14 +180,11 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     };
     // The session hook serves bindings the runtime does not connect to itself.
     const host = binding ? hosted?.(name, binding) : undefined;
-    const session = async <T>(options: CallOptions | undefined, run: (client: Session, connection?: Connection) => Promise<T>): Promise<T> => {
+    const session = async <T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T> => {
       options?.signal?.throwIfAborted();
       if (host) return run(host);
       const resolved = current();
-      if (!resolved) throw new Error(Object.hasOwn(identity.requires ?? {}, name)
-        ? `Dependency ${name} is unavailable. Provide a binding.`
-        : `Dependency ${name} is not declared by this application.`);
-      if (!resolved.endpoint) throw new Error(`Dependency ${name} binding has no endpoint.`);
+      if (!resolved?.endpoint) throw new Error(`Dependency ${name} is unavailable. Provide a binding.`);
       // Bindings marked scoped connect for one call at a time.
       const scoped = resolved.scoped === true;
       const key = resolved[DISCOVERY];

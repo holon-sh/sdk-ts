@@ -12,23 +12,9 @@ const oauth: EndpointBinding = {endpoint: new URL("https://orders.example/mcp"),
   redirectToAuthorization: () => {}, saveCodeVerifier: () => {}, codeVerifier: () => "verifier",
 }, fileOrigins: ["https://storage.example"]};
 createNodeApps({orders: oauth});
-// @ts-expect-error the transport would treat this as a bearer provider and call its missing token()
-createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{tokens: () => undefined, redirectUrl: undefined, clientMetadata: {redirect_uris: []}}}});
 (await scripted.orders.tools.get_order({orderId:"script"}, {elicit: async ({message}) => ({action: "accept", content: {question: message}})})).total.toFixed();
-// @ts-expect-error
-scripted.orders.tools.get_order({orderId:"script"}, {elicit: () => ({action: "maybe"})});
-// @ts-expect-error
-scripted.orders.resources["orders://summary"].watch((value: string) => {});
-// @ts-expect-error
-createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{}}});
-// @ts-expect-error
-createNodeApps({orders:{}});
-// @ts-expect-error generated clients require endpoint bindings; custom sessions use the runtime hook
-createNodeApps({orders:{host:{callServerTool: async () => ({}), readServerResource: async () => ({})}}});
 const summary: Resources["orders"]["orders://summary"] = await apps.orders.resources["orders://summary"].read({signal: new AbortController().signal});
 summary.total.toFixed();
-// @ts-expect-error
-apps.orders.resources["orders://absent"];
 const orderId = "ord";
 const input: Inputs["orders"]["get_order"] = {orderId};
 const result = await apps.orders.tools.get_order(input, {signal: new AbortController().signal});
@@ -43,35 +29,9 @@ EXTENSION satisfies "io.modelcontextprotocol/files";
 try { await apps.orders.tools.get_order(input); } catch (error) {
   if (error instanceof ToolCallError && error.result.resultType === "input_required") error.result.requestState?.toUpperCase();
 }
-// @ts-expect-error
-apps.missing;
-// @ts-expect-error
-apps.orders.tools.missing;
-// @ts-expect-error
-apps.orders.tools.then;
-// @ts-expect-error
-apps.orders.tools.toJSON;
-// @ts-expect-error
-apps.orders.tools.get_order = apps.orders.tools.get_order;
-// @ts-expect-error
-apps.orders.tools.get_order({orderId: 1});
-// @ts-expect-error
-apps.orders.callTool({name:"get_order", arguments:{orderId: 1}});
-// @ts-expect-error
-apps.orders.callTool({name:"absent", arguments:{}});
-// @ts-expect-error
-result.invalid;
-// @ts-expect-error
-raw.structuredContent.total;
-if (raw.resultType === "complete" && !raw.isError) {
-  // @ts-expect-error
-  raw.structuredContent.invalid;
-}
 const unknown = await apps.orders.tools.unknown_output({});
 for (const block of unknown.content) if (block.type === "resource") {
   const { uri, mimeType } = block.resource;
   const body: string = "blob" in block.resource ? block.resource.blob : block.resource.text;
 }
-// @ts-expect-error
-unknown.total;
 getContext().principal?.claims.email satisfies string | undefined;

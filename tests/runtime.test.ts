@@ -101,13 +101,13 @@ test("session hooks serve custom bindings and respect validation and binding bou
   const sessions: unknown[] = [];
   const calls: unknown[] = [];
   const binding = { token: "opaque" };
-  const session = (name: string, value: unknown): ToolSession | undefined => {
+  const session = (name: string, value: unknown): ToolSession => {
     sessions.push([name, value]);
-    return value === binding ? {
+    return {
       callTool: async (request, options) => { calls.push(["call", request, options?.signal]); return { content: [], structuredContent: { id: request.arguments?.id } }; },
       readResource: async request => { calls.push(["read", request]); return { contents: [{ uri: request.uri, text: '{"total":7}' }] }; },
       listTools: async () => ({ tools: [] }),
-    } : undefined;
+    };
   };
   const signal = new AbortController().signal;
   const hosted = bindApps(identity, { orders: contract }, { orders: binding }, { session });
@@ -116,14 +116,10 @@ test("session hooks serve custom bindings and respect validation and binding bou
   assert.deepEqual(await hosted.orders.resources["orders://summary"].read(), { total: 7 });
   assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, signal], ["read", { uri: "orders://summary" }]]);
   await assert.rejects(hosted.orders.resources["orders://summary"].watch(() => {}), /endpoint binding/);
-  // A binding the session declines and that has no endpoint cannot be served.
-  await assert.rejects(bindApps(identity, { orders: contract }, { orders: {} }, { session }).orders.tools.get_order({ id: "x" }), /^Error: Dependency orders binding has no endpoint\.$/);
 
-  // Without a binding, a declared dependency is unavailable and an undeclared one is reported as such.
+  // Without a binding, a declared dependency is unavailable, from the environment or from a resolve hook that binds nothing.
   await assert.rejects(createApps(identity, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable (ORDERS_MCP_URL). Provide a binding or set the environment variable." });
-  await assert.rejects(createApps({ name: "checkout", version: "1" }, { orders: contract }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is not declared by this application." });
-  // Explicit bindings switch resolve off for every app.
-  await assert.rejects(createApps(identity, { orders: contract, other: null }, { other: {} }, { resolve: () => assert.fail("resolve with explicit bindings") }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
+  await assert.rejects(createApps(identity, { orders: contract }, undefined, { resolve: () => undefined }).orders.tools.get_order({ id: "x" }), { message: "Dependency orders is unavailable. Provide a binding." });
   const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
 });
