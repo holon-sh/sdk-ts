@@ -35,17 +35,30 @@ const principal = context => {
   const { authInfo } = context ?? {};
   return authInfo ? [authInfo.extra?.iss ?? null, authInfo.extra?.sub ?? authInfo.clientId ?? null] : null;
 };
+// How many bytes a message takes as JSON, as the limits on what is kept and queued count them.
+const encoder = new TextEncoder();
+const bytes = value => encoder.encode(JSON.stringify(value)).byteLength;
+// The MCP SDK queues a notification on an HTTP response without waiting for the reader, and does not say how much
+// waits. Its per-request transport keeps the response's stream controller, whose desiredSize falls by one for each
+// frame waiting. Over stdio the SDK waits for the pipe to drain instead, so nothing waits there.
+const waiting = server => {
+  const size = server.transport?._sse?.controller?.desiredSize;
+  return typeof size === "number" ? Math.max(0, 1 - size) : 0;
+};
 // A teardown that fails has nobody to tell, and must not take the process down.
 const settle = run => { Promise.resolve().then(run).catch(() => {}); };
 
 /**
  * Event types a process emits and the MCP servers it creates serve. An event stays in memory for `maxAge`
- * milliseconds, and each type keeps at most `maxEvents`, for polls and for streams that reconnect. A stream hears
- * from the server every `heartbeat` milliseconds, and a poll is told to come back after `nextPollMs`.
+ * milliseconds, and each type keeps at most `maxEvents` taking at most `maxBytes`, for polls and for streams that
+ * reconnect. A stream waits on at most `maxQueued` notifications taking `maxQueuedBytes` for a reader that has not
+ * read them. A stream hears from the server every `heartbeat` milliseconds, and a poll is told to come back after
+ * `nextPollMs`.
  */
 export function createEvents({
-  maxAge = 10 * 60_000, maxEvents = 10_000, heartbeat = 30_000, nextPollMs = 1000, pollLease = 60_000,
-  maxSubscriptions = 10_000, pageSize = 100, listChanged = false, modes = [],
+  maxAge = 10 * 60_000, maxEvents = 10_000, maxBytes = 16 * 2 ** 20, maxQueued = 1000, maxQueuedBytes = 4 * 2 ** 20,
+  heartbeat = 30_000, nextPollMs = 1000, pollLease = 60_000, maxSubscriptions = 10_000, pageSize = 100,
+  listChanged = false, modes = [],
 } = {}) {
   const offered = ["poll", "push", ...modes.map(mode => mode.name)];
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
@@ -216,14 +229,25 @@ export function createEvents({
      * event from their arguments, and `transform` shapes its data for each. `check` returns what happened after a
      * cursor, for event types whose source keeps its own history.
      */
-    event(name, { description, inputSchema, payloadSchema, _meta, match, transform, check, interval = nextPollMs, delivery = offered, authorize, onSubscribe }) {
+    event(name, { description, inputSchema, payloadSchema, _meta, match, transform, key, check, interval = nextPollMs, delivery = offered, authorize, onSubscribe }) {
       if (types.has(name)) throw new Error(`Event ${name} is already declared.`);
       const unknown = delivery.filter(mode => !offered.includes(mode));
       if (unknown.length || !delivery.length) throw new Error(`Event ${name} is delivered by ${delivery.join(", ") || "nothing"}, but only ${offered.join(", ")} are served.`);
       // A sink is told each event as it is emitted: a push stream is one, and a delivery mode adds its own.
       const type = {
         name, order: ++declared, description, inputSchema, payloadSchema, _meta, match, transform, check, interval, delivery, authorize, onSubscribe,
-        sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(),
+        sequence: 0, dropped: 0, kept: [], bytes: 0, latest: new Map(), sinks: new Set(), subscriptions: new Map(),
+      };
+      // Events kept, oldest first, each placed by its sequence.
+      const find = sequence => {
+        let low = 0;
+        let high = type.kept.length;
+        while (low < high) {
+          const middle = (low + high) >> 1;
+          if (type.kept[middle].sequence < sequence) low = middle + 1;
+          else high = middle;
+        }
+        return low;
       };
       types.set(name, type);
       changed();
@@ -234,14 +258,32 @@ export function createEvents({
       return {
         emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscription: target } = {}) {
           const occurrence = { eventId, name, timestamp, data };
+          // An event with a key replaces the one before it with the same key, for the same subscriptions.
+          const replaces = key && JSON.stringify([target ?? null, key(data)]);
+          const size = bytes(occurrence);
           // A type with a check function is asked for what polls are owed, so what it emits is pushed and not kept.
           if (type.check) {
-            for (const sink of type.sinks) sink({ target, occurrence });
+            for (const sink of type.sinks) sink({ target, occurrence, size, replaces });
             return;
           }
-          const kept = { sequence: ++type.sequence, at: Date.now(), target, occurrence };
+          const kept = { sequence: ++type.sequence, at: Date.now(), target, occurrence, size, replaces };
+          if (replaces) {
+            const older = type.latest.get(replaces);
+            if (older) {
+              type.kept.splice(find(older.sequence), 1);
+              type.bytes -= older.size;
+            }
+            type.latest.set(replaces, kept);
+          }
           type.kept.push(kept);
-          while (type.kept.length > maxEvents || type.kept[0].at < kept.at - maxAge) type.dropped = type.kept.shift().sequence;
+          type.bytes += size;
+          // The newest is kept whatever it weighs, since streams read it from here.
+          while (type.kept.length > 1 && (type.kept.length > maxEvents || type.bytes > maxBytes || type.kept[0].at < kept.at - maxAge)) {
+            const oldest = type.kept.shift();
+            type.dropped = oldest.sequence;
+            type.bytes -= oldest.size;
+            if (type.latest.get(oldest.replaces) === oldest) type.latest.delete(oldest.replaces);
+          }
           for (const sink of type.sinks) sink(kept);
         },
         cursor() {
@@ -331,21 +373,46 @@ export function createEvents({
           }
         };
         // The stream follows its cursor: emitted events wake it, and a type with a check function is asked again
-        // every interval. What it is sent waits in the buffer or the source, not here, so a slow client is not
-        // owed more memory than one batch; when what it is owed is no longer kept, it is told of the gap.
+        // every interval. What it is owed waits in the buffer or the source, and is read a queue's worth at a time.
+        // What it has sent but its reader has not read is bounded: past the bound, the stream stops sending, and once
+        // the reader has caught up it is told of a gap and carries on from the newest.
         let cursor = request.cursor ?? null;
         let behind = true;
-        const pushed = [];
+        let overflowed = false;
+        // What a type with a check function emitted, not yet sent.
+        let pushed = [];
+        let pushedBytes = 0;
         const sink = kept => {
-          if (type.check) pushed.push(kept);
-          else behind = true;
+          if (type.check && !overflowed) {
+            const older = kept.replaces && pushed.findIndex(waiting => waiting.replaces === kept.replaces);
+            if (older >= 0) pushedBytes -= pushed.splice(older, 1)[0].size;
+            pushed.push(kept);
+            pushedBytes += kept.size;
+            if (pushed.length > maxQueued || pushedBytes > maxQueuedBytes) overflowed = true;
+          }
+          if (!type.check) behind = true;
           wake();
+        };
+        // The sizes of the frames sent and not yet read, newest last.
+        let unread = [];
+        const room = size => {
+          const count = waiting(server);
+          unread = count ? unread.slice(-count) : [];
+          return count < maxQueued && unread.reduce((sum, each) => sum + each, size) <= maxQueuedBytes;
+        };
+        const send = async event => {
+          const size = bytes(event);
+          if (!room(size)) return !(overflowed = true);
+          unread.push(size);
+          await notify("event", event);
+          cursor = event.cursor;
+          return true;
         };
         type.sinks.add(sink);
         signal.addEventListener("abort", finish, { once: true });
         let beating = false;
         const beat = setInterval(async () => {
-          if (beating) return;
+          if (beating || overflowed) return;
           beating = true;
           try {
             // Access is checked again while the subscription lasts, and one that is lost ends it.
@@ -361,11 +428,25 @@ export function createEvents({
           let first = true;
           let due = 0;
           while (!done) {
+            if (overflowed) {
+              // Nothing more is sent until the reader has read what waits.
+              while (!done && waiting(server)) await new Promise(resolve => setTimeout(resolve, 50));
+              if (done) break;
+              const head = type.check ? (await read(type, opened, null)).cursor : position(type);
+              pushed = [];
+              pushedBytes = 0;
+              unread = [];
+              overflowed = false;
+              behind = false;
+              cursor = head;
+              due = Date.now() + type.interval;
+              await notify("active", { cursor, truncated: true });
+            }
             if (type.check ? Date.now() >= due : behind) {
               behind = false;
               let result;
               try {
-                result = await read(type, opened, cursor, { maxAgeMs: first ? request.maxAgeMs : undefined });
+                result = await read(type, opened, cursor, { maxAgeMs: first ? request.maxAgeMs : undefined, maxEvents: maxQueued });
               } catch (error) {
                 // Without a first answer there is no stream to tell, and the request fails.
                 if (first) throw error;
@@ -375,26 +456,30 @@ export function createEvents({
               if (result) {
                 if (first || result.truncated) await notify("active", { cursor: result.start, truncated: result.truncated });
                 first = false;
-                for (const event of result.events) {
-                  if (done) break;
-                  await notify("event", event);
-                  cursor = event.cursor;
-                }
+                let sent = true;
+                for (const event of result.events) if (done || !(sent = await send(event))) break;
                 if (done) break;
+                if (!sent) continue;
                 cursor = result.cursor;
-                if (result.hasMore) due = 0;
+                if (result.hasMore) {
+                  due = 0;
+                  behind = true;
+                }
               }
             }
             // What a type with a check function emits is sent at once, at the cursor the stream has reached.
-            while (pushed.length && !done) {
-              const event = shape(type, pushed.shift(), opened);
-              if (event) await notify("event", { ...event, cursor });
+            while (pushed.length && !done && !overflowed) {
+              const kept = pushed.shift();
+              pushedBytes -= kept.size;
+              const event = shape(type, kept, opened);
+              if (event && !(await send({ ...event, cursor }))) break;
             }
             if (done) break;
+            if (overflowed) continue;
             let timer;
             await new Promise(resolve => {
               wake = resolve;
-              if (done || pushed.length || (!type.check && behind)) resolve();
+              if (done || overflowed || pushed.length || (!type.check && behind)) resolve();
               else if (type.check) timer = setTimeout(resolve, Math.max(0, due - Date.now()));
             });
             clearTimeout(timer);

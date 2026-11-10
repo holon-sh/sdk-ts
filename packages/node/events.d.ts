@@ -59,6 +59,13 @@ export interface EventDefinition<A, D> {
   /** The data a subscription with these arguments receives of an emitted event. Without it, the data as emitted. */
   transform?: (data: D, args: A, context: SubscriptionContext) => unknown;
   /**
+   * For events that each hold the whole of a record: an emitted event replaces the one before it with the same key,
+   * among the events kept and the ones a stream has yet to send. A subscription behind it receives only the newest,
+   * and is not told of a gap, since nothing it would act on was lost. Do not give a key to events that each say what
+   * changed: a client behind would miss a change.
+   */
+  key?: (data: D) => string;
+  /**
    * What happened after a cursor, for a source that keeps its own history: polls are answered by it, and streams ask
    * it every `interval`. The cursor is the source's own, so it outlives the process. A null cursor asks for the
    * current position. The function filters and shapes for the arguments itself; `match` and `transform` apply only to
@@ -91,8 +98,8 @@ export interface Emitter<D> {
    * Emitting is synchronous. Occurrences emitted one after another in the same synchronous run reach each
    * subscription in that order, with no other occurrence of this type between them, whether polled or pushed. So a
    * group of changes that nothing may come between is either emitted in one run or sent as one occurrence holding a
-   * list. A subscription skips part of a group only when it is told of a gap: the group outgrew the events kept, or
-   * the subscription fell behind them. For a type with a check function the order holds among what is emitted, but
+   * list. A subscription skips part of a group only when it is told of a gap: the group outgrew the events kept, the
+   * subscription fell behind them, or its reader stopped reading. For a type with a check function the order holds among what is emitted, but
    * not between what is emitted and what the check function finds, which may arrive later or again.
    */
   emit(data: D, options?: { eventId?: string; timestamp?: string; subscription?: string }): void;
@@ -116,6 +123,15 @@ export interface EventsOptions {
   maxAge?: number;
   /** How many events of one type are kept. Ten thousand unless given. */
   maxEvents?: number;
+  /** How many bytes the events of one type kept take, as JSON. The newest is kept whatever it takes. 16 MiB unless given. */
+  maxBytes?: number;
+  /**
+   * How many notifications a stream sends that its reader has not read, before it stops sending. Once the reader has
+   * read them, it is told of a gap and goes on from the newest. A thousand unless given.
+   */
+  maxQueued?: number;
+  /** How many bytes those notifications take, as JSON. 4 MiB unless given. */
+  maxQueuedBytes?: number;
   /** How often a stream hears from the server when nothing happens, in milliseconds. Thirty seconds unless given. */
   heartbeat?: number;
   /** How long a poll is told to wait before the next, in milliseconds. One second unless given. */

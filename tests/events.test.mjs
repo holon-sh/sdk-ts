@@ -367,3 +367,75 @@ test("a subscription from the cursor read with a snapshot hears every change aft
   tell("once subscribed");
   assert.deepEqual([...snapshot.state, ...await take(subscription, 3)], state);
 });
+
+test("a stream whose reader stops reading is sent no more than its queue holds, and is told of a gap once it reads again", async t => {
+  const { factory, say } = rooms({ maxQueued: 20, heartbeat: 60_000 });
+  const { endpoint } = await serve(t, factory);
+  // A reader that stops pulling the response, as a page whose tab is frozen does.
+  let stalled = false;
+  let resume;
+  const stalling = async (input, init) => {
+    const response = await fetch(input, init);
+    if (!response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
+    const reader = response.body.getReader();
+    const body = new ReadableStream({
+      async pull(controller) {
+        if (stalled) await new Promise(resolve => { resume = resolve; });
+        const { done, value } = await reader.read();
+        if (done) controller.close();
+        else controller.enqueue(value);
+      },
+    }, { highWaterMark: 0 });
+    return new Response(body, response);
+  };
+  const client = new Client(identity, { versionNegotiation: { mode: "auto" } });
+  await client.connect(new StreamableHTTPClientTransport(new URL(endpoint), { fetch: stalling }));
+  t.after(() => client.close());
+  const heard = [];
+  for (const kind of ["active", "event"])
+    client.setNotificationHandler(`notifications/events/${kind}`, { params: loose }, params => heard.push({ kind, ...params }));
+  client.request({ method: "events/stream", params: { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor: null } }, loose).catch(() => {});
+  await until(() => heard.length);
+  stalled = true;
+  const words = "x".repeat(10_000);
+  for (let index = 0; index < 400; index++) say("a", "ann", `${index} ${words}`);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  stalled = false;
+  resume?.();
+  await until(() => heard.some(({ kind, truncated }) => kind === "active" && truncated));
+  say("a", "ann", "after the gap");
+  await until(() => heard.some(({ eventId }) => eventId === "after the gap"));
+  const gap = heard.findIndex(({ truncated }) => truncated);
+  // What reached the reader before the gap is what the queue and the connection's own buffers held, from the first
+  // event on, and not all of it.
+  const sent = heard.slice(1, gap).map(({ eventId }) => Number.parseInt(eventId));
+  assert.deepEqual(sent, sent.map((_, index) => index));
+  assert.ok(sent.length < 400 / 2, `${sent.length} events were sent to a reader that was not reading`);
+  assert.deepEqual(heard.slice(gap + 1).map(({ eventId }) => eventId), ["after the gap"]);
+});
+
+test("a keyed event replaces the one before it with the same key without a gap, and events past the byte limit are skipped with one", async t => {
+  const events = createEvents({ maxBytes: 4000 });
+  const cell = events.event("cell.changed", {
+    inputSchema: z.object({}),
+    payloadSchema: z.object({ cell: z.string(), value: z.string() }),
+    key: ({ cell }) => cell,
+  });
+  const { endpoint } = await serve(t, () => {
+    const server = new McpServer({ name: "sheet", version: "1.0.0" });
+    events.serve(server);
+    return server;
+  });
+  const { request } = await wire(t, endpoint);
+  const poll = cursor => request("events/poll", { name: "cell.changed", arguments: {}, cursor });
+  const start = cell.cursor();
+  cell.emit({ cell: "a", value: "1" });
+  cell.emit({ cell: "b", value: "1" });
+  cell.emit({ cell: "a", value: "2" });
+  const replayed = await poll(start);
+  assert.deepEqual([replayed.events.map(({ data }) => `${data.cell}=${data.value}`), replayed.truncated], [["b=1", "a=2"], false]);
+
+  for (const name of ["c", "d", "e"]) cell.emit({ cell: name, value: "x".repeat(1500) });
+  const skipped = await poll(replayed.cursor);
+  assert.deepEqual([skipped.events.map(({ data }) => data.cell), skipped.truncated], [["d", "e"], true]);
+});
