@@ -15,5 +15,15 @@ export interface IdentityClaims {
 export interface Principal { issuer: string; subject: string; clientId: string; scopes: string[]; claims: IdentityClaims; actor?: Record<string, unknown> }
 /** The caller of the current MCP request. principal is null for anonymous requests. */
 export interface RequestContext { principal: Principal | null }
+
+// Holon admits the caller before the request reaches the server and hands it over as MCP's authInfo, with claims and
+// act in these shapes.
+interface Admitted { iss?: unknown; sub?: unknown; claims?: IdentityClaims; act?: Record<string, unknown> }
+
 /** Read the caller from the context an MCP server receives: a tool callback's ctx.http, or the McpRequestContext of a createMcpHandler factory. */
-export declare function getContext(context?: { authInfo?: { clientId: string; scopes: string[]; extra?: Record<string, unknown> } }): RequestContext;
+export function getContext(context: { authInfo?: { clientId: string; scopes: string[]; extra?: Record<string, unknown> } } = {}): RequestContext {
+  const { authInfo } = context;
+  const { iss, sub, claims, act } = (authInfo?.extra ?? {}) as Admitted;
+  if (!authInfo || typeof iss !== "string" || typeof sub !== "string") return { principal: null };
+  return { principal: { issuer: iss, subject: sub, clientId: authInfo.clientId, scopes: authInfo.scopes, claims: claims ?? {}, ...(act && { actor: act }) } };
+}

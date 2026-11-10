@@ -18,6 +18,6 @@ test("getContext maps the caller Holon admitted", () => {
     // A hook call carries no user, and a caller needs an issuer.
     [{ clientId: "", scopes: [], extra: { hook: { event: "installed" } } }, null],
     [{ clientId: "web", scopes: [], extra: { sub: "user" } }, null],
-  ]) assert.deepEqual(getContext({ authInfo }), { principal });
+  ] satisfies Array<[unknown, unknown]>) assert.deepEqual(getContext({ authInfo }), { principal });
   assert.deepEqual(getContext(), { principal: null });
 });

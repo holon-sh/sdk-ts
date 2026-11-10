@@ -69,12 +69,12 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 
 ## Events
 
-A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it.
+A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it, so it lives under `ext`: `holon-sh/ext/events` on a server and `ext.events` on a client. Expect what is there to change.
 
 A server declares an event type and emits its occurrences:
 
 ```ts
-import { createEvents } from "holon-sh/events";
+import { createEvents } from "holon-sh/ext/events";
 
 const events = createEvents();
 const said = events.event("room.said", {
@@ -94,7 +94,7 @@ said.emit({ room: "lobby", text: "hello" });
 A client subscribes and iterates:
 
 ```ts
-const subscription = await apps.rooms.events.subscribe("room.said", { room: "lobby" });
+const subscription = await apps.rooms.ext.events.subscribe("room.said", { room: "lobby" });
 for await (const { data } of subscription) console.log(data.text);
 ```
 

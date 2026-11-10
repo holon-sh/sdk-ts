@@ -4,31 +4,36 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps } from "holon-sh/runtime";
-import { createEvents } from "holon-sh/events";
-import { serve } from "./helpers.mjs";
+import { createEvents, type EventDefinition, type EventsOptions } from "holon-sh/ext/events";
+import { serve, serveLegacy } from "./helpers.ts";
 
 const identity = { name: "test", version: "1.0.0" };
+// Wire messages are checked by the assertions that read them.
+const loose = z.any();
+type Listener = { room: string; listener: string };
+type Said = { room: string; speaker: string; text: string };
 
 // A server whose rooms say things: a subscription names a room and hears what the others in it say.
-function rooms(options) {
+function rooms(options: EventsOptions = {}, definition: Partial<EventDefinition<Listener, Said>> = {}) {
   const events = createEvents(options);
-  const said = events.event("room.said", {
+  const said = events.event<Listener, Said>("room.said", {
     description: "Someone said something in a room",
     inputSchema: z.object({ room: z.string(), listener: z.string() }),
     payloadSchema: z.object({ text: z.string() }),
     match: ({ room, speaker }, args) => room === args.room && speaker !== args.listener,
     transform: ({ text }) => ({ text }),
+    ...definition,
   });
   const factory = () => {
     const server = new McpServer({ name: "rooms", version: "1.0.0" });
     events.serve(server);
     return server;
   };
-  return { factory, say: (room, speaker, text) => said.emit({ room, speaker, text }, { eventId: text }) };
+  return { factory, said, say: (room: string, speaker: string, text: string) => said.emit({ room, speaker, text }, { eventId: text }) };
 }
 
-async function take(subscription, count) {
-  const texts = [];
+async function take(subscription: AsyncIterable<{ data: any }>, count: number) {
+  const texts: string[] = [];
   for await (const { data } of subscription) if (texts.push(data.text) === count) break;
   return texts;
 }
@@ -38,10 +43,10 @@ test("a subscription is pushed the events its arguments match, and resumes from 
   const { endpoint, http } = await serve(t, factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
-  assert.deepEqual((await app.events.list()).map(({ name, delivery }) => ({ name, delivery })), [{ name: "room.said", delivery: ["poll", "push"] }]);
+  assert.deepEqual((await app.ext.events.list()).map(({ name, delivery }) => ({ name, delivery })), [{ name: "room.said", delivery: ["poll", "push"] }]);
 
   say("a", "ann", "before the subscription");
-  const subscription = await app.events.subscribe("room.said", { room: "a", listener: "bob" });
+  const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
   assert.equal(subscription.delivery, "push");
   say("a", "ann", "one");
   say("a", "bob", "bob's own words");
@@ -54,8 +59,36 @@ test("a subscription is pushed the events its arguments match, and resumes from 
   say("a", "cat", "three");
   assert.deepEqual(await heard, ["one", "two", "three"]);
 
-  await assert.rejects(app.events.subscribe("room.left", {}), /no event room.left/);
-  await assert.rejects(app.events.subscribe("room.said", { room: 1 }), /Invalid arguments|status|400/);
+  await assert.rejects(app.ext.events.subscribe("room.left", {}), /no event room.left/);
+  await assert.rejects(app.ext.events.subscribe("room.said", { room: 1 }), /Invalid arguments|status|400/);
+});
+
+test("a subscription to a 2025 server is pushed its events, and ending it ends its session", async t => {
+  const events = createEvents();
+  const said = events.event<{ room: string }, { text: string }>("room.said", {
+    inputSchema: z.object({ room: z.string() }),
+    payloadSchema: z.object({ text: z.string() }),
+  });
+  const { endpoint } = await serveLegacy(t, () => {
+    const server = new McpServer({ name: "rooms", version: "1.0.0" });
+    events.serve(server);
+    return server;
+  });
+  const methods: string[] = [];
+  const counting: typeof fetch = (input, init) => {
+    methods.push(init?.method ?? "GET");
+    return fetch(input, init);
+  };
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint, fetch: counting } });
+  t.after(() => app!.close());
+  // A 2025 server answers its initialization as a stream too, which is not the subscription's.
+  const subscription = await app!.ext.events.subscribe("room.said", { room: "a" });
+  said.emit({ text: "one" }, { eventId: "one" });
+  assert.deepEqual(await take(subscription, 1), ["one"]);
+  for (const deadline = Date.now() + 5000; !methods.includes("DELETE");) {
+    assert.ok(Date.now() < deadline, "the session was not ended");
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
 });
 
 test("a poll returns what happened since its cursor, and says when events were skipped", async t => {
@@ -63,7 +96,7 @@ test("a poll returns what happened since its cursor, and says when events were s
   const { endpoint } = await serve(t, first.factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
-  const subscription = await app.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
+  const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
   first.say("a", "ann", "one");
   first.say("a", "ann", "two");
   assert.deepEqual(await take(subscription, 2), ["one", "two"]);
@@ -74,7 +107,7 @@ test("a poll returns what happened since its cursor, and says when events were s
   const { rooms: restarted } = createApps(identity, { rooms: null }, { rooms: { endpoint: later.endpoint } });
   t.after(() => restarted.close());
   let gaps = 0;
-  const resumed = await restarted.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll", cursor: subscription.cursor, onGap: () => gaps++ });
+  const resumed = await restarted.ext.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll", cursor: subscription.cursor, onGap: () => gaps++ });
   second.say("a", "ann", "three");
   assert.deepEqual(await take(resumed, 1), ["three"]);
   assert.equal(gaps, 1);
@@ -83,7 +116,7 @@ test("a poll returns what happened since its cursor, and says when events were s
   const contract = { tools: [], events: [{ name: "room.said", payloadSchema: { type: "object", required: ["volume"] } }] };
   const { rooms: typed } = createApps(identity, { rooms: contract }, { rooms: { endpoint: later.endpoint } });
   t.after(() => typed.close());
-  const strict = await typed.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
+  const strict = await typed.ext.events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
   second.say("a", "ann", "four");
   await assert.rejects(take(strict, 1), /Invalid data of rooms room.said/);
 });
@@ -94,13 +127,12 @@ test("the server speaks the messages of the Events design sketch", async t => {
   const client = new Client(identity, { versionNegotiation: { mode: "auto" } });
   await client.connect(new StreamableHTTPClientTransport(new URL(endpoint)));
   t.after(() => client.close());
-  const loose = z.looseObject({});
-  assert.deepEqual(client.getServerCapabilities().extensions, { "io.modelcontextprotocol/events": { listChanged: false } });
+  assert.deepEqual(client.getServerCapabilities()?.extensions, { "io.modelcontextprotocol/events": { listChanged: false } });
   const { events: [type] } = await client.request({ method: "events/list", params: {} }, loose);
   assert.deepEqual(Object.keys(type), ["name", "description", "delivery", "inputSchema", "payloadSchema"]);
   assert.deepEqual(type.inputSchema.required, ["room", "listener"]);
 
-  const poll = cursor => client.request({ method: "events/poll", params: { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor } }, loose);
+  const poll = (cursor: string | null) => client.request({ method: "events/poll", params: { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor } }, loose);
   const { _meta, ...start } = await poll(null);
   assert.deepEqual({ ...start, cursor: typeof start.cursor }, { events: [], cursor: "string", truncated: false, hasMore: false, nextPollMs: 1000 });
   say("a", "ann", "one");
@@ -108,9 +140,9 @@ test("the server speaks the messages of the Events design sketch", async t => {
   assert.deepEqual(Object.keys(polled), ["eventId", "name", "timestamp", "data"]);
   assert.equal((await poll("someone else's cursor")).truncated, true);
 
-  const received = [];
+  const received: any[] = [];
   for (const kind of ["active", "event", "heartbeat"])
-    client.setNotificationHandler(`notifications/events/${kind}`, { params: loose }, params => received.push({ kind, ...params }));
+    client.setNotificationHandler(`notifications/events/${kind}`, { params: loose }, params => { received.push({ kind, ...params }); });
   const stop = new AbortController();
   const stream = client.request({ method: "events/stream", params: { name: "room.said", arguments: { room: "a", listener: "bob" }, cursor: start.cursor } }, loose, { signal: stop.signal });
   while (!received.some(({ kind }) => kind === "heartbeat")) await new Promise(resolve => setTimeout(resolve, 5));

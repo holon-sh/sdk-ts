@@ -5,8 +5,14 @@ import { getContext } from "holon-sh/context";
 const scripted = createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{token: async () => "token"}}});
 (await scripted.orders.tools.get_order({orderId:"script"})).total.toFixed();
 await scripted.orders.resources["orders://summary"].watch(async (value) => { value.total.toFixed(); }, {signal: new AbortController().signal});
-const oauth: EndpointBinding = {endpoint: new URL("https://orders.example/mcp"), authProvider: {tokens: () => undefined, redirectUrl: undefined, clientMetadata: {}}};
+const oauth: EndpointBinding = {endpoint: new URL("https://orders.example/mcp"), authProvider: {
+  redirectUrl: undefined, clientMetadata: {redirect_uris: []},
+  clientInformation: () => undefined, tokens: () => undefined, saveTokens: () => {},
+  redirectToAuthorization: () => {}, saveCodeVerifier: () => {}, codeVerifier: () => "verifier",
+}};
 createNodeApps({orders: oauth});
+// @ts-expect-error the transport would treat this as a bearer provider and call its missing token()
+createNodeApps({orders:{endpoint:"https://orders.example/mcp", authProvider:{tokens: () => undefined, redirectUrl: undefined, clientMetadata: {redirect_uris: []}}}});
 (await scripted.orders.tools.get_order({orderId:"script"}, {elicit: async ({message}) => ({action: "accept", content: {question: message}})})).total.toFixed();
 // @ts-expect-error
 scripted.orders.tools.get_order({orderId:"script"}, {elicit: () => ({action: "maybe"})});
