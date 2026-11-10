@@ -17,10 +17,12 @@ export interface EventError { code: number; message: string; data?: unknown }
 /** A subscription as it begins: who asked, for what, and by which delivery mode. */
 export interface Subscription<A> {
   /**
-   * Names the subscription to `emit` and `end`. It is the same for the same caller, event type and arguments, so it
-   * survives a reconnect and a poll lease that lapses: the caller is the user, the client acting for them and the
-   * agent acting for the user, as Holon admitted them. Callers without credentials are not told apart, so they share
-   * one id for the same arguments. Two streams with the same id both receive what is emitted to it.
+   * Names the subscription to `emit` and `end`. For a caller with an identity it is the same for the same caller,
+   * event type and arguments, so it survives a reconnect and a poll lease that lapses. The caller is the user, the
+   * client acting for them, the agent acting for the user and the token's scopes, as Holon admitted them; two streams
+   * with the same id both receive what is emitted to it. A caller without a subject has no identity: each of its
+   * streams has an id of its own, which ends with the stream, and its polls share one lease per arguments with every
+   * such caller, to which nothing is emitted alone.
    */
   readonly id: string;
   readonly name: string;
@@ -62,7 +64,12 @@ export interface EventDefinition<A, D> {
   payloadSchema: EventSchema;
   /** Listed with the event type, as `_meta` is on a tool. */
   _meta?: Record<string, unknown>;
-  /** Whether a subscription with these arguments receives an emitted event. Without it, every subscription does. */
+  /**
+   * Whether a subscription with these arguments receives an emitted event. Without it, every subscription does. When
+   * it or `transform` throws, or `transform` returns what cannot be sent as JSON, that event is skipped for that
+   * subscription: its cursor moves past it, a stream is told once with `notifications/events/error`, and the failure
+   * is logged.
+   */
   match?: (data: D, args: A, context: SubscriptionContext) => boolean;
   /** The data a subscription with these arguments receives of an emitted event. Without it, the data as emitted. */
   transform?: (data: D, args: A, context: SubscriptionContext) => unknown;
@@ -98,7 +105,8 @@ export interface Emitter<D> {
    * `subscription`, the occurrence goes to that subscription alone, whatever its arguments; it is kept like any
    * other, so a subscription that reconnects or polls again from its cursor still has it, or is told of a gap. An
    * event type with a check function pushes what it emits to open streams at once and does not keep it: polls and
-   * reconnecting streams learn of it from the check function.
+   * reconnecting streams learn of it from the check function, and one emitted to a subscription with no open stream
+   * is lost, so that subscription's next poll or stream is told of a gap.
    *
    * Emitting is synchronous. Occurrences emitted one after another in the same synchronous run reach each
    * subscription in that order, with no other occurrence of this type between them, whether polled or pushed. So a
@@ -106,6 +114,9 @@ export interface Emitter<D> {
    * list. A subscription skips part of a group only when it is told of a gap: the group outgrew the events kept, or
    * the subscription fell behind them. For a type with a check function the order holds among what is emitted, but
    * not between what is emitted and what the check function finds, which may arrive later or again.
+   *
+   * The data is serialised when it is emitted, so data that cannot be sent as JSON throws here, before anything is
+   * kept or sent.
    */
   emit(data: D, options?: { eventId?: string; timestamp?: string; subscription?: string }): void;
   /**
@@ -152,8 +163,8 @@ export interface EventsOptions {
    */
   maxSubscriptions?: number;
   /**
-   * How many of those one caller may hold. A thousand unless given. Callers without credentials are not told apart,
-   * so only `maxSubscriptions` holds them.
+   * How many of those one caller may hold. A thousand unless given. Callers without an identity cannot be told
+   * apart, so they count together as one caller.
    */
   maxSubscriptionsPerCaller?: number;
   /** How many event types events/list returns at a time. A hundred unless given. */

@@ -261,9 +261,10 @@ export function webhooks({
     if (states.get(record) !== state) return;
     if (expired(record)) return entry.event && settle(record, entry);
     if (!state.active) return void state.held.push(entry);
-    const body = entry.body();
-    // A body too large for receivers is given up on, as a receiver's 413 would be.
-    if (encoder.encode(body).length > MAX_BODY) return entry.event && settle(record, entry);
+    let body;
+    try { body = entry.body(); } catch { body = undefined; }
+    // A body that cannot be made, or one too large for receivers, is given up on, as a receiver's 413 would be.
+    if (body === undefined || encoder.encode(body).length > MAX_BODY) return entry.event && settle(record, entry);
     const result = await send(record, entry.id, body);
     if (states.get(record) !== state) return;
     // A receiver declining an event (410) or refusing its size (413) says nothing about the subscription, and is not retried.
@@ -426,7 +427,8 @@ export function webhooks({
   };
 
   // The subscription a request names, checked as the events of every mode are, with the type's authorization. Its
-  // id is the one the type gives the caller, event and arguments, made distinct for each callback URL.
+  // id is made from the key the type gives the caller, event and arguments, and the callback URL. A caller with a
+  // principal always has that key.
   const keyed = async (request, context) => {
     const principal = principalOf(context);
     if (!principal) throw new ProtocolError(FORBIDDEN, "Forbidden", { reason: "Webhook delivery needs an authenticated principal." });
@@ -436,7 +438,7 @@ export function webhooks({
     if (!parsed || parsed.protocol !== "https:" && !(local && parsed.protocol === "http:") || parsed.username || parsed.password)
       throw new ProtocolError(INVALID_PARAMS, "delivery.url must be an https URL.");
     const { type, subscription } = await internals.subscription(request, context, "webhook");
-    const digest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify([subscription.id, url])));
+    const digest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify([subscription.lease ?? subscription.id, url])));
     const id = `sub_${hex(digest).slice(0, 32)}`;
     return { type, principal, url, id, subscription: { id, arguments: subscription.arguments, context: keep(subscription.context) } };
   };
