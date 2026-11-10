@@ -1,4 +1,5 @@
 import type { AuthProvider, CallOptions, ToolClient } from "./protocol.js";
+import type { WebhookReceiver } from "./webhooks.js";
 export { ToolCallError } from "./protocol.js";
 export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
 
@@ -41,6 +42,8 @@ export interface CreateOptions<B = Binding> {
   resolve?: (app: string) => Binding | undefined;
   /** Session for a binding the runtime does not connect to itself (anything without an endpoint). */
   session?: (app: string, binding: B) => ToolSession | undefined;
+  /** Where servers deliver events by webhook: the URL the receiver is mounted at, and the receiver. */
+  webhook?: { url: URL | string; receiver: WebhookReceiver };
 }
 /** Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated clients. */
 export declare function createApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>>;

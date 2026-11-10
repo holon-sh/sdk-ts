@@ -53,14 +53,14 @@ export interface SubscribeOptions {
   cursor?: string | null;
   /** Do not replay events older than this many milliseconds. */
   maxAgeMs?: number;
-  /** The delivery mode to use. Without one, push where the server offers it, and poll otherwise. */
-  delivery?: "push" | "poll";
+  /** The delivery mode to use. Without one, webhook where the client has a receiver and the server offers it, then push, then poll. */
+  delivery?: "webhook" | "push" | "poll";
   /** Called when the server skipped events, for example after it restarted. Read the current state again. */
   onGap?: () => void;
 }
 /** A subscription to an event: iterate it for the occurrences, in the order the server produced them. */
 export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurrence<Data>> {
-  readonly delivery: "push" | "poll";
+  readonly delivery: "webhook" | "push" | "poll";
   /** The position after the last occurrence received, to resume from later. Null when the event cannot be replayed. */
   readonly cursor: string | null;
   /** Ends the subscription, as leaving a `for await` loop over it does. */

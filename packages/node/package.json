@@ -31,6 +31,10 @@
       "types": "./events.d.ts",
       "import": "./events.mjs"
     },
+    "./webhooks": {
+      "types": "./webhooks.d.ts",
+      "import": "./webhooks.mjs"
+    },
     "./protocol": {
       "types": "./protocol.d.ts",
       "import": "./runtime.mjs"
@@ -44,7 +48,9 @@
     "context.mjs",
     "context.d.ts",
     "events.mjs",
-    "events.d.ts"
+    "events.d.ts",
+    "webhooks.mjs",
+    "webhooks.d.ts"
   ],
   "scripts": {
     "build": "node scripts/build.mjs",

@@ -13,6 +13,7 @@
     "runtime.d.ts",
     "protocol.d.ts",
     "context.d.ts",
-    "events.d.ts"
+    "events.d.ts",
+    "webhooks.d.ts"
   ]
 }

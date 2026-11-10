@@ -77,7 +77,7 @@ export function bindApps(identity, contracts, bindings, options) {
 }
 
 export function createApps(identity, contracts, bindings, options) {
-  const { validator = defaultValidator, resolve = name => environment(identity, name), session: hosted } = options ?? {};
+  const { validator = defaultValidator, resolve = name => environment(identity, name), session: hosted, webhook } = options ?? {};
   const apps = Object.create(null);
   // Without explicit bindings, every declared dependency gets a client; those without a contract are untyped.
   const members = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
@@ -220,9 +220,10 @@ export function createApps(identity, contracts, bindings, options) {
       if (!resolved?.endpoint) throw new Error(`Subscribing to ${name} ${event} requires an endpoint binding.`);
       const offered = (await list({ signal })).find(type => type.name === event)?.delivery;
       if (!offered) throw new Error(`${name} has no event ${event}.`);
-      // Push hears of an event at once, and poll works wherever a request does. Webhook delivery is not supported.
-      const delivery = options.delivery ?? ["push", "poll"].find(mode => offered.includes(mode));
+      // A webhook ties up no connection, push hears of an event at once, and poll works wherever a request does: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#delivery-mode-selection
+      const delivery = options.delivery ?? [...(webhook ? ["webhook"] : []), "push", "poll"].find(mode => offered.includes(mode));
       if (!offered.includes(delivery)) throw new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`);
+      if (delivery === "webhook" && !webhook) throw new Error(`Webhook delivery of ${name} ${event} needs the webhook option of createApps.`);
       const cancelled = new AbortController();
       const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
       let cursor = options.cursor ?? null;
@@ -321,7 +322,42 @@ export function createApps(identity, contracts, bindings, options) {
           await delay(1000, ended);
         }
       };
-      void (delivery === "push" ? stream() : poll())
+      // The server POSTs to the application's receiver, which hands this subscription its deliveries. The subscription
+      // lives as long as it is refreshed, and is let go of at once when it ends.
+      const hook = async () => {
+        let terminated;
+        const stopped = new AbortController();
+        const listening = webhook.receiver.listen(message => {
+          if (message?.type === "gap") return reach(message.cursor, true);
+          if (message?.type === "terminated") { terminated = message.error; return stopped.abort(); }
+          if (message?.type) return;
+          try { deliver(message); } catch (error) { failure = error; return cancelled.abort(); }
+          reach(message.cursor);
+        });
+        const until = AbortSignal.any([ended, stopped.signal]);
+        const target = { name: event, arguments: args, delivery: { mode: "webhook", url: String(webhook.url) } };
+        try {
+          for (let wait = 0; !until.aborted; await delay(wait, until)) {
+            try {
+              const result = await session({ signal: until }, client => client.request({ method: "events/subscribe", params: { ...request, ...target, delivery: { ...target.delivery, secret: listening.secret }, cursor } }, anything, patient({ signal: until })));
+              listening.bind(result.id);
+              reach(result.cursor, result.truncated);
+              established.resolve();
+              // Refreshed well before the grant ends. A grant without expiry is still refreshed now and then, for its cursor and status.
+              wait = result.refreshBefore == null ? 60 * 60_000 : Math.max(10, (Date.parse(result.refreshBefore) - Date.now()) * 0.8);
+            } catch (error) {
+              if (until.aborted) break;
+              // A JSON-RPC error is the server's answer, and ends the subscription. Anything else is tried again.
+              if (!confirmed || refused(error) || Number.isInteger(error?.code) && error.code < 0) throw error;
+              wait = 1000;
+            }
+          }
+        } finally {
+          if (listening.close() && !terminated) await session({}, client => client.request({ method: "events/unsubscribe", params: target }, anything, patient({}))).catch(() => {});
+        }
+        if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated?.message}`), { code: terminated?.code, data: terminated?.data });
+      };
+      void (delivery === "push" ? stream() : delivery === "webhook" ? hook() : poll())
         .catch(error => { failure ??= error; })
         .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
       await active;

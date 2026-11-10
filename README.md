@@ -100,7 +100,32 @@ for await (const { data } of subscription) console.log(data.text);
 
 The client is pushed each event on a stream where the server offers one and polls otherwise. It reconnects by itself and resumes from its cursor. Events are kept in the server's memory, so after a restart the client's `onGap` is called: read the current state again.
 
-Poll and push delivery are here. Webhook delivery and typed event names are not.
+### Webhook delivery
+
+A server delivers by webhook too when `createEvents` is given the mode. Nothing else changes: `emit` reaches webhook subscribers as it does the others.
+
+```ts
+import { webhooks } from "holon-sh/webhooks";
+
+const events = createEvents({ modes: [webhooks()] });
+```
+
+The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. Subscriptions are kept in memory; give `webhooks({ store })` to keep them across restarts.
+
+A client that can be reached mounts a receiver at a URL and gives both to `createApps`. Its subscriptions then use webhooks wherever a server offers them:
+
+```ts
+import { createApps } from "#holon-sh";
+import { createReceiver } from "holon-sh/webhooks";
+
+const receiver = createReceiver();
+const apps = createApps({ rooms: { endpoint } }, { webhook: { url: "https://app.example/hooks", receiver } });
+// Answer POSTs to /hooks with receiver(request), which returns the Response.
+
+const subscription = await apps.rooms.events.subscribe("room.said", { room: "lobby" });
+```
+
+The receiver checks each delivery's signature and age, answers the server's challenge, drops repeats, and hands each event to its subscription. The client refreshes the subscription before it lapses and unsubscribes when it ends. A Holon app cannot serve its own routes yet, so a receiver runs in a server of your own.
 
 ## Community
 
