@@ -170,7 +170,7 @@ export interface Events {
 }
 
 /** An emitted event: kept, at a sequence, for a type without a check function; pushed only, for one with. */
-export interface Kept { sequence?: number; at?: number; target?: string | undefined; occurrence: EventOccurrence; /** Its length as JSON. */ size?: number }
+export interface Kept { sequence?: number; at?: number; target?: string | undefined; occurrence: EventOccurrence }
 /** What a subscription is owed after a cursor. */
 export interface Owed {
   events: EventOccurrence[];
@@ -321,9 +321,9 @@ const MAX_SUBSCRIPTIONS = 10_000;
 const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
 // How many event types events/list returns at a time.
 const PAGE_SIZE = 100;
-// How much of its events, as JSON, one stream sends before it ends with its result and its client reconnects from its
-// cursor. Over HTTP the MCP SDK queues what a stream sends without waiting for its reader, and has no public way to
-// say how much waits, so this is what a reader that stops reading can hold of the server's memory.
+// How much one stream sends, as JSON, before it ends with its answer and its client reconnects from its cursor. The MCP
+// SDK's HTTP transport queues what a stream sends without waiting for its reader, so this is what a reader that stops
+// reading can hold.
 const STREAM_BUDGET = 2 ** 20;
 
 /**
@@ -332,10 +332,7 @@ const STREAM_BUDGET = 2 ** 20;
  * for ten minutes, for polls and for streams that reconnect: those cursors last as long as the process, and after a
  * restart a client is told that events were skipped. A type with a check function uses its source's cursors instead,
  * which outlive the process. A type is asked again, and a poll told to come back, every second. A stream hears from
- * the server every thirty seconds.
- *
- * A stream ends with its result once it has sent about 1 MiB of events, and its client reconnects from its cursor, so
- * nothing is lost that is still kept and a reader that stops reading holds at most that much.
+ * the server every thirty seconds, and ends once it has sent about a megabyte.
  */
 export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Events {
   const modes = webhookTtl === undefined ? [] : [webhooks({ ...webhook, ttl: webhookTtl, heartbeat: HEARTBEAT })];
@@ -603,12 +600,12 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
         emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscriptionId: target } = {}) {
           const occurrence = { eventId, name, timestamp, data };
           // Data that cannot be sent as JSON is refused here, before anything is kept or sent.
-          const size = JSON.stringify(occurrence).length;
+          JSON.stringify(occurrence);
           // A type with a check function is asked for what polls are owed, so what it emits is pushed and not kept.
           if (type.check) {
             // An event for one subscription that has no stream to take it is lost.
             if (target !== undefined && ![...type.subscriptions.get(target)?.held ?? []].some(held => held.delivery !== "poll")) owe(type, target);
-            for (const sink of type.sinks) sink({ target, occurrence, size });
+            for (const sink of type.sinks) sink({ target, occurrence });
             return;
           }
           // An event for one subscription is kept like any other, so the subscription has it when it comes back.
@@ -704,44 +701,30 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
           throw refusal(ending);
         }
         signal.addEventListener("abort", finish, { once: true });
-        // The stream ends with its result before the event that would take it past its budget, and its client
-        // reconnects from its cursor: what it missed comes from what is kept, or is told as a gap. An event alone
-        // always goes, whatever it weighs. A stream that cannot be written to is over.
+        // A stream that cannot be written to is over, and one that has sent its budget ends.
         let sent = 0;
         const notify = async (method: string, body: object) => {
-          if (signal.aborted) return false;
+          if (signal.aborted) return;
           const params = { ...body, _meta: meta };
-          if (method === "event") {
-            const size = JSON.stringify(params).length;
-            if (sent && sent + size > STREAM_BUDGET) {
-              finish();
-              return false;
-            }
-            sent += size;
-          }
           try {
             await ctx.mcpReq.notify({ method: `notifications/events/${method}`, params });
           } catch {
             finish();
-            return false;
           }
-          return true;
+          if ((sent += JSON.stringify(params).length) > STREAM_BUDGET) finish();
         };
         // The stream follows its cursor: emitted events wake it, and a type with a check function is asked again
         // every interval. What it is owed waits in the buffer or the source, not here, so a slow client is not owed
         // more memory than one batch; when what it is owed is no longer kept, it is told of the gap.
         let cursor: string | null = request.cursor ?? null;
         let behind = true;
-        // What a type with a check function emitted and the stream has yet to send, which waits only where sending
-        // waits for the reader, as over stdio. The check function finds it too, so when more than the stream's budget
-        // waits the stream ends, and its client reconnects from its cursor.
+        // What a type with a check function emitted and the stream has yet to send. The check function finds it
+        // too, so when too much waits the oldest is let go.
         const pushed: Kept[] = [];
-        let pushedSize = 0;
         const sink = (kept: Kept) => {
           if (type.check) {
             pushed.push(kept);
-            pushedSize += kept.size ?? 0;
-            if (pushedSize > STREAM_BUDGET) finish();
+            if (pushed.length > KEPT_EVENTS) pushed.shift();
           } else behind = true;
           wake();
         };
@@ -787,7 +770,8 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
                 first = false;
                 for (const error of result.failures ?? []) await notify("error", { error });
                 for (const event of result.events) {
-                  if (done || !(await notify("event", event))) break;
+                  if (done) break;
+                  await notify("event", event);
                   cursor = event.cursor ?? null;
                 }
                 if (done) break;
@@ -801,13 +785,10 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
             }
             // What a type with a check function emits is sent at once, at the cursor the stream has reached.
             while (pushed.length && !done) {
-              const kept = pushed[0]!;
               let failure: EventError | undefined;
-              const event = shape(type, kept, held, error => { failure = error; });
+              const event = shape(type, pushed.shift()!, held, error => { failure = error; });
               if (failure) await notify("error", { error: failure });
-              if (event && !(await notify("event", { ...event, cursor }))) break;
-              pushed.shift();
-              pushedSize -= kept.size ?? 0;
+              if (event) await notify("event", { ...event, cursor });
             }
             if (done) break;
             let timer: ReturnType<typeof setTimeout> | undefined;

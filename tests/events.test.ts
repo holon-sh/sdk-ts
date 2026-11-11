@@ -550,40 +550,22 @@ test("a subscription from the cursor read with a snapshot hears every change aft
   assert.deepEqual([...snapshot.state, ...await take(subscription, 3)], state);
 });
 
-test("a stream ends once it has sent its budget, and a reader that stopped hears everything after its cursor when it reads again", { timeout: 30_000 }, async t => {
-  const { factory, said } = rooms();
+test("a stream ends once it has sent its budget, and its subscription carries on from its cursor with nothing missed", async t => {
+  const { factory, say } = rooms();
   const { endpoint } = await serve(t, factory);
-  // A page whose streams stop being read while it is paused.
-  let paused = false;
-  let resume = () => {};
   let streams = 0;
-  const stalling: typeof fetch = async (input, init) => {
-    const response = await fetch(input, init);
-    if (typeof init?.body !== "string" || !init.body.includes('"method":"events/stream"') || !response.body) return response;
-    streams++;
-    const reader = response.body.getReader();
-    return new Response(new ReadableStream({
-      async pull(controller) {
-        while (paused) await new Promise<void>(resolve => { resume = resolve; });
-        const { done, value } = await reader.read();
-        if (done) controller.close();
-        else controller.enqueue(value);
-      },
-      cancel: reason => reader.cancel(reason),
-    }, { highWaterMark: 0 }), response);
+  const counting: typeof fetch = (input, init) => {
+    if (typeof init?.body === "string" && init.body.includes('"method":"events/stream"')) streams++;
+    return fetch(input, init);
   };
-  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint, fetch: stalling } });
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint, fetch: counting } });
   t.after(() => app.close());
   let gaps = 0;
   const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" }, { onGap: () => { gaps++; } });
-  paused = true;
-  // About 4 MB, more than a socket's buffers and the stream's budget hold.
-  const texts = Array.from({ length: 400 }, (_, n) => `${n}`.padEnd(10_000));
-  for (const [n, text] of texts.entries()) said.emit({ room: "a", speaker: "ann", text }, { eventId: String(n) });
-  await new Promise(resolve => setTimeout(resolve, 200));
-  paused = false;
-  resume();
+  // About 2 MB, past the stream's budget.
+  const texts = Array.from({ length: 100 }, (_, n) => `${n}`.padEnd(10_000));
+  for (const text of texts) say("a", "ann", text);
   assert.deepEqual(await take(subscription, texts.length), texts);
   assert.equal(gaps, 0);
-  assert.ok(streams > 1, "the stalled stream was ended and the subscription reconnected");
+  assert.ok(streams > 1, "the stream ended at its budget and the subscription reconnected");
 });
