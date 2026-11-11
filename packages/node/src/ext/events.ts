@@ -321,6 +321,11 @@ const MAX_SUBSCRIPTIONS = 10_000;
 const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
 // How many event types events/list returns at a time.
 const PAGE_SIZE = 100;
+/**
+ * What a stream sends before it ends and its client resumes from its cursor. The draft leaves flow control to the
+ * transport, but the MCP SDK's HTTP transport queues whatever a stream sends without waiting for its reader:
+ * https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#note-on-flow-control
+ */
 const STREAM_BUDGET = 2 ** 20;
 
 /**
