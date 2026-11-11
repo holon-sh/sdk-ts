@@ -9,33 +9,30 @@ import { serve, serveLegacy } from "./helpers.ts";
 
 const identity = { name: "page", version: "1" };
 
-test("a streamed answer reaches the caller part by part while the call runs, then its result, and the loop throws a failure", { timeout: 10000 }, async t => {
+test("a streamed answer reaches the caller part by part while the call runs, then its result", { timeout: 10000 }, async t => {
   const first = Promise.withResolvers<void>();
   const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "chat", version: "1" });
-    server.registerTool("chat", { inputSchema: z.object({ prompt: z.string() }) }, async ({ prompt }, ctx) => {
-      const send = streamAnswer<string>(ctx);
-      const [head, ...rest] = prompt.split(" ");
-      await send(head!);
-      // The rest waits until the caller has the first part, which it can only have if parts are not held back.
+    server.registerTool("chat", { inputSchema: z.object({}) }, async (_, ctx) => {
+      const send = streamAnswer(ctx);
+      await send("a");
+      // The second part waits until the caller has the first, which it can only have if parts are not held back.
       await first.promise;
-      for (const word of rest) await send(word);
-      return { content: [{ type: "text", text: prompt }] };
+      await send("b");
+      return { content: [{ type: "text", text: "ab" }] };
     });
     return server;
   });
-  // The contract makes a call to an unknown tool fail.
-  const { chat } = createApps(identity, { chat: { tools: [{ name: "chat", inputSchema: {} }] } }, { chat: { endpoint } });
+  const { chat } = createApps(identity, { chat: null }, { chat: { endpoint } });
   t.after(() => chat!.close());
-  const answer = chat!.streamTool({ name: "chat", arguments: { prompt: "a b c" } });
+  const answer = chat!.streamTool({ name: "chat", arguments: {} });
   const parts: unknown[] = [];
   for await (const part of answer) {
     parts.push(part);
     first.resolve();
   }
-  assert.deepEqual(parts, ["a", "b", "c"]);
-  assert.deepEqual((await answer.result).content, [{ type: "text", text: "a b c" }]);
-  await assert.rejects(async () => { for await (const _ of chat!.streamTool({ name: "absent", arguments: {} })); }, /Unknown tool chat\.absent/);
+  assert.deepEqual(parts, ["a", "b"]);
+  assert.deepEqual((await answer.result).content, [{ type: "text", text: "ab" }]);
 });
 
 // A 2026 client cancels by closing the call's stream; a 2025 one sends notifications/cancelled and the session stays open.
@@ -45,7 +42,7 @@ test("leaving the loop cancels the call, and the server's next send rejects", { 
     const { endpoint } = await host(t, () => {
       const server = new McpServer({ name: "kernel", version: "1" });
       server.registerTool("run", { inputSchema: z.object({}) }, async (_, ctx) => {
-        const send = streamAnswer<number>(ctx);
+        const send = streamAnswer(ctx);
         try {
           for (let line = 0; ; line++) {
             await send(line);

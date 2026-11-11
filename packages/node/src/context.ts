@@ -33,7 +33,7 @@ interface Answering {
   mcpReq: {
     _meta?: { progressToken?: string | number };
     signal: AbortSignal;
-    notify(notification: { method: "notifications/progress"; params: { progressToken: string | number; progress: number; _meta: Record<string, unknown> } }): Promise<void>;
+    notify(notification: { method: string; params: Record<string, unknown> }): Promise<void>;
   };
 }
 
