@@ -128,6 +128,31 @@ function untilAborted<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> 
   });
 }
 
+// What a producer pushes, iterated in order until it ends, then its failure after everything pushed before it.
+// Leaving the loop early aborts the producer's signal, as the caller's own signal does.
+function channel<T>(signal?: AbortSignal) {
+  const left = new AbortController();
+  const items: T[] = [];
+  let wake = () => {};
+  let ended = false;
+  let failure: unknown;
+  return {
+    signal: signal ? AbortSignal.any([signal, left.signal]) : left.signal,
+    cancel: () => left.abort(),
+    push: (item: T) => { items.push(item); wake(); },
+    end: (error?: unknown) => { ended = true; failure = error; wake(); },
+    [Symbol.asyncIterator]: (): AsyncIterator<T> => ({
+      next: async () => {
+        while (!items.length && !ended) await new Promise<void>(resolve => { wake = resolve; });
+        if (items.length) return { value: items.shift()!, done: false };
+        if (failure) throw failure;
+        return { value: undefined, done: true };
+      },
+      return: async () => { left.abort(); return { value: undefined, done: true }; },
+    }),
+  };
+}
+
 // The MCP client ends a request after 60 s unless given a timeout. A request without one waits as long as a timer can
 // (2^31 - 1 ms, about 24.8 days). A request with one asks for progress, and progress restarts its timeout.
 function patient(options?: CacheableRequestOptions): CacheableRequestOptions {
@@ -271,32 +296,15 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       // isError tells ToolResult's success variant from its error variant.
       return { ...result, resultType: "complete" } as ToolResult<unknown>;
     };
-    // A part is the payload of a progress notification of the call, as the server's streamAnswer sends it.
-    const streamTool = (request: Parameters<typeof callTool>[0], { signal, ...options }: ToolCallOptions = {}): ToolStream<unknown> => {
-      const parts: unknown[] = [];
-      let wake = () => {};
-      let ended = false;
-      const left = new AbortController();
+    const streamTool = (request: Parameters<typeof callTool>[0], { signal, ...options }: Omit<ToolCallOptions, "onprogress"> = {}): ToolStream<unknown> => {
+      const parts = channel<unknown>(signal);
       const onprogress = ({ _meta }: { progress: number; _meta?: Record<string, unknown> }) => {
-        if (!_meta || !Object.hasOwn(_meta, "sh.holon/partial")) return;
-        parts.push(_meta["sh.holon/partial"]);
-        wake();
+        if (_meta && Object.hasOwn(_meta, "sh.holon/partial")) parts.push(_meta["sh.holon/partial"]);
       };
-      const result = callTool(request, { ...options, onprogress, signal: signal ? AbortSignal.any([signal, left.signal]) : left.signal });
+      const result = callTool(request, { ...options, onprogress, signal: parts.signal });
       // The loop throws a failure, so a caller that only iterates need not also await the result.
-      void result.catch(() => {}).finally(() => { ended = true; wake(); });
-      return {
-        result,
-        [Symbol.asyncIterator]: () => ({
-          next: async (): Promise<IteratorResult<unknown>> => {
-            while (!parts.length && !ended) await new Promise<void>(resolve => { wake = resolve; });
-            if (parts.length) return { value: parts.shift(), done: false };
-            await result;
-            return { value: undefined, done: true };
-          },
-          return: async (): Promise<IteratorResult<unknown>> => { left.abort(); return { value: undefined, done: true }; },
-        }),
-      };
+      void result.then(() => parts.end(), parts.end);
+      return { result, [Symbol.asyncIterator]: parts[Symbol.asyncIterator] };
     };
     const listTools = (options?: CallOptions) => session(options, client => client.listTools(undefined, patient(options)));
     for (const tool of contract?.tools ?? []) if (!reserved.has(tool.name)) {
@@ -369,13 +377,10 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       const delivery = options.delivery ?? (["push", "poll"] as const).find(mode => offered.includes(mode));
       // The sketch's NoCompatibleDeliveryMode: none of the modes the server offers is one this client uses.
       if (!delivery || !offered.includes(delivery)) throw Object.assign(new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`), { name: "NoCompatibleDeliveryMode" });
-      const cancelled = new AbortController();
-      const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
+      const occurrences = channel<EventOccurrence>(signal);
+      const ended = occurrences.signal;
       let cursor = options.cursor ?? null;
-      const queue: EventOccurrence[] = [];
       const seen = new Set<string>();
-      let wake = () => {};
-      let done = false;
       let failure: unknown;
       // An absent cursor is a null one, and a null one is never resumed from.
       const reach = (next: string | null | undefined, truncated?: boolean) => {
@@ -390,8 +395,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         seen.add(occurrence.eventId);
         if (seen.size > 1024) seen.delete(seen.values().next().value!);
         if (expected) validate(valid ??= validator(expected), occurrence.data, `data of ${name} ${event}`);
-        queue.push(occurrence);
-        wake();
+        occurrences.push(occurrence);
       };
       const request = { name: event, arguments: args, ...(maxAgeMs !== undefined && { maxAgeMs }) };
       let confirmed = false;
@@ -402,7 +406,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
           let wait = 1000;
           try {
             const result = await session({ signal: ended }, client => (client as Client).request({ method: "events/poll", params: { ...request, cursor } }, anything, patient({ signal: ended })) as Promise<Polled>);
-            try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
+            try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return occurrences.cancel(); }
             reach(result.cursor, result.truncated);
             established.resolve();
             // A server that asks for a tight loop is not obeyed.
@@ -448,7 +452,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             const on = (method: string, handle: (params: any) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything }, params => { heard(); handle(params); });
             on("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
             on("event", occurrence => {
-              try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
+              try { deliver(occurrence); } catch (error) { failure = error; return occurrences.cancel(); }
               reach(occurrence.cursor);
             });
             on("heartbeat", ({ cursor: next }) => reach(next));
@@ -469,22 +473,13 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       };
       void (delivery === "push" ? stream() : poll())
         .catch(error => { failure ??= error; })
-        .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
+        .finally(() => { occurrences.end(failure); established.reject(failure ?? ended.reason); });
       await active;
       return {
         delivery,
         get cursor() { return cursor; },
-        cancel: () => cancelled.abort(),
-        [Symbol.asyncIterator]: () => ({
-          next: async (): Promise<IteratorResult<EventOccurrence>> => {
-            while (!queue.length && !done) await new Promise<void>(resolve => { wake = resolve; });
-            const value = queue.shift();
-            if (value) return { value, done: false };
-            if (failure) throw failure;
-            return { value: undefined, done: true };
-          },
-          return: async (): Promise<IteratorResult<EventOccurrence>> => { cancelled.abort(); return { value: undefined, done: true }; },
-        }),
+        cancel: occurrences.cancel,
+        [Symbol.asyncIterator]: occurrences[Symbol.asyncIterator],
       };
     };
     // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.

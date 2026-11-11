@@ -9,42 +9,39 @@ import { serve, serveLegacy } from "./helpers.ts";
 
 const identity = { name: "page", version: "1" };
 
-test("a streamed answer reaches the caller part by part while the call runs, then its result", { timeout: 10000 }, async t => {
-  const output = z.object({ words: z.number() });
-  let heard!: () => void;
-  const first = new Promise<void>(resolve => { heard = resolve; });
+test("a streamed answer reaches the caller part by part while the call runs, then its result, and the loop throws a failure", { timeout: 10000 }, async t => {
+  const first = Promise.withResolvers<void>();
   const { endpoint } = await serve(t, () => {
     const server = new McpServer({ name: "chat", version: "1" });
-    server.registerTool("chat", { inputSchema: z.object({ prompt: z.string() }), outputSchema: output }, async ({ prompt }, ctx) => {
+    server.registerTool("chat", { inputSchema: z.object({ prompt: z.string() }) }, async ({ prompt }, ctx) => {
       const send = streamAnswer<string>(ctx);
       const [head, ...rest] = prompt.split(" ");
       await send(head!);
       // The rest waits until the caller has the first part, which it can only have if parts are not held back.
-      await first;
+      await first.promise;
       for (const word of rest) await send(word);
-      return { content: [{ type: "text", text: prompt }], structuredContent: { words: rest.length + 1 } };
+      return { content: [{ type: "text", text: prompt }] };
     });
     return server;
   });
-  const contract = { tools: [{ name: "chat", inputSchema: {}, outputSchema: z.toJSONSchema(output) }] };
-  const { chat } = createApps(identity, { chat: contract }, { chat: { endpoint } });
+  // The contract makes a call to an unknown tool fail.
+  const { chat } = createApps(identity, { chat: { tools: [{ name: "chat", inputSchema: {} }] } }, { chat: { endpoint } });
   t.after(() => chat!.close());
   const answer = chat!.streamTool({ name: "chat", arguments: { prompt: "a b c" } });
   const parts: unknown[] = [];
   for await (const part of answer) {
     parts.push(part);
-    heard();
+    first.resolve();
   }
   assert.deepEqual(parts, ["a", "b", "c"]);
-  assert.deepEqual((await answer.result).structuredContent, { words: 3 });
+  assert.deepEqual((await answer.result).content, [{ type: "text", text: "a b c" }]);
   await assert.rejects(async () => { for await (const _ of chat!.streamTool({ name: "absent", arguments: {} })); }, /Unknown tool chat\.absent/);
 });
 
 // A 2026 client cancels by closing the call's stream; a 2025 one sends notifications/cancelled and the session stays open.
 test("leaving the loop cancels the call, and the server's next send rejects", { timeout: 10000 }, async t => {
   for (const host of [serve, serveLegacy]) {
-    let stopped!: () => void;
-    const stop = new Promise<void>(resolve => { stopped = resolve; });
+    const stop = Promise.withResolvers<void>();
     const { endpoint } = await host(t, () => {
       const server = new McpServer({ name: "kernel", version: "1" });
       server.registerTool("run", { inputSchema: z.object({}) }, async (_, ctx) => {
@@ -54,7 +51,7 @@ test("leaving the loop cancels the call, and the server's next send rejects", { 
             await send(line);
             await new Promise(resolve => setTimeout(resolve, 10));
           }
-        } finally { stopped(); }
+        } finally { stop.resolve(); }
       });
       return server;
     });
@@ -62,7 +59,7 @@ test("leaving the loop cancels the call, and the server's next send rejects", { 
     t.after(() => kernel!.close());
     const answer = kernel!.streamTool({ name: "run", arguments: {} });
     for await (const part of answer) if (part === 2) break;
-    await stop;
+    await stop.promise;
     await assert.rejects(answer.result);
   }
 });

@@ -69,7 +69,7 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 
 ## Streaming a tool's answer
 
-A tool can send its answer in parts as it makes them, such as a model's tokens or a kernel's output. MCP has no partial results, so a part rides on a progress notification of the call, under `_meta["sh.holon/partial"]`. A caller that asks for no progress gets only the result, so the result is still the whole answer.
+A tool can send its answer in parts as it makes them, such as a model's tokens or a kernel's output. MCP has no partial results, so a part rides on a progress notification of the call, under `_meta["sh.holon/partial"]`. A caller that does not stream, such as `callTool`, sees only the result, so the result is still the whole answer.
 
 ```ts
 import { streamAnswer } from "holon-sh/context";

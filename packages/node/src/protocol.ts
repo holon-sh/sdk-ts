@@ -123,5 +123,5 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
   /** Return the full MCP result, preserving error results and questions left unanswered. Successful output is contract-validated; the server validates arguments. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
   /** Call a tool whose server streams its answer with streamAnswer, such as a model's tokens or a kernel's output. The call starts at once and is callTool's in every other way. */
-  readonly streamTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => ToolStream<K extends keyof O ? O[K] : unknown>;
+  readonly streamTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: Omit<ToolCallOptions, "onprogress">) => ToolStream<K extends keyof O ? O[K] : unknown>;
 }

@@ -23,7 +23,7 @@ result.total.toFixed();
 await apps["with-hyphen"].callTool({name: "then", arguments:{}});
 const raw = await apps.orders.callTool({name:"get_order", arguments: {orderId: "ord"}});
 if (raw.resultType === "complete" && !raw.isError) raw.structuredContent.total.toFixed();
-const streamed = apps.orders.streamTool({name:"get_order", arguments: {orderId: "ord"}}, {signal: new AbortController().signal});
+const streamed = apps.orders.streamTool({name:"get_order", arguments: {orderId: "ord"}});
 for await (const part of streamed) JSON.stringify(part);
 const whole = await streamed.result;
 if (whole.resultType === "complete" && !whole.isError) whole.structuredContent.total.toFixed();
