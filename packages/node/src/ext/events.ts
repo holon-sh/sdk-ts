@@ -135,8 +135,9 @@ export interface Emitter<D> {
    */
   cursor(): string;
   /**
-   * Terminates one subscription, or all of this type's: a stream is sent `notifications/events/terminated` with
-   * `error` and closed, and the next poll is answered with it. Forbidden unless given.
+   * Terminates one subscription, or all of this type's: a stream is sent what was emitted to it before, then
+   * `notifications/events/terminated` with `error`, and closed. The next poll is answered with the error. Forbidden
+   * unless given, which ends delivery at once, since access is lost.
    */
   terminate(subscriptionId?: string, error?: EventError): void;
   /**
@@ -211,6 +212,18 @@ export interface EventTypeState {
   /** The subscriptions held by every mode, by id. */
   readonly subscriptions: Map<string, { held: Set<Held>; ready: Promise<unknown> }>;
 }
+/** How much of what a subscription is owed to read. */
+export interface Reading {
+  maxAgeMs?: number;
+  maxEvents?: number;
+  /**
+   * Of emitted events, where a null cursor or one from another process starts: the type's sequence when the
+   * subscription was opened, so it has what onSubscribe emitted to it. The last emitted, unless given.
+   */
+  opened?: number;
+  /** Of emitted events, the sequence of the last one to read. The last emitted, unless given. */
+  until?: number;
+}
 /** What a delivery mode works with. */
 export interface Internals {
   readonly types: Map<string, EventTypeState>;
@@ -219,9 +232,9 @@ export interface Internals {
   /** Begins holding a subscription. */
   readonly open: (type: EventTypeState, subscription: { id: string; delivery: DeliveryModeName; arguments: unknown; context: SubscriptionContext }, end: (error: EventError) => void) => Promise<Held>;
   /** What a subscription is owed after a cursor. */
-  readonly read: (type: EventTypeState, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, cursor: string | null | undefined, options?: { maxAgeMs?: number; maxEvents?: number }) => Owed | Promise<Owed>;
+  readonly read: (type: EventTypeState, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, cursor: string | null | undefined, options?: Reading) => Owed | Promise<Owed>;
   /** What a subscription is owed of the events emitted. */
-  readonly since: (type: EventTypeState, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, cursor: string | null | undefined, maxAgeMs?: number, limit?: number) => Owed;
+  readonly since: (type: EventTypeState, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, cursor: string | null | undefined, options?: Reading) => Owed;
   /** An emitted event as one subscription receives it, or nothing when it is not for it. */
   readonly shape: (type: EventTypeState, kept: Kept, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, failed?: (error: EventError) => void) => EventOccurrence | undefined;
   /** A type's current cursor. */
@@ -357,23 +370,22 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
     if (type.owed.size > KEPT_EVENTS) type.owed.delete(type.owed.keys().next().value!);
   };
 
-  // What a subscription is owed after a cursor from the events emitted: the ones for it, in order, where delivery
-  // starts, and where it now stands. A null cursor starts from now, and so does one from another process. One past
-  // the events still kept starts from the oldest kept, and says that events were skipped.
-  const since: Internals["since"] = (state, subscription, cursor, maxAgeMs, limit = Infinity) => {
+  // What a subscription is owed after a cursor from the events emitted, up to `until`: the ones for it, in order,
+  // where delivery starts, and where it now stands. A null cursor starts where the subscription was opened, and so
+  // does one from another process, which says that events were skipped. One past the events still kept starts from
+  // the oldest kept, and says so too.
+  const since: Internals["since"] = (state, subscription, cursor, { maxAgeMs, maxEvents: limit = Infinity, opened = (state as Type).sequence, until = (state as Type).sequence } = {}) => {
     const type = state as Type;
-    const now = { events: [], start: position(type), cursor: position(type), hasMore: false };
-    if (cursor == null) return { ...now, truncated: false };
-    const [process, text] = cursor.split(".");
-    const sequence = Number(text);
-    if (process !== epoch || !Number.isInteger(sequence) || sequence > type.sequence) return { ...now, truncated: true };
-    const floor = maxAgeMs === undefined ? -Infinity : Date.now() - maxAgeMs;
-    const later = type.kept.filter(kept => kept.sequence > sequence);
+    const [process, text] = cursor?.split(".") ?? [];
+    const resumed = cursor != null && process === epoch && Number.isInteger(Number(text)) && Number(text) <= type.sequence;
+    const sequence = resumed ? Number(text) : opened;
+    const floor = maxAgeMs === undefined || !resumed ? -Infinity : Date.now() - maxAgeMs;
+    const later = type.kept.filter(kept => kept.sequence > sequence && kept.sequence <= until);
     const recent = later.filter(kept => kept.at >= floor);
-    const truncated = sequence < type.dropped || recent.length < later.length;
+    const truncated = cursor != null && !resumed || sequence < type.dropped || recent.length < later.length;
     const events: EventOccurrence[] = [];
     const failures: EventError[] = [];
-    let reached = recent.length ? recent[0]!.sequence - 1 : type.sequence;
+    let reached = recent.length ? recent[0]!.sequence - 1 : until;
     const start = position(type, reached);
     for (const kept of recent) {
       if (events.length === limit) return { events, failures, start, cursor: position(type, reached), truncated, hasMore: true };
@@ -381,7 +393,7 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
       const event = shape(type, kept, subscription, error => failures.push(error));
       if (event) events.push(event);
     }
-    return { events, failures, start, cursor: position(type), truncated, hasMore: false };
+    return { events, failures, start, cursor: position(type, until), truncated, hasMore: false };
   };
 
   // What a subscription is owed after a cursor from the type's check function. The cursor is the author's own. Each
@@ -414,8 +426,8 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
   };
 
   // What a subscription is owed after a cursor, whichever way its type learns of events.
-  const read: Internals["read"] = (type, subscription, cursor, { maxAgeMs, maxEvents } = {}) =>
-    type.check ? checked(type as Type, subscription, cursor, maxAgeMs, maxEvents) : since(type, subscription, cursor, maxAgeMs, maxEvents);
+  const read: Internals["read"] = (type, subscription, cursor, options = {}) =>
+    type.check ? checked(type as Type, subscription, cursor, options.maxAgeMs, options.maxEvents) : since(type, subscription, cursor, options);
 
   // The occurrence a subscription receives, or nothing when it is not for it. An event emitted to one subscription
   // is for that one alone, and its arguments are not asked.
@@ -668,9 +680,12 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
 
       server.setRequestHandler("events/poll", { params }, async (request, ctx) => {
         const { type, subscription: subscribed } = await subscription(request, ctx.http, "poll");
+        // Taken before the lease, which waits for onSubscribe. The sketch's poll from null returns no events and a
+        // fresh cursor: this one is where the subscription opened, so the next poll has what onSubscribe emitted.
+        const opened = (type as Type).sequence;
         const held = await lease(type as Type, subscribed);
         // Each poll is answered for its own caller, with the lease's id.
-        const { events, start, failures, truncated, ...rest } = await read(type, { ...subscribed, id: held.id, untargetable: held.untargetable }, request.cursor, request);
+        const { events, start, failures, truncated, ...rest } = await read(type, { ...subscribed, id: held.id, untargetable: held.untargetable }, request.cursor, { maxAgeMs: request.maxAgeMs, maxEvents: request.maxEvents, opened, ...(request.cursor == null && { until: opened }) });
         const lost = !held.untargetable && (type as Type).owed.delete(held.id);
         // A poll carries its cursor once, for the whole response.
         return { events: events.map(({ cursor, ...event }) => event), ...rest, truncated: truncated || lost, nextPollMs: type.interval };
@@ -683,14 +698,24 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
         const meta = { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id };
         let done = false;
         let ending: EventError | undefined;
+        // Set when the app terminates the stream: the last event emitted before, which the stream still sends.
+        let until: number | undefined;
         let wake = () => {};
         const finish = () => {
           done = true;
           wake();
         };
+        // What is emitted from here on is the stream's, so it has what onSubscribe emits to it.
+        const opened = type.sequence;
         const held = await open(type, { ...subscribed, delivery: "push" }, error => {
+          // Lost access ends delivery at once, even while what came before is still being sent. Otherwise only the
+          // first end counts, and the stream first sends what was emitted before it.
+          const lost = error.code === FORBIDDEN;
+          if (ending && !lost) return;
           ending = error;
-          finish();
+          if (lost) return finish();
+          until = type.sequence;
+          wake();
         });
         // A client that left while the subscription was being set up is not waited for.
         if (signal.aborted) {
@@ -724,6 +749,8 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
         // too, so when too much waits the oldest is let go.
         const pushed: Kept[] = [];
         const sink = (kept: Kept) => {
+          // Nothing emitted after the app terminated the stream is for it.
+          if (until !== undefined) return;
           if (type.check) {
             pushed.push(kept);
             if (pushed.length > KEPT_EVENTS) pushed.shift();
@@ -750,11 +777,12 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
         try {
           let due = 0;
           while (!done) {
-            if (type.check ? Date.now() >= due : behind) {
+            // Once terminated, a type with a check function is not asked again.
+            if (type.check ? until === undefined && Date.now() >= due : behind) {
               behind = false;
               let result: Owed | undefined;
               try {
-                result = await read(type, held, cursor, { ...(first && request.maxAgeMs !== undefined && { maxAgeMs: request.maxAgeMs }) });
+                result = await read(type, held, cursor, { ...(first && request.maxAgeMs !== undefined && { maxAgeMs: request.maxAgeMs }), opened, until });
               } catch (error) {
                 // Without a first answer there is no stream to tell, and the request fails.
                 if (first) throw error;
@@ -792,7 +820,8 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
               if (failure) await notify("error", { error: failure });
               if (event) await notify("event", { ...event, cursor });
             }
-            if (done) break;
+            // Terminated by the app, the stream ends once it has sent what was emitted before.
+            if (done || until !== undefined && (type.check || !behind)) break;
             let timer: ReturnType<typeof setTimeout> | undefined;
             await new Promise<void>(resolve => {
               wake = resolve;
