@@ -23,6 +23,8 @@ result.total.toFixed();
 await apps["with-hyphen"].callTool({name: "then", arguments:{}});
 const raw = await apps.orders.callTool({name:"get_order", arguments: {orderId: "ord"}});
 if (raw.resultType === "complete" && !raw.isError) raw.structuredContent.total.toFixed();
+const whole = await apps.orders.streamTool({name:"get_order", arguments: {orderId: "ord"}}).result;
+if (whole.resultType === "complete" && !whole.isError) whole.structuredContent.total.toFixed();
 const files: Download[] = raw.resultType === "complete" ? raw.downloads ?? [] : [];
 for (const file of files) (await file.blob({signal: new AbortController().signal})).size.toFixed(file.size);
 EXTENSION satisfies "io.modelcontextprotocol/files";

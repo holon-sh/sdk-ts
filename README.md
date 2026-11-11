@@ -67,6 +67,32 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 // error TS2339: Property 'hub_search' does not exist on type '{ readonly hf_fs: (input: { operations: { args: string[]; cmd: "attach" | "cat" | "find" | "ls" | "search" | "stat"; }[]; }, options?: ToolCallOptions | undefined) => Promise<{ results: ({ ...; } | { ...; })[]; truncated?: boolean | undefined; truncation_reason?: "output_budget" | undefined; }>; readonly hf_whoami: ...'.
 ```
 
+## Streaming a tool's answer
+
+A tool can send its answer in parts as it makes them, such as a model's tokens or a kernel's output. MCP has no partial results, so a part rides on a progress notification of the call, under `_meta["sh.holon/partial"]`. A caller that does not stream, such as `callTool`, sees only the result, so the result is still the whole answer.
+
+```ts
+import { streamAnswer } from "holon-sh/context";
+
+server.registerTool("chat", { inputSchema: z.object({ prompt: z.string() }) }, async ({ prompt }, ctx) => {
+  const send = streamAnswer<string>(ctx);
+  let text = "";
+  for await (const token of model.stream(prompt, { signal: ctx.mcpReq.signal })) {
+    text += token;
+    await send(token);
+  }
+  return { content: [{ type: "text", text }] };
+});
+```
+
+```ts
+const answer = apps.chat.streamTool({ name: "chat", arguments: { prompt } });
+for await (const token of answer) process.stdout.write(String(token));
+const result = await answer.result;
+```
+
+Leaving the loop early, or aborting the call's `signal`, cancels the call: the server's `ctx.mcpReq.signal` is aborted and its next `send` rejects. No contract describes the parts yet, so a client receives them as `unknown`.
+
 ## Events
 
 A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it, so it lives under `ext`: `holon-sh/ext/events` on a server and `ext.events` on a client. Expect what is there to change.

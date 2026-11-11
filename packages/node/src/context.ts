@@ -27,3 +27,28 @@ export function getContext(context: { authInfo?: { clientId: string; scopes: str
   if (!authInfo || typeof iss !== "string" || typeof sub !== "string") return { principal: null };
   return { principal: { issuer: iss, subject: sub, clientId: authInfo.clientId, scopes: authInfo.scopes, claims: claims ?? {}, ...(act && { actor: act }) } };
 }
+
+/** What streamAnswer reads from a tool callback's ctx. */
+interface Answering {
+  mcpReq: {
+    _meta?: { progressToken?: string | number };
+    signal: AbortSignal;
+    notify(notification: { method: string; params: Record<string, unknown> }): Promise<void>;
+  };
+}
+
+/**
+ * Stream a tool call's answer to its caller in parts, such as a model's tokens or a kernel's output. Pass the tool
+ * callback's ctx and await each send. A send rejects once the caller has left, which ends a loop that sends; pass
+ * ctx.mcpReq.signal to the work as well, so it stops at once. A caller that asked for no progress hears no parts, so
+ * the tool's result is still the whole answer.
+ */
+export function streamAnswer<Part = unknown>(ctx: Answering): (part: Part) => Promise<void> {
+  const progressToken = ctx.mcpReq._meta?.progressToken;
+  let progress = 0;
+  return async part => {
+    ctx.mcpReq.signal.throwIfAborted();
+    // MCP has no partial results, so a part rides on the call's own progress, whose count MCP requires to increase.
+    if (progressToken !== undefined) await ctx.mcpReq.notify({ method: "notifications/progress", params: { progressToken, progress: ++progress, _meta: { "sh.holon/partial": part } } });
+  };
+}
