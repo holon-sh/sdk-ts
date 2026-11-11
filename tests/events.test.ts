@@ -549,3 +549,20 @@ test("a subscription from the cursor read with a snapshot hears every change aft
   tell("once subscribed");
   assert.deepEqual([...snapshot.state, ...await take(subscription, 3)], state);
 });
+
+test("a stream ends once it has sent its budget, and its subscription carries on from its cursor with nothing missed", async t => {
+  const { factory, say } = rooms();
+  const { endpoint } = await serve(t, factory);
+  let streams = 0;
+  const counting: typeof fetch = (input, init) => {
+    if (typeof init?.body === "string" && init.body.includes('"method":"events/stream"')) streams++;
+    return fetch(input, init);
+  };
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint, fetch: counting } });
+  t.after(() => app.close());
+  const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
+  const texts = Array.from({ length: 100 }, (_, n) => `${n}`.padEnd(10_000));
+  for (const text of texts) say("a", "ann", text);
+  assert.deepEqual(await take(subscription, texts.length), texts);
+  assert.ok(streams > 1);
+});

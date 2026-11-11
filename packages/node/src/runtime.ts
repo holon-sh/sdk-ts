@@ -420,6 +420,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       };
       const stream = async () => {
         while (!ended.aborted) {
+          let wait = 1000;
           const quiet = new AbortController();
           // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
           // Only the stream's own response is watched: a 2025 server answers its initialization as a stream too.
@@ -452,6 +453,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             const on = (method: string, handle: (params: any) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything }, params => { heard(); handle(params); });
             on("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
             on("event", occurrence => {
+              wait = 0;
               try { deliver(occurrence); } catch (error) { failure = error; return occurrences.cancel(); }
               reach(occurrence.cursor);
             });
@@ -468,7 +470,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             await connection.close();
           }
           if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated.message}`), { code: terminated.code, data: terminated.data });
-          await sleep(1000, ended);
+          await sleep(wait, ended);
         }
       };
       void (delivery === "push" ? stream() : poll())
