@@ -4,10 +4,10 @@ import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests, downloads, isUploadRequest, prepare, settings, upload } from "./ext/files.client.js";
 import { ToolCallError } from "./protocol.js";
-import type { AuthProvider, CallMetadata, CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
+import type { AuthProvider, CallMetadata, CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolClient, ToolResult, ToolStream } from "./protocol.js";
 
 export { ToolCallError } from "./protocol.js";
-export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
+export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient, ToolStream } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
 export interface Binding {
@@ -271,6 +271,33 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       // isError tells ToolResult's success variant from its error variant.
       return { ...result, resultType: "complete" } as ToolResult<unknown>;
     };
+    // A part is the payload of a progress notification of the call, as the server's streamAnswer sends it.
+    const streamTool = (request: Parameters<typeof callTool>[0], { signal, ...options }: ToolCallOptions = {}): ToolStream<unknown> => {
+      const parts: unknown[] = [];
+      let wake = () => {};
+      let ended = false;
+      const left = new AbortController();
+      const onprogress = ({ _meta }: { progress: number; _meta?: Record<string, unknown> }) => {
+        if (!_meta || !Object.hasOwn(_meta, "sh.holon/partial")) return;
+        parts.push(_meta["sh.holon/partial"]);
+        wake();
+      };
+      const result = callTool(request, { ...options, onprogress, signal: signal ? AbortSignal.any([signal, left.signal]) : left.signal });
+      // The loop throws a failure, so a caller that only iterates need not also await the result.
+      void result.catch(() => {}).finally(() => { ended = true; wake(); });
+      return {
+        result,
+        [Symbol.asyncIterator]: () => ({
+          next: async (): Promise<IteratorResult<unknown>> => {
+            while (!parts.length && !ended) await new Promise<void>(resolve => { wake = resolve; });
+            if (parts.length) return { value: parts.shift(), done: false };
+            await result;
+            return { value: undefined, done: true };
+          },
+          return: async (): Promise<IteratorResult<unknown>> => { left.abort(); return { value: undefined, done: true }; },
+        }),
+      };
+    };
     const listTools = (options?: CallOptions) => session(options, client => client.listTools(undefined, patient(options)));
     for (const tool of contract?.tools ?? []) if (!reserved.has(tool.name)) {
       tools[tool.name] = async (input, options) => {
@@ -461,7 +488,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       };
     };
     // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
-    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], listTools, ext: Object.freeze({ events: Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] }) }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
+    apps[name] = Object.freeze({ callTool: callTool as RuntimeClient["callTool"], streamTool: streamTool as RuntimeClient["streamTool"], listTools, ext: Object.freeze({ events: Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] }) }), resources: Object.freeze(resources), close: async () => { await connection?.close(); }, tools: Object.freeze(tools) });
   }
   return Object.freeze(apps);
 }

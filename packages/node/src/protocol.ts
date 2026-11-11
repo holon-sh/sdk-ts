@@ -88,6 +88,12 @@ export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurre
   cancel(): void;
 }
 
+/** A tool call whose server streams its answer: iterate it for the parts, in the order sent, until the call ends. Parts are the server's JSON, unchecked. Leaving the loop early cancels the call, as aborting its signal does. */
+export interface ToolStream<Output> extends AsyncIterable<unknown> {
+  /** The call's result, as callTool returns it. Rejects, as the loop throws, when the call fails or is cancelled. */
+  readonly result: Promise<ToolResult<Output>>;
+}
+
 /** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. A Blob at a file argument (x-mcp-file) is sent with the files extension: inline when the server takes it, else uploaded to the target the server names. A failure before the call completes says whether the tool did not run or the outcome is unknown. */
 export interface ToolClient<I, O, R, E extends Record<string, { arguments: unknown; data: unknown }> = Record<string, { arguments: Record<string, unknown>; data: unknown }>> {
   /** Close the cached endpoint session. Scoped calls close their own session; a host-owned session is closed by its host. */
@@ -116,4 +122,6 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
   readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
   /** Return the full MCP result, preserving error results and questions left unanswered. Successful output is contract-validated; the server validates arguments. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
+  /** Call a tool whose server streams its answer with streamAnswer, such as a model's tokens or a kernel's output. The call starts at once and is callTool's in every other way. */
+  readonly streamTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => ToolStream<K extends keyof O ? O[K] : unknown>;
 }
