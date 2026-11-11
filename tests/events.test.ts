@@ -550,7 +550,7 @@ test("a subscription from the cursor read with a snapshot hears every change aft
   assert.deepEqual([...snapshot.state, ...await take(subscription, 3)], state);
 });
 
-test("a stream whose reader stops is ended once it holds its budget, and the reader hears everything after its cursor when it reads again", { timeout: 30_000 }, async t => {
+test("a stream ends once it has sent its budget, and a reader that stopped hears everything after its cursor when it reads again", { timeout: 30_000 }, async t => {
   const { factory, said } = rooms();
   const { endpoint } = await serve(t, factory);
   // A page whose streams stop being read while it is paused.
