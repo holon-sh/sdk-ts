@@ -321,6 +321,12 @@ const MAX_SUBSCRIPTIONS = 10_000;
 const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
 // How many event types events/list returns at a time.
 const PAGE_SIZE = 100;
+/**
+ * What a stream sends before it ends and its client resumes from its cursor. The draft leaves flow control to the
+ * transport, but the MCP SDK's HTTP transport queues whatever a stream sends without waiting for its reader:
+ * https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#note-on-flow-control
+ */
+const STREAM_BUDGET = 2 ** 20;
 
 /**
  * Event types a process emits and the MCP servers it creates serve, in the poll and push delivery modes of MCP Events,
@@ -698,13 +704,16 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
         }
         signal.addEventListener("abort", finish, { once: true });
         // A stream that cannot be written to is over.
+        let sent = 0;
         const notify = async (method: string, body: object) => {
           if (signal.aborted) return;
+          const params = { ...body, _meta: meta };
           try {
-            await ctx.mcpReq.notify({ method: `notifications/events/${method}`, params: { ...body, _meta: meta } });
+            await ctx.mcpReq.notify({ method: `notifications/events/${method}`, params });
           } catch {
             finish();
           }
+          if ((sent += JSON.stringify(params).length) > STREAM_BUDGET) finish();
         };
         // The stream follows its cursor: emitted events wake it, and a type with a check function is asked again
         // every interval. What it is owed waits in the buffer or the source, not here, so a slow client is not owed
