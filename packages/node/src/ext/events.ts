@@ -137,7 +137,7 @@ export interface Emitter<D> {
   /**
    * Terminates one subscription, or all of this type's: a stream is sent what was emitted to it before, then
    * `notifications/events/terminated` with `error`, and closed. The next poll is answered with the error. Forbidden
-   * unless given.
+   * unless given, which ends delivery at once, since access is lost.
    */
   terminate(subscriptionId?: string, error?: EventError): void;
   /**
@@ -192,11 +192,8 @@ export interface Held {
   readonly context: SubscriptionContext;
   /** Nothing is emitted to it alone: a poll lease shared by callers without an identity. */
   untargetable?: boolean;
-  /**
-   * Called when the subscription is ended: with `drain` when the app terminated it, so a stream first sends what was
-   * emitted before; without, at once, as when its caller lost access.
-   */
-  readonly end: (error: EventError, drain?: boolean) => void;
+  /** Called when the app ends the subscription. */
+  readonly end: (error: EventError) => void;
   /** Says the hold is over. */
   close(): void;
 }
@@ -233,7 +230,7 @@ export interface Internals {
   /** Checks a request, names its event type and the subscription's id. */
   readonly subscription: (request: Record<string, unknown>, context: SubscriptionContext, delivery?: DeliveryModeName) => Promise<{ type: EventTypeState; subscription: Requested }>;
   /** Begins holding a subscription. */
-  readonly open: (type: EventTypeState, subscription: { id: string; delivery: DeliveryModeName; arguments: unknown; context: SubscriptionContext }, end: Held["end"]) => Promise<Held>;
+  readonly open: (type: EventTypeState, subscription: { id: string; delivery: DeliveryModeName; arguments: unknown; context: SubscriptionContext }, end: (error: EventError) => void) => Promise<Held>;
   /** What a subscription is owed after a cursor. */
   readonly read: (type: EventTypeState, subscription: Pick<Held, "id" | "arguments" | "context" | "untargetable">, cursor: string | null | undefined, options?: Reading) => Owed | Promise<Owed>;
   /** What a subscription is owed of the events emitted. */
@@ -489,8 +486,8 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
     return { type, subscription: { id: who === null ? unique() : lease, lease, arguments: checked.value, context } };
   };
 
-  const endSubscription = (type: EventTypeState, id: string, error: EventError, drain = false) => {
-    for (const held of [...type.subscriptions.get(id)?.held ?? []]) held.end(error, drain);
+  const endSubscription = (type: EventTypeState, id: string, error: EventError) => {
+    for (const held of [...type.subscriptions.get(id)?.held ?? []]) held.end(error);
   };
 
   // Begins holding a subscription, by a stream, a poll lease or another delivery mode: counted against the limits
@@ -636,8 +633,8 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
           return position(type);
         },
         terminate(id, error = forbidden) {
-          if (id !== undefined) return endSubscription(type, id, error, true);
-          for (const each of [...type.subscriptions.keys()]) endSubscription(type, each, error, true);
+          if (id !== undefined) return endSubscription(type, id, error);
+          for (const each of [...type.subscriptions.keys()]) endSubscription(type, each, error);
         },
         remove() {
           if (types.get(name) !== type) return;
@@ -683,11 +680,12 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
 
       server.setRequestHandler("events/poll", { params }, async (request, ctx) => {
         const { type, subscription: subscribed } = await subscription(request, ctx.http, "poll");
-        // Taken before the lease, which waits for onSubscribe, so the poll has what it emits.
+        // Taken before the lease, which waits for onSubscribe. The sketch's poll from null returns no events and a
+        // fresh cursor: this one is where the subscription opened, so the next poll has what onSubscribe emitted.
         const opened = (type as Type).sequence;
         const held = await lease(type as Type, subscribed);
         // Each poll is answered for its own caller, with the lease's id.
-        const { events, start, failures, truncated, ...rest } = await read(type, { ...subscribed, id: held.id, untargetable: held.untargetable }, request.cursor, { maxAgeMs: request.maxAgeMs, maxEvents: request.maxEvents, opened });
+        const { events, start, failures, truncated, ...rest } = await read(type, { ...subscribed, id: held.id, untargetable: held.untargetable }, request.cursor, { maxAgeMs: request.maxAgeMs, maxEvents: request.maxEvents, opened, ...(request.cursor == null && { until: opened }) });
         const lost = !held.untargetable && (type as Type).owed.delete(held.id);
         // A poll carries its cursor once, for the whole response.
         return { events: events.map(({ cursor, ...event }) => event), ...rest, truncated: truncated || lost, nextPollMs: type.interval };
@@ -709,11 +707,13 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
         };
         // What is emitted from here on is the stream's, so it has what onSubscribe emits to it.
         const opened = type.sequence;
-        const held = await open(type, { ...subscribed, delivery: "push" }, (error, drain) => {
-          // Only the first termination counts, and an end at once cuts it short.
-          if (ending && drain) return;
+        const held = await open(type, { ...subscribed, delivery: "push" }, error => {
+          // Lost access ends delivery at once, even while what came before is still being sent. Otherwise only the
+          // first end counts, and the stream first sends what was emitted before it.
+          const lost = error.code === FORBIDDEN;
+          if (ending && !lost) return;
           ending = error;
-          if (!drain) return finish();
+          if (lost) return finish();
           until = type.sequence;
           wake();
         });

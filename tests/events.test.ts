@@ -353,20 +353,29 @@ test("what onSubscribe emits to its subscription reaches it by push and by poll,
     assert.deepEqual(await take(subscription, 1), ["welcome"]);
   }
   assert.deepEqual(gaps, ["c", "d"]);
+  // The sketch's poll from null returns no events, and a cursor from which the next poll has them.
+  const { request } = await wire(t, endpoint);
+  const poll = (cursor: string | null) => request("events/poll", { name: "room.said", arguments: { room: "e", listener: "bob" }, cursor });
+  const fresh = await poll(null);
+  assert.deepEqual(fresh.events, []);
+  assert.deepEqual((await poll(fresh.cursor)).events.map(({ data }) => data.text), ["welcome"]);
 });
 
-test("a stream the app terminates is first sent what was emitted to it before, then why", { timeout: 10_000 }, async t => {
+test("a stream the app terminates is first sent what was emitted to it before, then why, unless access was lost", { timeout: 10_000 }, async t => {
   const ids: string[] = [];
   const { factory, said, say } = rooms({}, { onSubscribe: ({ subscriptionId }) => { ids.push(subscriptionId); } });
   const { endpoint } = await serve(t, factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
-  const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
-  for (const text of ["one", "two", "three"]) say("a", "ann", text, ids[0]);
-  said.terminate(ids[0], { code: -32000, message: "Closed" });
-  say("a", "ann", "after");
-  assert.deepEqual(await next(subscription, 3), ["one", "two", "three"]);
-  await assert.rejects(next(subscription, 1), refusedWith(-32000));
+  // Terminated as Forbidden, the default, nothing more is sent.
+  for (const [error, sent, code] of [[{ code: -32000, message: "Closed" }, ["one", "two"], -32000], [undefined, [], -32024]] as const) {
+    const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
+    for (const text of ["one", "two"]) say("a", "ann", text, ids.at(-1));
+    said.terminate(ids.at(-1), error);
+    say("a", "ann", "after");
+    assert.deepEqual(await next(subscription, sent.length), sent);
+    await assert.rejects(next(subscription, 1), refusedWith(code));
+  }
 });
 
 test("callers without an identity do not share a subscription, and what is emitted to one's stream does not reach the other", async t => {
