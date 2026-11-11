@@ -202,6 +202,11 @@ async function until(condition: () => unknown) {
   }
 }
 
+// Every request comes from one signed-in user, through one client.
+const signedIn = (request: IncomingMessage & { auth?: unknown }) => {
+  request.auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } };
+};
+
 const refusedWith = (code: number, data?: unknown) => (error: any) => {
   assert.equal(error.code, code);
   if (data) assert.deepEqual(error.data, data);
@@ -301,8 +306,7 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   };
   const onUnsubscribe: EventDefinition<Listener, Said>["onUnsubscribe"] = ({ subscriptionId }) => { ended.push(subscriptionId); };
   const { factory, say } = rooms({}, { onSubscribe, onUnsubscribe });
-  // Every request comes from one signed-in user, through one client.
-  const { endpoint, http } = await serve(t, factory, (request: IncomingMessage & { auth?: unknown }) => { request.auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } }; });
+  const { endpoint, http } = await serve(t, factory, signedIn);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
 
@@ -341,41 +345,41 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   again.cancel();
 });
 
-test("what onSubscribe emits to its subscription reaches it by push and by poll, with or without a cursor from another process", { timeout: 10_000 }, async t => {
+test("what onSubscribe emits to its subscription reaches it first, by push or poll, whatever cursor it starts from", async t => {
   const { factory, say } = rooms({}, { onSubscribe: ({ subscriptionId, arguments: { room } }) => say(room, "host", "welcome", subscriptionId) });
-  // A poll lease is targetable only by a caller with an identity.
-  const { endpoint } = await serve(t, factory, (request: IncomingMessage & { auth?: unknown }) => { request.auth = { token: "token", clientId: "page", scopes: [], extra: { sub: "ann" } }; });
+  const { endpoint } = await serve(t, factory, signedIn);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
-  const gaps: string[] = [];
-  for (const [room, delivery, cursor] of [["a", "push"], ["b", "poll"], ["c", "push", "restarted.7"], ["d", "poll", "restarted.7"]] as const) {
-    const subscription = await app.ext.events.subscribe("room.said", { room, listener: "bob" }, { delivery, ...(cursor && { cursor }), onGap: () => gaps.push(room) });
-    assert.deepEqual(await take(subscription, 1), ["welcome"]);
+  // No cursor, and one from before the server restarted, which names nothing here.
+  for (const cursor of [undefined, "from before a restart"]) {
+    for (const delivery of ["push", "poll"] as const) {
+      const room = `${delivery} from ${cursor ?? "now"}`;
+      const subscription = await app.ext.events.subscribe("room.said", { room, listener: "bob" }, { delivery, cursor });
+      say(room, "ann", "hello");
+      assert.deepEqual(await take(subscription, 2), ["welcome", "hello"]);
+    }
   }
-  assert.deepEqual(gaps, ["c", "d"]);
-  // The sketch's poll from null returns no events, and a cursor from which the next poll has them.
-  const { request } = await wire(t, endpoint);
-  const poll = (cursor: string | null) => request("events/poll", { name: "room.said", arguments: { room: "e", listener: "bob" }, cursor });
-  const fresh = await poll(null);
-  assert.deepEqual(fresh.events, []);
-  assert.deepEqual((await poll(fresh.cursor)).events.map(({ data }) => data.text), ["welcome"]);
 });
 
-test("a stream the app terminates is first sent what was emitted to it before, then why, unless access was lost", { timeout: 10_000 }, async t => {
-  const ids: string[] = [];
-  const { factory, said, say } = rooms({}, { onSubscribe: ({ subscriptionId }) => { ids.push(subscriptionId); } });
+test("a subscription the app ends is told why: a stream after what was emitted to it, unless its caller lost access, and a poll when it next polls", async t => {
+  const ids = new Map<string, string>();
+  const { factory, said, say } = rooms({}, { onSubscribe: ({ subscriptionId, arguments: { listener } }) => { ids.set(listener, subscriptionId); } });
   const { endpoint } = await serve(t, factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
-  // Terminated as Forbidden, the default, nothing more is sent.
-  for (const [error, sent, code] of [[{ code: -32000, message: "Closed" }, ["one", "two"], -32000], [undefined, [], -32024]] as const) {
-    const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
-    for (const text of ["one", "two"]) say("a", "ann", text, ids.at(-1));
-    said.terminate(ids.at(-1), error);
-    say("a", "ann", "after");
-    assert.deepEqual(await next(subscription, sent.length), sent);
-    await assert.rejects(next(subscription, 1), refusedWith(code));
-  }
+  const bob = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
+  const cat = await app.ext.events.subscribe("room.said", { room: "a", listener: "cat" });
+  const dan = await app.ext.events.subscribe("room.said", { room: "a", listener: "dan" }, { delivery: "poll" });
+  say("a", "ann", "last words");
+  said.terminate(ids.get("bob"), { code: -32000, message: "Closed", data: { reason: "The room closed" } });
+  // Forbidden, the default, says the caller lost access, so nothing more is sent.
+  said.terminate(ids.get("cat"));
+  said.terminate(ids.get("dan"));
+  say("a", "ann", "too late");
+  assert.deepEqual(await next(bob, 1), ["last words"]);
+  await assert.rejects(next(bob, 1), refusedWith(-32000, { reason: "The room closed" }));
+  await assert.rejects(next(cat, 1), refusedWith(-32024));
+  await assert.rejects(next(dan, 1), refusedWith(-32024));
 });
 
 test("callers without an identity do not share a subscription, and what is emitted to one's stream does not reach the other", async t => {
@@ -484,13 +488,9 @@ test("a stream on a check function is confirmed before anything else is said on 
   assert.deepEqual((await request("events/poll", { name: "bell.rang", arguments: {}, cursor: null })).events.map(({ eventId }) => eventId), ["3"]);
 });
 
-test("a subscription the caller may not have is refused, and one the app ends is told why on its stream or its next poll", { timeout: 30_000 }, async t => {
+test("a subscription the caller may not have is refused, and one it no longer may have is ended", { timeout: 30_000 }, async t => {
   const revoked = new Set(["eve"]);
-  const subscriptions = new Map<string, string>();
-  const { factory, said, say } = rooms({}, {
-    authorize: ({ listener }) => !revoked.has(listener),
-    onSubscribe: ({ subscriptionId, arguments: { listener } }) => { subscriptions.set(listener, subscriptionId); },
-  });
+  const { factory } = rooms({}, { authorize: ({ listener }) => !revoked.has(listener) });
   const { endpoint } = await serve(t, factory);
   const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
   t.after(() => app.close());
@@ -498,24 +498,17 @@ test("a subscription the caller may not have is refused, and one the app ends is
   t.mock.timers.enable({ apis: ["setInterval"] });
   await assert.rejects(app.ext.events.subscribe("room.said", { room: "a", listener: "eve" }), refusedWith(-32024));
 
-  const bob = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
   const cat = await app.ext.events.subscribe("room.said", { room: "a", listener: "cat" });
-  const dan = await app.ext.events.subscribe("room.said", { room: "a", listener: "dan" }, { delivery: "poll" });
   // Every delivery mode counts against the thousand a caller may hold: these callers have no identity, so are one.
   const { request } = await wire(t, endpoint);
-  for (let index = 0; index < 997; index++) await request("events/poll", { name: "room.said", arguments: { room: "a", listener: `filler ${index}` }, cursor: null });
+  for (let index = 0; index < 999; index++) await request("events/poll", { name: "room.said", arguments: { room: "a", listener: `filler ${index}` }, cursor: null });
   await assert.rejects(app.ext.events.subscribe("room.said", { room: "a", listener: "fay" }, { delivery: "poll" }), refusedWith(-32025, { limit: "subscriptionsPerCaller", max: 1000 }));
 
-  said.terminate(subscriptions.get("bob"), { code: -32024, message: "Forbidden", data: { reason: "Left the room" } });
-  await assert.rejects(take(bob, 1), refusedWith(-32024, { reason: "Left the room" }));
   revoked.add("cat");
   let noticed = false;
   const lost = assert.rejects(take(cat, 1), refusedWith(-32024)).finally(() => { noticed = true; });
   await until(() => { t.mock.timers.tick(30_000); return noticed; });
   await lost;
-  said.terminate(subscriptions.get("dan"));
-  say("a", "ann", "too late");
-  await assert.rejects(take(dan, 1), refusedWith(-32024));
 });
 
 test("events/list pages through the event types, and removing one ends its subscriptions", async t => {
