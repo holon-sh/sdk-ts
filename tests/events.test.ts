@@ -341,6 +341,34 @@ test("a subscription keeps its id across streams, reconnects and polls, is set u
   again.cancel();
 });
 
+test("what onSubscribe emits to its subscription reaches it by push and by poll, with or without a cursor from another process", { timeout: 10_000 }, async t => {
+  const { factory, say } = rooms({}, { onSubscribe: ({ subscriptionId, arguments: { room } }) => say(room, "host", "welcome", subscriptionId) });
+  // A poll lease is targetable only by a caller with an identity.
+  const { endpoint } = await serve(t, factory, (request: IncomingMessage & { auth?: unknown }) => { request.auth = { token: "token", clientId: "page", scopes: [], extra: { sub: "ann" } }; });
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
+  t.after(() => app.close());
+  const gaps: string[] = [];
+  for (const [room, delivery, cursor] of [["a", "push"], ["b", "poll"], ["c", "push", "restarted.7"], ["d", "poll", "restarted.7"]] as const) {
+    const subscription = await app.ext.events.subscribe("room.said", { room, listener: "bob" }, { delivery, ...(cursor && { cursor }), onGap: () => gaps.push(room) });
+    assert.deepEqual(await take(subscription, 1), ["welcome"]);
+  }
+  assert.deepEqual(gaps, ["c", "d"]);
+});
+
+test("a stream the app terminates is first sent what was emitted to it before, then why", { timeout: 10_000 }, async t => {
+  const ids: string[] = [];
+  const { factory, said, say } = rooms({}, { onSubscribe: ({ subscriptionId }) => { ids.push(subscriptionId); } });
+  const { endpoint } = await serve(t, factory);
+  const { rooms: app } = createApps(identity, { rooms: null }, { rooms: { endpoint } });
+  t.after(() => app.close());
+  const subscription = await app.ext.events.subscribe("room.said", { room: "a", listener: "bob" });
+  for (const text of ["one", "two", "three"]) say("a", "ann", text, ids[0]);
+  said.terminate(ids[0], { code: -32000, message: "Closed" });
+  say("a", "ann", "after");
+  assert.deepEqual(await next(subscription, 3), ["one", "two", "three"]);
+  await assert.rejects(next(subscription, 1), refusedWith(-32000));
+});
+
 test("callers without an identity do not share a subscription, and what is emitted to one's stream does not reach the other", async t => {
   const begun: string[] = [];
   const { factory, say } = rooms({}, { onSubscribe: ({ subscriptionId }) => { begun.push(subscriptionId); } });
