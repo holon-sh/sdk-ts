@@ -389,7 +389,6 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       };
       const stream = async () => {
         while (!ended.aborted) {
-          // A stream that brought events is reopened at once: a server ends one that has sent its budget.
           let wait = 1000;
           const quiet = new AbortController();
           // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.

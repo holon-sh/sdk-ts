@@ -321,9 +321,6 @@ const MAX_SUBSCRIPTIONS = 10_000;
 const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
 // How many event types events/list returns at a time.
 const PAGE_SIZE = 100;
-// How much one stream sends, as JSON, before it ends with its answer and its client reconnects from its cursor. The MCP
-// SDK's HTTP transport queues what a stream sends without waiting for its reader, so this is what a reader that stops
-// reading can hold.
 const STREAM_BUDGET = 2 ** 20;
 
 /**
@@ -332,7 +329,7 @@ const STREAM_BUDGET = 2 ** 20;
  * for ten minutes, for polls and for streams that reconnect: those cursors last as long as the process, and after a
  * restart a client is told that events were skipped. A type with a check function uses its source's cursors instead,
  * which outlive the process. A type is asked again, and a poll told to come back, every second. A stream hears from
- * the server every thirty seconds, and ends once it has sent about a megabyte.
+ * the server every thirty seconds.
  */
 export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Events {
   const modes = webhookTtl === undefined ? [] : [webhooks({ ...webhook, ttl: webhookTtl, heartbeat: HEARTBEAT })];
@@ -701,7 +698,7 @@ export function createEvents({ webhookTtl, webhook }: EventsOptions = {}): Event
           throw refusal(ending);
         }
         signal.addEventListener("abort", finish, { once: true });
-        // A stream that cannot be written to is over, and one that has sent its budget ends.
+        // A stream that cannot be written to is over.
         let sent = 0;
         const notify = async (method: string, body: object) => {
           if (signal.aborted) return;
