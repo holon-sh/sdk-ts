@@ -23,7 +23,7 @@ async function get(origin: string, path: string, method = "GET") {
 test("serve runs an app without Holon: its MCP endpoint for clients of every version, and its page", { timeout: 10000 }, async t => {
   const root = temporary(t);
   mkdirSync(join(root, "web"));
-  const files = [["web/index.html", "<p>page</p>"], ["web/app.js", "page()"], ["web/data.bin", "bytes"], ["web/.env", "hidden"], ["secret", "outside"]];
+  const files = [["web/index.html", "<p>page</p>"], ["web/app.mjs", "page()"], ["web/data", "bytes"], ["web/.env", "hidden"], ["secret", "outside"]];
   for (const [name, text] of files) writeFileSync(join(root, name!), text!);
   // An app links to itself at the origin Holon forwards.
   const mcp = createMcpHandler(({ requestInfo }) => {
@@ -85,9 +85,13 @@ test("serve runs an app without Holon: its MCP endpoint for clients of every ver
 
   const page = { status: 200, sniffing: "nosniff" };
   assert.deepEqual(await get(origin, "/"), { ...page, type: "text/html; charset=utf-8", body: "<p>page</p>" });
-  assert.deepEqual(await get(origin, "/app.js", "HEAD"), { ...page, type: "text/javascript; charset=utf-8", body: "" });
-  assert.deepEqual(await get(origin, "/data.bin"), { ...page, type: "application/octet-stream", body: "bytes" });
+  assert.deepEqual(await get(origin, "/app.mjs", "HEAD"), { ...page, type: "text/javascript; charset=utf-8", body: "" });
+  assert.deepEqual(await get(origin, "/data"), { ...page, type: "application/octet-stream", body: "bytes" });
   for (const [path, method] of [["/", "POST"], ["/missing"], ["/.env"], ["/%2Eenv"], ["/../secret"], ["/%2e%2e/secret"], ["/..%2fsecret"]])
     assert.equal((await get(origin, path!, method)).status, 404, `${method ?? "GET"} ${path}`);
   assert.equal((await get(await start({ default: { fetch } }), "/")).status, 404, "an app without a page has none");
+
+  // A directory named without its trailing slash is still the directory, and not its parent.
+  const unslashed = await start({ default: { fetch }, frontend: pathToFileURL(join(root, "web")) });
+  assert.deepEqual([(await get(unslashed, "/")).body, (await get(unslashed, "/secret")).status], ["<p>page</p>", 404]);
 });

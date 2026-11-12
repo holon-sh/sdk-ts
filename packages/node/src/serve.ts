@@ -2,35 +2,16 @@ import { once } from "node:events";
 import { readFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { extname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import mime from "mime";
 
 /** An app's module: the MCP handler it exports by default, and the directory of its page. */
 export interface App {
   default: { fetch(request: Request): Promise<Response> };
-  /** A file URL ending in `/`. */
+  /** The directory of the page's files, as a file URL. */
   frontend?: URL;
 }
-
-// The types of the files a built page holds. Anything else is sent as bytes.
-const types: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json",
-  ".txt": "text/plain; charset=utf-8",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".woff2": "font/woff2",
-  ".mp4": "video/mp4",
-  ".wasm": "application/wasm",
-};
 
 /**
  * Runs an app without Holon, at the paths Holon gives it: the MCP endpoint at `/mcp` and `/mcp/<app>`, and the page's
@@ -43,10 +24,12 @@ const types: Record<string, string> = {
  * Holon answers clients of the 2025 MCP versions in front of an app. Here the handler answers them, so create it
  * without `legacy: "reject"`.
  */
-export async function serve(app: App): Promise<Server> {
+export async function serve({ default: handler, frontend }: App): Promise<Server> {
   const { PORT = "3000", HOST = "127.0.0.1" } = process.env;
+  // A directory's URL ends in `/`. Without it, a name would resolve beside the directory instead of in it.
+  const directory = frontend && new URL(frontend.href.replace(/\/?$/, "/"));
   const server = createServer((req, res) =>
-    respond(app, req, res).catch((error: unknown) => {
+    respond(handler, directory, req, res).catch((error: unknown) => {
       console.error(error);
       if (!res.headersSent) res.writeHead(500);
       res.end();
@@ -60,7 +43,7 @@ export async function serve(app: App): Promise<Server> {
   return server;
 }
 
-async function respond({ default: handler, frontend }: App, req: IncomingMessage, res: ServerResponse) {
+async function respond(handler: App["default"], directory: URL | undefined, req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   if (/^\/mcp(\/[^/]+)?$/.test(url.pathname)) {
     const gone = new AbortController();
@@ -79,13 +62,15 @@ async function respond({ default: handler, frontend }: App, req: IncomingMessage
     else res.end();
     return;
   }
-  if (!frontend || (req.method !== "GET" && req.method !== "HEAD")) return void res.writeHead(404).end();
+  if (!directory || (req.method !== "GET" && req.method !== "HEAD")) return void res.writeHead(404).end();
   const name = url.pathname.endsWith("/") ? `${url.pathname}index.html` : url.pathname;
   // The URL parser has resolved every `..`, and a file URL may not encode `/`, so no name leads out of the directory.
   // Like Holon, serve nothing hidden, however its dot is spelled, and treat what cannot be read, such as a directory, as
   // not found.
-  const contents = /\/(\.|%2e)/i.test(name) ? undefined : await readFile(new URL(`.${name}`, frontend)).catch(() => undefined);
+  const contents = /\/(\.|%2e)/i.test(name) ? undefined : await readFile(new URL(`.${name}`, directory)).catch(() => undefined);
   if (!contents) return void res.writeHead(404).end();
-  const type = types[extname(name)] ?? "application/octet-stream";
-  res.writeHead(200, { "content-type": type, "x-content-type-options": "nosniff" }).end(contents);
+  // Like Holon, take the type from the MIME database, and call text UTF-8, which a built page is.
+  const type = mime.getType(name) ?? "application/octet-stream";
+  const contentType = type.startsWith("text/") ? `${type}; charset=utf-8` : type;
+  res.writeHead(200, { "content-type": contentType, "x-content-type-options": "nosniff" }).end(contents);
 }
