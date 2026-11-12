@@ -116,7 +116,7 @@ async function respond(handler: App["default"], platform: boolean, directory: UR
 }
 
 const contextForm = /^[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/;
-const callerForm = /^spiffe:\/\/cluster\.local\/ns\/([^/]+)\/sa\/([^/]+)$/;
+const callerForm = /^([^/]+)\/([^/]+)$/;
 
 type Fields = Record<string, unknown>;
 const isObject = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);

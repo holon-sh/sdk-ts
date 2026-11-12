@@ -141,7 +141,7 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
   const signedIn = context({ ...audience, principal });
   const signedOut = context({ ...audience, aud: "https://holon.example" });
   const hook = context({ ...audience, hook: { app: "accounts", job: "install-accounts" } });
-  const mesh = (app: string) => `spiffe://cluster.local/ns/session/sa/${app}`;
+  const mesh = (app: string) => `session/${app}`;
   const reporter = { app: "reporter", session: "session" };
   const user = { issuer: "https://issuer.example", subject: "alice", clientId: "web", scopes: ["read", "write"], claims, actor: { sub: "agent" } };
   const admitted = { token: signedIn, clientId: "web", scopes: ["read", "write"] };
@@ -177,11 +177,11 @@ test("a malformed Holon context is a bad request", { timeout: 10000 }, async t =
   const origin = await start(t, { default: handler }, { HOLON_PLATFORM: "1" });
   const person = { iss: "https://issuer.example", sub: "alice", client_id: "web", act: { sub: "agent" } };
   const token = (payload: string) => `e30.${Buffer.from(payload).toString("base64url")}.signature`;
-  const caller = "spiffe://cluster.local/ns/session/sa/reporter";
+  const caller = "session/reporter";
   for (const headers of [
     ["x-holon-context", context({}), "x-holon-context", context({})],
     ["x-holon-caller", caller, "x-holon-caller", caller],
-    ["x-holon-caller", "spiffe://holon.example/sa/reporter"],
+    ["x-holon-caller", "reporter"],
     ["x-holon-context", "header.claims"],
     ["x-holon-context", "e30.e30=.signature"],
     ["x-holon-context", token("person")],
