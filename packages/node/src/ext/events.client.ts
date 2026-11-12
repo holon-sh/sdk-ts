@@ -28,7 +28,7 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
       if (!(cursor = page.nextCursor)) return events;
     }
   });
-  const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
+  const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, reconnect = true, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
     const resolved = link.endpoint(`Subscribing to ${name} ${event}`);
     const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
@@ -73,7 +73,7 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
           wait = result.hasMore ? 0 : Math.max(1000, result.nextPollMs ?? 0);
         } catch (error) {
           if (ended.aborted) return;
-          if (!confirmed || refused(error)) throw error;
+          if (!confirmed || !reconnect || refused(error)) throw error;
         }
         await sleep(wait, ended);
       }
@@ -107,7 +107,6 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
           clearTimeout(timer);
           timer = setTimeout(() => quiet.abort(), QUIET);
         };
-        let terminated: { code?: number; message?: string; data?: unknown } | undefined;
         try {
           await untilAborted(connection.ready, ended);
           const on = <P>(method: string, handle: (params: P) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: unchecked<P>() }, params => { heard(); handle(params); });
@@ -120,16 +119,15 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
           on<Pick<Polled, "cursor">>("heartbeat", ({ cursor: next }) => reach(next));
           // The server recovers from an error by itself, and the stream stays open.
           on("error", () => {});
-          on<{ error?: typeof terminated }>("terminated", ({ error }) => { terminated = error; quiet.abort(); });
+          on<{ error: { code?: number; message?: string; data?: unknown } }>("terminated", ({ error: { message, ...error } }) => { failure = Object.assign(new Error(`${name} ended the subscription to ${event}: ${message}`), error); cancelled.abort(); });
           heard();
           await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, unchecked<unknown>(), { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
         } catch (error) {
-          if (!terminated && !ended.aborted && (!confirmed || refused(error))) throw error;
+          if (!ended.aborted && (!confirmed || !reconnect || refused(error))) throw quiet.signal.aborted ? new Error(`Lost the connection to ${name} for ${event}.`) : error;
         } finally {
           clearTimeout(timer);
           await connection.close();
         }
-        if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated.message}`), { code: terminated.code, data: terminated.data });
         await sleep(wait, ended);
       }
     };

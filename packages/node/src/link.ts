@@ -111,7 +111,7 @@ export function sleep(milliseconds: number, signal?: AbortSignal): Promise<void>
       signal?.removeEventListener("abort", done);
       resolve();
     };
-    const timer = setTimeout(done, milliseconds);
+    const timer = setTimeout(done, signal?.aborted ? 0 : milliseconds);
     signal?.addEventListener("abort", done, { once: true });
   });
 }

@@ -99,20 +99,28 @@ const refusedWith = (code: number, data?: unknown) => (error: any) => {
   return true;
 };
 
-test("a subscription hears what its arguments match, in order and with nothing missed, by push or poll, across dropped and ended streams", async t => {
+test("a subscription hears what its arguments match, in order and with nothing missed, by push or poll, across ended and dropped streams, or fails when one drops if it does not reconnect by itself", async t => {
   const { factory, say } = rooms();
   const { endpoint, http } = await serve(t, factory);
-  const events = connect(t, endpoint);
-  const pushed = await events.subscribe("room.said", { room: "a", listener: "bob" });
-  const polled = await events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll" });
+  let away = false;
+  const events = connect(t, endpoint, { fetch: (input, init) => away ? Promise.reject(new TypeError("fetch failed")) : fetch(input, init) });
+  const subscribe = (delivery: "push" | "poll", reconnect = true) => events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery, reconnect });
+  const [pushed, polled, ...failing] = [await subscribe("push"), await subscribe("poll"), await subscribe("push", false), await subscribe("poll", false)];
   say("a", "ann", "one");
   say("a", "bob", "bob's own words");
   say("b", "ann", "another room");
-  // Connections drop, and then more is said than one stream sends before it ends and its client resumes.
-  http.closeAllConnections();
+  // More is said than one stream sends before it ends and its client resumes.
   const burst = Array.from({ length: 100 }, (_, n) => `${n}`.padEnd(10_000));
   for (const text of burst) say("a", "cat", text);
-  for (const subscription of [pushed, polled]) assert.deepEqual(await take(subscription, 101), ["one", ...burst]);
+  for (const subscription of [pushed, polled, ...failing]) assert.deepEqual(await next(subscription, 101), ["one", ...burst]);
+  // Then connections drop and the server is out of reach for a while.
+  away = true;
+  http.closeAllConnections();
+  say("a", "cat", "while away");
+  await assert.rejects(next(failing[0], 1), /Lost the connection to app for room.said/);
+  await assert.rejects(next(failing[1], 1), /fetch failed/);
+  away = false;
+  for (const subscription of [pushed, polled]) assert.deepEqual(await take(subscription, 1), ["while away"]);
 });
 
 test("a subscription to a 2025 server is pushed its events, and ending it ends its session", async t => {
