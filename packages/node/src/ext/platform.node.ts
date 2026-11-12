@@ -25,8 +25,6 @@ export async function fetchGlobal(url: string, init: RequestInit): Promise<Respo
 
 let plain: Promise<{ fetch: typeof undici.fetch; agent: undici.Agent }> | undefined;
 
-// A peer is at the address the platform gave it, often a cluster-local one, which no proxy from the environment reaches.
-// Until the MCP request that calls it ends, the call carries that request's context.
 export async function fetchPeer(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
   const { fetch, agent } = await (plain ??= import("undici").then(({ Agent, fetch }) => ({ fetch, agent: new Agent() })));
   const request = holder.getStore();

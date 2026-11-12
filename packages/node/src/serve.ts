@@ -45,9 +45,7 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   const { PORT = "3000", HOST = "127.0.0.1", HOLON_PLATFORM } = process.env;
   // A directory's URL ends in `/`. Without it, a name would resolve beside the directory instead of in it.
   const directory = frontend && new URL(frontend.href.replace(/\/?$/, "/"));
-  // A context is up to 16 KiB, as much as Node allows all of a request's headers by default.
   const server = createServer({ maxHeaderSize: 65536 }, (req, res) => {
-    // Once the server stops listening, a connection closes as its response ends, not when its client lets it go.
     res.on("close", () => server.listening || server.closeIdleConnections());
     respond(handler, HOLON_PLATFORM === "1", directory, req, res).catch((error: unknown) => {
       console.error(error);
@@ -57,7 +55,6 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   });
   server.listen(Number(PORT), HOST);
   await once(server, "listening");
-  // The server takes no more connections and the handler ends what it is answering, so the process can exit.
   const stop = () => {
     server.close();
     handler.close?.().catch((error: unknown) => console.error(error));
@@ -86,7 +83,6 @@ async function respond(handler: App["default"], platform: boolean, directory: UR
       request.ended = true;
       gone.abort();
     });
-    // The app reads its caller from authInfo alone.
     const headers = new Headers();
     for (const [name, values = []] of Object.entries(req.headersDistinct))
       if (!name.startsWith("x-holon-") && name !== "authorization") for (const value of values) headers.append(name, value);
@@ -96,8 +92,6 @@ async function respond(handler: App["default"], platform: boolean, directory: UR
     );
     res.setHeaders(response.headers).writeHead(response.status);
     if (!response.body) return void res.end();
-    // The body is read from the socket's callbacks, outside the request, so each read goes back into it: a peer call the
-    // app makes while it streams still acts for the caller.
     const reader = response.body.getReader();
     const reentered = new ReadableStream<Uint8Array>({
       async pull(controller) {
@@ -121,8 +115,6 @@ async function respond(handler: App["default"], platform: boolean, directory: UR
   res.writeHead(200, { "content-type": contentType, "x-content-type-options": "nosniff" }).end(file.contents);
 }
 
-// The forms of the headers Holon's waypoint sets: a context is a compact JWS, whose payload segment is matched, and a
-// caller is the SPIFFE ID of an app of the session.
 const contextForm = /^[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/;
 const callerForm = /^spiffe:\/\/cluster\.local\/ns\/([^/]+)\/sa\/([^/]+)$/;
 
@@ -130,12 +122,8 @@ type Fields = Record<string, unknown>;
 const isObject = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
 const isString = (value: unknown): value is string => typeof value === "string";
 const text = (value: unknown) => (isString(value) ? value : "");
-// The principal's claims the SDK reads, each of which may be absent or null.
 const principalTypes = { iss: isString, sub: isString, client_id: isString, scope: isString, claims: isObject, act: isObject };
 
-// Inside Holon only the waypoint reaches the app. It verified the context and replaced whatever x-holon-* a client
-// sent, and names the calling app of the session, a lifecycle hook's job as its app. admit answers undefined when the
-// headers are malformed.
 function admit(req: IncomingMessage): { token: string; authInfo?: AuthInfo } | undefined {
   const contexts = req.headersDistinct["x-holon-context"] ?? [];
   const callers = req.headersDistinct["x-holon-caller"] ?? [];
@@ -163,7 +151,6 @@ function admit(req: IncomingMessage): { token: string; authInfo?: AuthInfo } | u
   };
 }
 
-// principalOf reads a context's principal: null when it names none, and undefined when the context is malformed.
 function principalOf(token: string): Fields | null | undefined {
   const payload = contextForm.exec(token)?.[1];
   let claims: unknown;
@@ -179,13 +166,11 @@ function principalOf(token: string): Fields | null | undefined {
   return typed ? principal : undefined;
 }
 
-// Like Holon, serve nothing hidden, however its dot is spelled, nothing a link leads out of the directory to, and only
-// regular files, a directory's being its index.html.
 async function page(directory: URL, pathname: string): Promise<{ name: string; contents: Buffer } | undefined> {
   if (/\/(\.|%2e)/i.test(pathname)) return;
   try {
     const root = await realpath(fileURLToPath(directory));
-    // The URL parser has resolved every `..`, and a file URL may not encode `/`.
+    // The URL parser has resolved every `..`, and a file URL may not encode `/`, so no name leads out of the directory.
     let name = await realpath(fileURLToPath(new URL(`.${pathname}`, directory)));
     if ((await stat(name)).isDirectory()) name = await realpath(join(name, "index.html"));
     const path = relative(root, name);

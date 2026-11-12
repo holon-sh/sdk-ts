@@ -26,7 +26,6 @@ async function get(origin: string, path: string, method = "GET") {
   return { status: response.statusCode, type, sniffing, body };
 }
 
-// serve reads the environment as it starts.
 async function start(t: TestContext, app: App, variables: Record<string, string> = {}) {
   const saved = process.env;
   process.env = { ...saved, PORT: "0", ...variables };
@@ -44,10 +43,8 @@ function environment(t: TestContext, variables: Record<string, string>) {
   t.after(() => { process.env = saved; });
 }
 
-// The waypoint checked the signature, so the SDK reads only the claims.
 const context = (claims: object) => `e30.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
 
-// Calls a tool with the headers Holon's waypoint would set, and the client's own authorization.
 async function call(origin: string, name: string, headers: Record<string, string> = {}) {
   const fetchWith: typeof fetch = (input, init) => fetch(input, { ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), ...headers } });
   const { app } = bindApps({ name: "test", version: "1.0.0" }, { app: null }, { app: { endpoint: `${origin}/mcp`, scoped: true, fetch: fetchWith, authProvider: { token: async () => "client-secret" } } });
@@ -60,7 +57,6 @@ test("serve runs an app without Holon: its MCP endpoint for clients of every ver
   for (const directory of ["web", "web/docs", "web/empty", "outside"]) mkdirSync(join(root, directory));
   const files = [["web/index.html", "<p>page</p>"], ["web/app.mjs", "page()"], ["web/data", "bytes"], ["web/.env", "hidden"], ["web/docs/index.html", "<p>docs</p>"], ["secret", "outside"], ["outside/index.html", "outside"]];
   for (const [name, text] of files) writeFileSync(join(root, name!), text!);
-  // A link may name a file in the directory, but leads nowhere outside it.
   symlinkSync(join(root, "web/app.mjs"), join(root, "web/linked.mjs"));
   symlinkSync(join(root, "secret"), join(root, "web/escape"));
   symlinkSync(join(root, "outside"), join(root, "web/away"));
@@ -157,7 +153,6 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
     [inside, { "x-holon-context": signedIn, "x-holon-caller": mesh("reporter") }, { ...admitted, extra: { ...asUser, caller: reporter } }, user],
     [inside, { "x-holon-caller": mesh("reporter") }, { ...app, extra: { caller: reporter } }, null],
     [inside, { "x-holon-context": signedOut, "x-holon-caller": mesh("reporter") }, { ...anonymous, token: signedOut, extra: { caller: reporter } }, null],
-    // The waypoint names a lifecycle hook's job as the app whose hook it runs.
     [inside, { "x-holon-context": hook, "x-holon-caller": mesh("accounts") }, { ...anonymous, token: hook, extra: { caller: { app: "accounts", session: "session" } } }, null],
     [inside, { "x-holon-context": signedOut }, null, null],
     [inside, {}, null, null],
@@ -168,7 +163,6 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
     assert.deepEqual(observed.headers.filter((name: string) => name === "authorization" || name.startsWith("x-holon-")), []);
   }
 
-  // A context is up to 16 KiB, as much as Node takes in all of a request's headers by default.
   const large = context({ ...audience, principal: { ...principal, sub: "s".repeat(12288) } });
   assert.ok(large.length > 16384);
   assert.equal((await call(inside, "inspect", { "x-holon-context": large })).authInfo.token, large);
@@ -199,7 +193,6 @@ test("a malformed Holon context is a bad request", { timeout: 10000 }, async t =
     ["x-holon-context", context({ principal: { ...person, act: ["agent"] } })],
   ]) {
     const response = await new Promise<IncomingMessage>((resolve, reject) =>
-      // Headers given as a list carry no Host of their own, which HTTP/1.1 requires.
       request(`${origin}/mcp`, { method: "POST", headers: ["host", new URL(origin).host, ...headers] }, resolve).on("error", reject).end("{}"));
     let body = "";
     for await (const chunk of response) body += chunk;
@@ -231,13 +224,11 @@ test("a dependency bound by the environment acts for the caller until its reques
       phases.push(received());
       await ping(bindApps(identity, {}, { peer: { endpoint: peer.endpoint, scoped: true } }));
       phases.push(received());
-      // A task the tool leaves running calls after the request ended.
       late = released.then(() => ping(createApps(identity, {})));
       return { content: [] };
     });
     return server;
   });
-  // At /mcp/stream, the app calls the peer for the second chunk of its body, which serve reads after the handler returned.
   const fetch: App["default"]["fetch"] = async (request, options) => {
     if (new URL(request.url).pathname !== "/mcp/stream") return mcp.fetch(request, options);
     const chunks = ["first", "second"];
@@ -270,7 +261,6 @@ test("holon-serve runs an app's module until SIGTERM, and load takes only a modu
   writeFileSync(join(root, "named.mjs"), "export default { fetch() {} }; export const frontend = 'web';");
   await assert.rejects(load(join(root, "plain.mjs")), /plain\.mjs must default-export an MCP handler/);
   await assert.rejects(load(join(root, "named.mjs")), /named\.mjs must export frontend as a file URL/);
-  // An entry is relative to the working directory.
   const entry = relative(process.cwd(), join(repository, "tests/fixtures/app.ts"));
   assert.equal((await load(entry)).frontend?.href, new URL("./fixtures/web/", import.meta.url).href);
 
@@ -284,7 +274,6 @@ test("holon-serve runs an app's module until SIGTERM, and load takes only a modu
   const { app } = createApps({ name: "test", version: "1.0.0" }, { app: null }, { app: { endpoint: `${origin}/mcp` } });
   t.after(() => app!.close());
   assert.deepEqual((await app!.callTool({ name: "hello", arguments: {} })).content, [{ type: "text", text: "hello" }]);
-  // A call in flight ends with the server, which then exits by itself.
   const waiting = app!.callTool({ name: "wait", arguments: {} }).then(() => "answered", () => "ended");
   assert.equal((await lines.next()).value, "waiting");
   child.kill("SIGTERM");

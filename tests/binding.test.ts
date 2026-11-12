@@ -22,7 +22,6 @@ function environment(t: TestContext, variables: Record<string, string>) {
   t.after(() => { process.env = saved; });
 }
 
-// An environment-bound client fetches with its own agent, so a relay in front of the server records what it sends.
 async function record(t: TestContext, target: () => string) {
   const sent: string[] = [];
   const endpoint = await listen(t, createServer(async (req, res) => {
