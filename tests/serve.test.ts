@@ -148,13 +148,12 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
   const mesh = (app: string) => `spiffe://cluster.local/ns/session/sa/${app}`;
   const reporter = { app: "reporter", session: "session" };
   const user = { issuer: "https://issuer.example", subject: "alice", clientId: "web", scopes: ["read", "write"], claims, actor: { sub: "agent" } };
-  const admitted = { token: signedIn, clientId: "web", scopes: ["read", "write"], expiresAt: 1900000060.25, resource: "https://holon.example/" };
+  const admitted = { token: signedIn, clientId: "web", scopes: ["read", "write"] };
   const asUser = { iss: "https://issuer.example", sub: "alice", claims, act: { sub: "agent" } };
-  const app = { token: "", clientId: "", scopes: [], expiresAt: 0 };
-  const anonymous = { ...app, expiresAt: 1900000060.25, resource: "https://holon.example/" };
+  const app = { token: "", clientId: "", scopes: [] };
+  const anonymous = app;
   for (const [origin, headers, authInfo, expected] of [
-    // A caller that is not an app of the session is not one.
-    [inside, { "x-holon-context": signedIn, "x-holon-caller": "spiffe://edge" }, { ...admitted, extra: asUser }, user],
+    [inside, { "x-holon-context": signedIn }, { ...admitted, extra: asUser }, user],
     [inside, { "x-holon-context": signedIn, "x-holon-caller": mesh("reporter") }, { ...admitted, extra: { ...asUser, caller: reporter } }, user],
     [inside, { "x-holon-caller": mesh("reporter") }, { ...app, extra: { caller: reporter } }, null],
     [inside, { "x-holon-context": signedOut, "x-holon-caller": mesh("reporter") }, { ...anonymous, token: signedOut, extra: { caller: reporter } }, null],
@@ -173,6 +172,40 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
   const large = context({ ...audience, principal: { ...principal, sub: "s".repeat(12288) } });
   assert.ok(large.length > 16384);
   assert.equal((await call(inside, "inspect", { "x-holon-context": large })).authInfo.token, large);
+});
+
+test("a malformed Holon context is a bad request", { timeout: 10000 }, async t => {
+  let reached = 0;
+  const handler = createMcpHandler(() => {
+    reached++;
+    return new McpServer({ name: "app", version: "1.0.0" });
+  });
+  const origin = await start(t, { default: handler }, { HOLON_PLATFORM: "1" });
+  const person = { iss: "https://issuer.example", sub: "alice", client_id: "web", act: { sub: "agent" } };
+  const token = (payload: string) => `e30.${Buffer.from(payload).toString("base64url")}.signature`;
+  const caller = "spiffe://cluster.local/ns/session/sa/reporter";
+  for (const headers of [
+    ["x-holon-context", context({}), "x-holon-context", context({})],
+    ["x-holon-caller", caller, "x-holon-caller", caller],
+    ["x-holon-caller", "spiffe://holon.example/sa/reporter"],
+    ["x-holon-context", "header.claims"],
+    ["x-holon-context", "e30.e30=.signature"],
+    ["x-holon-context", token("person")],
+    ["x-holon-context", token("[]")],
+    ["x-holon-context", token("null")],
+    ["x-holon-context", context({ principal: "user" })],
+    ["x-holon-context", context({ principal: { iss: 1 } })],
+    ["x-holon-context", context({ principal: { claims: [] } })],
+    ["x-holon-context", context({ principal: { ...person, act: ["agent"] } })],
+  ]) {
+    const response = await new Promise<IncomingMessage>((resolve, reject) =>
+      // Headers given as a list carry no Host of their own, which HTTP/1.1 requires.
+      request(`${origin}/mcp`, { method: "POST", headers: ["host", new URL(origin).host, ...headers] }, resolve).on("error", reject).end("{}"));
+    let body = "";
+    for await (const chunk of response) body += chunk;
+    assert.deepEqual([response.statusCode, body], [400, "Malformed Holon context\n"], JSON.stringify(headers));
+  }
+  assert.equal(reached, 0);
 });
 
 test("a dependency bound by the environment acts for the caller until its request ends, and an explicit binding never does", { timeout: 10000 }, async t => {

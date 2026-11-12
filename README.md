@@ -162,7 +162,7 @@ server.registerTool("share", { description: "Links to the page" }, ctx => {
 
 `principal` is the user Holon admitted, or null. `origin` is the one Holon or a proxy forwards, or else the one the request reached.
 
-Inside Holon, where `HOLON_PLATFORM` is `1`, `serve` reads the caller from the headers Holon sets, which it has already verified, and hands it to the handler as `authInfo`. Anywhere else every request is anonymous. Either way the app sees neither those headers nor the request's `Authorization`. When another app of the same session calls, `ctx.http.authInfo.extra.caller` names it as `{ app, session }`.
+Inside Holon, where `HOLON_PLATFORM` is `1`, `serve` reads the caller from the headers Holon sets, which it has already verified, and hands it to the handler as `authInfo`. Anywhere else every request is anonymous. A request whose Holon headers are malformed is answered `400 Bad Request` before any app code runs. Either way the app sees neither those headers nor the request's `Authorization`. When another app of the same session calls, `ctx.http.authInfo.extra.caller` names it as `{ app, session }`.
 
 A dependency bound by `<NAME>_MCP_URL` acts for the caller of the request that calls it until that request ends, and sends `<NAME>_MCP_TOKEN` as its bearer token. A call after the request ended, from a task it left running, acts as the app alone. A dependency with an explicit binding never acts for the caller.
 

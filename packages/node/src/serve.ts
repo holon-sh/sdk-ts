@@ -73,7 +73,13 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
 async function respond(handler: App["default"], platform: boolean, directory: URL | undefined, req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   if (/^\/mcp(\/[^/]+)?$/.test(url.pathname)) {
-    const { token, authInfo } = platform ? admit(req) : { token: "" };
+    const admitted = platform ? admit(req) : { token: "" };
+    // A context the waypoint could not have sent is a malformed request (RFC 9110 §15.5.1).
+    if (!admitted) {
+      res.writeHead(400, { "content-type": "text/plain; charset=utf-8", "x-content-type-options": "nosniff" }).end("Malformed Holon context\n");
+      return;
+    }
+    const { token, authInfo } = admitted;
     const request = { token, ended: false };
     const gone = new AbortController();
     res.on("close", () => {
@@ -115,50 +121,62 @@ async function respond(handler: App["default"], platform: boolean, directory: UR
   res.writeHead(200, { "content-type": contentType, "x-content-type-options": "nosniff" }).end(file.contents);
 }
 
-const meshCaller = /^spiffe:\/\/cluster\.local\/ns\/([^/]+)\/sa\/([^/]+)$/;
+// The forms of the headers Holon's waypoint sets: a context is a compact JWS, whose payload segment is matched, and a
+// caller is the SPIFFE ID of an app of the session.
+const contextForm = /^[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/;
+const callerForm = /^spiffe:\/\/cluster\.local\/ns\/([^/]+)\/sa\/([^/]+)$/;
 
-interface Claims {
-  exp?: number;
-  aud?: string | string[];
-  principal?: { iss: string; sub: string; client_id: string; scope?: string; claims?: object; act?: object | null } | null;
-}
+type Fields = Record<string, unknown>;
+const isObject = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
+const isString = (value: unknown): value is string => typeof value === "string";
+const text = (value: unknown) => (isString(value) ? value : "");
+// The principal's claims the SDK reads, each of which may be absent or null.
+const principalTypes = { iss: isString, sub: isString, client_id: isString, scope: isString, claims: isObject, act: isObject };
 
-// Inside Holon only the waypoint reaches the app. It verified the context and replaced whatever x-holon-* a client sent.
-function admit(req: IncomingMessage): { token: string; authInfo?: AuthInfo } {
+// Inside Holon only the waypoint reaches the app. It verified the context and replaced whatever x-holon-* a client
+// sent, and names the calling app of the session, a lifecycle hook's job as its app. admit answers undefined when the
+// headers are malformed.
+function admit(req: IncomingMessage): { token: string; authInfo?: AuthInfo } | undefined {
   const contexts = req.headersDistinct["x-holon-context"] ?? [];
   const callers = req.headersDistinct["x-holon-caller"] ?? [];
-  const claims = contexts.length === 1 ? decode(contexts[0]!) : undefined;
-  const token = claims ? contexts[0]! : "";
-  const principal = claims?.principal;
-  const [, session, app] = (callers.length === 1 && meshCaller.exec(callers[0]!)) || [];
-  // The waypoint names the calling app of the session, a lifecycle hook's job as its app.
-  const caller = session && app ? { app, session } : undefined;
+  if (contexts.length > 1 || callers.length > 1) return undefined;
+  const token = contexts[0] ?? "";
+  const principal = contexts.length ? principalOf(token) : null;
+  const found = callers.length ? callerForm.exec(callers[0]!) : null;
+  if (principal === undefined || (callers.length && !found)) return undefined;
+  const caller = found ? { app: found[2]!, session: found[1]! } : undefined;
   if (!principal && !caller) return { token };
-  const resource = typeof claims?.aud === "string" ? claims.aud : claims?.aud?.[0];
   return {
     token,
     authInfo: {
       token,
-      clientId: principal?.client_id ?? "",
-      scopes: principal?.scope?.split(" ").filter(Boolean) ?? [],
-      expiresAt: claims?.exp ?? 0,
-      resource: resource ? new URL(resource) : undefined,
+      clientId: text(principal?.client_id),
+      scopes: text(principal?.scope).split(" ").filter(Boolean),
       extra: {
         ...(caller && { caller }),
-        ...(principal && { iss: principal.iss, sub: principal.sub, ...(principal.claims && { claims: principal.claims }), ...(principal.act && { act: principal.act }) }),
+        ...(principal && {
+          iss: text(principal.iss), sub: text(principal.sub),
+          ...(principal.claims != null && { claims: principal.claims }), ...(principal.act != null && { act: principal.act }),
+        }),
       },
     },
   };
 }
 
-// The waypoint checked the signature, so only the claims are read.
-function decode(token: string): Claims | undefined {
+// principalOf reads a context's principal: null when it names none, and undefined when the context is malformed.
+function principalOf(token: string): Fields | null | undefined {
+  const payload = contextForm.exec(token)?.[1];
+  let claims: unknown;
   try {
-    const claims: unknown = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString());
-    return claims && typeof claims === "object" ? claims : undefined;
+    claims = payload && JSON.parse(Buffer.from(payload, "base64url").toString());
   } catch {
     return undefined;
   }
+  if (!isObject(claims)) return undefined;
+  const principal = claims.principal ?? null;
+  if (principal === null) return null;
+  const typed = isObject(principal) && Object.entries(principalTypes).every(([name, is]) => principal[name] == null || is(principal[name]));
+  return typed ? principal : undefined;
 }
 
 // Like Holon, serve nothing hidden, however its dot is spelled, nothing a link leads out of the directory to, and only
