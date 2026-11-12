@@ -1,3 +1,5 @@
+import type { AuthInfo } from "@modelcontextprotocol/client";
+
 /** Standard OpenID Connect address claims. */
 export interface AddressClaims {
   formatted?: string; street_address?: string; locality?: string; region?: string; postal_code?: string; country?: string;
@@ -21,7 +23,7 @@ export interface RequestContext { principal: Principal | null; origin: string | 
 interface Admitted { iss?: unknown; sub?: unknown; claims?: IdentityClaims; act?: Record<string, unknown> }
 
 /** Read the caller and the app's origin from the context an MCP server receives: a tool callback's ctx.http, or the McpRequestContext of a createMcpHandler factory. */
-export function getContext(context: { authInfo?: { clientId: string; scopes: string[]; extra?: Record<string, unknown> }; req?: Request; requestInfo?: Request } = {}): RequestContext {
+export function getContext(context: { authInfo?: Pick<AuthInfo, "clientId" | "scopes" | "extra">; req?: Request; requestInfo?: Request } = {}): RequestContext {
   const { authInfo, req = context.requestInfo } = context;
   const { iss, sub, claims, act } = (authInfo?.extra ?? {}) as Admitted;
   const principal = !authInfo || typeof iss !== "string" || typeof sub !== "string" ? null
