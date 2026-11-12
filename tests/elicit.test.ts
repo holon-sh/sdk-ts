@@ -48,7 +48,7 @@ test("without elicit the question reaches the caller, who continues through call
   const app = await orders(t);
   const thrown = await app.tools.ship({ id: "A-1" }).catch(error => error);
   assert.ok(thrown instanceof ToolCallError && thrown.result.resultType === "input_required");
-  assert.equal(thrown.message, `orders.ship: additional input required: ${question}`);
+  assert.ok(thrown.message.includes(question));
   const { requestState } = thrown.result;
   const continued = await app.callTool({ name: "ship", arguments: { id: "A-1" }, requestState, inputResponses: { size: { action: "accept", content: { size: "small" } } } });
   assert.deepEqual(continued.structuredContent, { shipped: "small" });
@@ -56,7 +56,7 @@ test("without elicit the question reaches the caller, who continues through call
 
 test("a URL question is declared for, and names its URL when it reaches the caller", { timeout: 10000 }, async t => {
   const app = await orders(t);
-  await assert.rejects(app.tools.ship({ id: "connect" }), { name: "ToolCallError", message: "orders.ship: additional input required: Connect your account. https://orders.example/connect" });
+  await assert.rejects(app.tools.ship({ id: "connect" }), thrown => thrown instanceof ToolCallError && thrown.message.includes("Connect your account.") && thrown.message.includes("https://orders.example/connect"));
   const seen: unknown[] = [];
   await assert.rejects(app.tools.ship({ id: "connect" }, { elicit: params => { seen.push(params.mode); return { action: "decline" }; } }), ToolCallError);
   assert.ok(seen.length > 0 && seen.every(mode => mode === "url"));

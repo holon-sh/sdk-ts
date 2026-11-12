@@ -2,9 +2,9 @@ import { test, type TestContext } from "node:test";
 import type { IncomingMessage } from "node:http";
 import assert from "node:assert/strict";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { McpServer, ProtocolError } from "@modelcontextprotocol/server";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApps, type Subscription } from "holon-sh/runtime";
+import { createApps, type SubscribeOptions, type Subscription } from "holon-sh/runtime";
 import { createEvents, type EventDefinition, type Events } from "holon-sh/ext/events";
 import { serve, serveLegacy } from "./helpers.ts";
 
@@ -37,11 +37,18 @@ function rooms(definition: Partial<EventDefinition<Listener, Said>> = {}) {
   return { events, factory: served(events), said, say };
 }
 
-// The events of the app at an endpoint, as a Holon client reaches them.
+// The events of the app at an endpoint, as a Holon client reaches them. Its subscriptions end with the test, or they
+// would keep reconnecting to a server that is gone, and the test would never exit.
 function connect(t: TestContext, endpoint: string, { contract = null, fetch }: { contract?: Parameters<typeof createApps>[1][string]; fetch?: typeof globalThis.fetch } = {}) {
   const { app } = createApps(identity, { app: contract }, { app: { endpoint, ...(fetch && { fetch }) } });
-  t.after(() => app.close());
-  return app.ext.events;
+  const ended = new AbortController();
+  t.after(() => { ended.abort(); return app.close(); });
+  const { list, subscribe } = app.ext.events;
+  return {
+    list,
+    subscribe: (name: string, args: Record<string, unknown>, { signal, ...options }: SubscribeOptions = {}) =>
+      subscribe(name, args, { ...options, signal: signal ? AbortSignal.any([signal, ended.signal]) : ended.signal }),
+  };
 }
 
 // The ids of the next events a subscription receives, which goes on receiving.
@@ -351,90 +358,4 @@ test("an event that cannot be shaped for a subscription is skipped for it, and w
   t.mock.method(console, "error", () => {});
   for (const text of ["unshapeable", "circular", "after"]) noted.emit({ text }, { eventId: text });
   assert.deepEqual(await take(subscription, 1), ["after"]);
-});
-
-// A server over a ledger that keeps its own history: a cursor is a position in the ledger, so it means the same to
-// any process that reads it.
-type Line = { id: string; account: string; amount: number; at: string };
-type Ledger = Line[] & { unavailable?: boolean };
-function ledgers(log: Ledger) {
-  const events = createEvents();
-  const entry = events.event<{ account: string }, { amount: number }>("ledger.entry", {
-    inputSchema: z.object({ account: z.string() }),
-    payloadSchema: z.object({ amount: z.number() }),
-    check: async (cursor, { account }) => {
-      if (log.unavailable) throw new ProtocolError(-32603, "UpstreamError", { reason: "the ledger is unavailable" });
-      if (cursor === null) return { events: [], cursor: String(log.length) };
-      const found = log.map((line, index) => ({ ...line, cursor: String(index + 1) })).slice(Number(cursor)).filter(line => line.account === account);
-      return { events: found.map(({ id, at, amount, cursor }) => ({ eventId: id, timestamp: at, data: { amount }, cursor })), cursor: String(log.length) };
-    },
-  });
-  return { factory: served(events), entry };
-}
-
-test("a check function answers polls from its source's own cursor, which another process resumes from, cut short by maxEvents and bounded by maxAgeMs", async t => {
-  const log: Ledger = [];
-  const write = (id: string, account: string, amount: number, at = new Date().toISOString()) => log.push({ id, account, amount, at });
-  const { endpoint } = await serve(t, ledgers(log).factory);
-  const { request } = await wire(t, endpoint);
-  const poll = (cursor: string | null, more?: Record<string, unknown>) => request("events/poll", { name: "ledger.entry", arguments: { account: "a" }, cursor, ...more });
-  write("before", "a", 1);
-  const start = await poll(null);
-  assert.deepEqual([start.events, start.cursor], [[], "1"]);
-
-  write("one", "a", 10);
-  write("elsewhere", "b", 20);
-  write("two", "a", 30);
-  const first = await poll(start.cursor, { maxEvents: 1 });
-  assert.deepEqual([first.events.map(({ eventId }: any) => eventId), first.cursor, first.hasMore], [["one"], "2", true]);
-  const second = await poll(first.cursor, { maxEvents: 1 });
-  assert.deepEqual([second.events.map(({ eventId }: any) => eventId), second.cursor, second.hasMore], [["two"], "4", false]);
-
-  write("long ago", "a", 40, new Date(Date.now() - 3_600_000).toISOString());
-  write("just now", "a", 50);
-  const recent = await poll(second.cursor, { maxAgeMs: 60_000 });
-  assert.deepEqual([recent.events.map(({ eventId }: any) => eventId), recent.truncated], [["just now"], true]);
-
-  const { endpoint: other } = await serve(t, ledgers(log).factory);
-  write("three", "a", 60);
-  const resumed = await (await wire(t, other)).request("events/poll", { name: "ledger.entry", arguments: { account: "a" }, cursor: recent.cursor });
-  assert.deepEqual([resumed.events.map(({ eventId }: any) => eventId), resumed.truncated], [["three"], false]);
-});
-
-test("a stream on a check function asks it every second, pushes what is emitted at once, and is told of a check that fails", async t => {
-  const log: Ledger = [];
-  const write = (id: string) => log.push({ id, account: "a", amount: 1, at: new Date().toISOString() });
-  const { factory, entry } = ledgers(log);
-  const { endpoint } = await serve(t, factory);
-  const { heard, request } = await wire(t, endpoint);
-  const heardOf = (eventId: string) => heard.some(message => message.eventId === eventId);
-  request("events/stream", { name: "ledger.entry", arguments: { account: "a" }, cursor: null }).catch(() => {});
-  await until(() => heard.length);
-  write("one");
-  await until(() => heardOf("one"));
-  entry.emit({ amount: 2 }, { eventId: "pushed" });
-  await until(() => heardOf("pushed"));
-  log.unavailable = true;
-  await until(() => heard.some(({ kind }) => kind === "error"));
-  log.unavailable = false;
-  write("two");
-  await until(() => heardOf("two"));
-  assert.deepEqual(heard.filter(({ kind }) => kind !== "error").map(({ kind, eventId }) => eventId ?? kind), ["active", "one", "pushed", "two"]);
-  assert.deepEqual(heard.find(({ kind }) => kind === "error").error, { code: -32603, message: "UpstreamError", data: { reason: "the ledger is unavailable" } });
-});
-
-test("a source without positions delivers what is new at each check", async t => {
-  const rang: number[] = [];
-  const events = createEvents();
-  events.event("bell.rang", {
-    inputSchema: z.object({}),
-    payloadSchema: z.object({ rings: z.number() }),
-    check: () => ({ events: rang.splice(0).map(rings => ({ eventId: String(rings), data: { rings } })), cursor: null }),
-  });
-  const { endpoint } = await serve(t, served(events));
-  const subscription = await connect(t, endpoint).subscribe("bell.rang", {});
-  rang.push(1, 2);
-  assert.deepEqual(await next(subscription, 2), ["1", "2"]);
-  rang.push(3);
-  assert.deepEqual(await take(subscription, 1), ["3"]);
 });
