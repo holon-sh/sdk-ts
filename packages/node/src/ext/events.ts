@@ -75,7 +75,7 @@ export interface EventDefinition<A, D> {
   onUnsubscribe?: (subscription: Subscription<A>) => void | Promise<void>;
 }
 /** Emits occurrences of one event type to the subscriptions they match, and ends its subscriptions. */
-export interface Emitter<D> {
+export interface Emitter<D, A = unknown> {
   /**
    * `eventId` lets a client drop an occurrence it has seen. Give the source's own id when it has one. With
    * `subscriptionId`, the sketch's targeted emit, the occurrence goes to that subscription alone, whatever its
@@ -107,11 +107,30 @@ export interface Emitter<D> {
    * Stops offering this event type: its subscriptions end with NotFound.
    */
   remove(): void;
+  /**
+   * Keeps a value for each subscriber, such as its status, for as long as it subscribes. A subscriber is named by its
+   * subscription's arguments, so give each one its own, such as an id its client makes: subscriptions with the same
+   * arguments, such as one client's overlapping streams, are one subscriber. `told` makes the data emitted when a
+   * value is set, and, given none, when it leaves.
+   */
+  presence<V>(told: (args: A, value: V | undefined) => D): Presence<A, V>;
+}
+/** Each subscriber's value, kept while it subscribes. */
+export interface Presence<A, V> {
+  /**
+   * Sets the value of the subscriber these arguments name, and emits it. It stays while a subscription with these
+   * arguments is open, by either delivery mode, and leaves `linger` milliseconds after the last one ends or after it is
+   * last set, whichever is later. So a subscriber that reconnects within the linger keeps it, and a caller that cannot
+   * subscribe keeps it by setting it again.
+   */
+  set(args: A, value: V, linger: number): void;
+  /** The values a subscription with these arguments is shown: those whose data `match` lets it receive, asked with no context. */
+  seen(args: A): V[];
 }
 /** The event types of a process, served by each MCP server it creates. */
 export interface Events {
   /** Declares an event type. Emit its occurrences with the returned emitter. */
-  event<A, D>(name: string, definition: EventDefinition<A, D>): Emitter<D>;
+  event<A, D>(name: string, definition: EventDefinition<A, D>): Emitter<D, A>;
   /** Serves events/list, events/poll and events/stream on an McpServer or a Server, and declares the extension. */
   serve(server: McpServer | Server): void;
 }
@@ -166,6 +185,10 @@ interface Type<A = any, D = any> {
   readonly sinks: Set<() => void>;
   /** The subscriptions held by streams and poll leases, by id. */
   readonly subscriptions: Map<string, { held: Set<Held>; ready: Promise<Subscription<A>> }>;
+  /** How many streams and poll leases are open, by the subscriber their arguments name. */
+  readonly holds: Map<string, number>;
+  /** Told when a subscriber's holds change: one for each presence. */
+  readonly present: Set<(subscriber: string) => void>;
 }
 interface Lease { type: Type; opening: Promise<Held>; ended?: EventError; release?: () => void; timer?: ReturnType<typeof setTimeout> }
 
@@ -209,6 +232,14 @@ const identify = async (who: string | null, name: string, args: unknown) => {
 };
 // A caller without an identity gets an id of its own for each stream.
 const unique = () => `sub_${hex(crypto.getRandomValues(new Uint8Array(16)))}`;
+// The subscriber a subscription's arguments name, whoever the caller.
+const named = (args: unknown) => JSON.stringify(canonical(args));
+// Counts up or down under a key, and forgets a key that reaches none.
+const count = (counts: Map<string, number>, key: string, by: number) => {
+  const total = (counts.get(key) ?? 0) + by;
+  if (total) counts.set(key, total);
+  else counts.delete(key);
+};
 // A teardown that fails has nobody to tell, and must not take the process down.
 const settle = (run: () => unknown) => { Promise.resolve().then(run).catch(() => {}); };
 const integer = (value: unknown, minimum: number) => value === undefined || Number.isInteger(value) && (value as number) >= minimum;
@@ -338,7 +369,14 @@ export function createEvents(): Events {
     if (subscribed >= MAX_SUBSCRIPTIONS) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptions", max: MAX_SUBSCRIPTIONS } });
     if ((callers.get(who) ?? 0) >= MAX_SUBSCRIPTIONS_PER_CALLER) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptionsPerCaller", max: MAX_SUBSCRIPTIONS_PER_CALLER } });
     subscribed++;
-    callers.set(who, (callers.get(who) ?? 0) + 1);
+    count(callers, who, 1);
+    // A presence keeps a subscriber's value while any of its streams or leases is open.
+    const subscriber = named(args);
+    const hold = (by: number) => {
+      count(type.holds, subscriber, by);
+      for (const keep of type.present) keep(subscriber);
+    };
+    hold(1);
     let entry = type.subscriptions.get(id);
     if (!entry) {
       const subscription = { subscriptionId: id, name: type.name, delivery, arguments: args, context };
@@ -353,9 +391,8 @@ export function createEvents(): Events {
       if (closed) return;
       closed = true;
       subscribed--;
-      const count = callers.get(who) ?? 1;
-      if (count === 1) callers.delete(who);
-      else callers.set(who, count - 1);
+      count(callers, who, -1);
+      hold(-1);
       current.held.delete(held);
       if (current.held.size) return;
       if (type.subscriptions.get(id) === current) type.subscriptions.delete(id);
@@ -426,16 +463,16 @@ export function createEvents(): Events {
      * Declares an event type and returns the function that emits it. `match` decides which subscriptions receive an
      * event from their arguments, and `transform` shapes its data for each.
      */
-    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, delivery = OFFERED, authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D> {
+    event<A, D>(name: string, { description, inputSchema, payloadSchema, _meta, match, transform, delivery = OFFERED, authorize, onSubscribe, onUnsubscribe }: EventDefinition<A, D>): Emitter<D, A> {
       if (types.has(name)) throw new Error(`Event ${name} is already declared.`);
       const unknown = delivery.filter(mode => !OFFERED.includes(mode));
       if (unknown.length || !delivery.length) throw new Error(`Event ${name} is delivered by ${delivery.join(", ") || "nothing"}, but only ${OFFERED.join(", ")} are served.`);
       const type: Type<A, D> = {
         name, order: ++declared, description, inputSchema, payloadSchema, _meta, delivery, match, transform, authorize, onSubscribe, onUnsubscribe,
-        sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(),
+        sequence: 0, dropped: 0, kept: [], sinks: new Set(), subscriptions: new Map(), holds: new Map(), present: new Set(),
       };
       types.set(name, type);
-      return {
+      const emitter: Emitter<D, A> = {
         emit(data, { eventId = crypto.randomUUID(), timestamp = new Date().toISOString(), subscriptionId: target } = {}) {
           const occurrence = { eventId, name, timestamp, data };
           // Data that cannot be sent as JSON is refused here, before anything is kept or sent.
@@ -458,7 +495,37 @@ export function createEvents(): Events {
           types.delete(name);
           for (const each of [...type.subscriptions.keys()]) endSubscription(type, each, removed);
         },
+        presence<V>(told: (args: A, value: V | undefined) => D): Presence<A, V> {
+          const values = new Map<string, { args: A; value: V; linger: number; leaving?: ReturnType<typeof setTimeout> }>();
+          // A value has no timer while its subscriber holds a subscription, and leaves its linger after it stops.
+          const keep = (subscriber: string) => {
+            const shown = values.get(subscriber);
+            if (!shown) return;
+            clearTimeout(shown.leaving);
+            if (type.holds.has(subscriber)) return;
+            shown.leaving = setTimeout(() => {
+              values.delete(subscriber);
+              emitter.emit(told(shown.args, undefined));
+            }, shown.linger);
+            shown.leaving.unref?.();
+          };
+          type.present.add(keep);
+          return {
+            set(args, value, linger) {
+              const subscriber = named(args);
+              values.set(subscriber, { args, value, linger, leaving: values.get(subscriber)?.leaving });
+              keep(subscriber);
+              emitter.emit(told(args, value));
+            },
+            seen(args) {
+              return [...values.values()]
+                .filter(shown => !type.match || type.match(told(shown.args, shown.value), args, undefined))
+                .map(({ value }) => value);
+            },
+          };
+        },
       };
+      return emitter;
     },
 
     /** Serves the declared event types on an MCP server: events/list, events/poll and events/stream. */

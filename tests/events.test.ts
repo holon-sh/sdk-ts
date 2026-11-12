@@ -1,6 +1,7 @@
 import { test, type TestContext } from "node:test";
 import type { IncomingMessage } from "node:http";
 import assert from "node:assert/strict";
+import { setTimeout as sleep } from "node:timers/promises";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -279,6 +280,54 @@ test("callers without an identity do not share a subscription, so what is emitte
   say("a", "ann", "for the first", begun[0]);
   say("a", "ann", "for both");
   assert.deepEqual([await take(first, 2), await take(second, 1)], [["for the first", "for both"], ["for both"]]);
+});
+
+test("a subscriber's value is shown while it subscribes, survives a reconnect within its linger, and leaves its linger after its last stream ends or it was last set", { timeout: 10_000 }, async t => {
+  const ended: string[] = [];
+  const { factory, said } = rooms({ onUnsubscribe: ({ subscriptionId }) => { ended.push(subscriptionId); } });
+  const status = said.presence<string>(({ room, listener }, text) => ({ room, speaker: listener, text: text ?? `${listener} left` }));
+  const { endpoint } = await serve(t, factory);
+  const events = connect(t, endpoint);
+  const leave = async (subscription: Subscription) => {
+    const before = ended.length;
+    subscription.cancel();
+    await until(() => ended.length > before);
+  };
+  const bob = { room: "a", listener: "bob" };
+  const told = (await events.subscribe("room.said", bob))[Symbol.asyncIterator]();
+  const hear = async (count: number) => {
+    const texts: string[] = [];
+    while (texts.length < count) texts.push(((await told.next()).value.data as Said).text);
+    return texts;
+  };
+  const cat = { room: "a", listener: "cat" };
+  // One subscriber's overlapping streams: a caller without an identity holds each as a subscription of its own.
+  const streams = [await events.subscribe("room.said", cat), await events.subscribe("room.said", cat)];
+  // Timers run in the order they are due, so a linger this short would end before each wait that follows it.
+  status.set(cat, "typing", 1);
+  await sleep(20);
+  await leave(streams[0]!);
+  await sleep(20);
+  assert.deepEqual([status.seen(bob), status.seen(cat)], [["typing"], []]);
+  // Its last stream ends, and it comes back within the linger.
+  status.set(cat, "idle", 500);
+  await leave(streams[1]!);
+  const left = Date.now();
+  const back = await events.subscribe("room.said", cat);
+  await sleep(left + 600 - Date.now());
+  assert.deepEqual(status.seen(bob), ["idle"]);
+  await leave(back);
+  assert.deepEqual(await hear(3), ["typing", "idle", "cat left"]);
+
+  // A caller that cannot subscribe keeps its value by setting it again.
+  const dan = { room: "a", listener: "dan" };
+  status.set(dan, "here", 100);
+  await sleep(60);
+  status.set(dan, "still here", 100);
+  await sleep(60);
+  assert.deepEqual(status.seen(bob), ["still here"]);
+  assert.deepEqual(await hear(3), ["here", "still here", "dan left"]);
+  assert.deepEqual(status.seen(bob), []);
 });
 
 test("a subscription the app ends is told why: a stream after what was emitted to it, unless its caller lost access, and a poll when it next polls", async t => {
