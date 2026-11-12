@@ -181,19 +181,25 @@ test("questions before and after an upload are answered, and the retry that answ
   assert.deepEqual(server.calls.map(({ inputResponses }) => Object.keys(inputResponses ?? {})), [[], ["folder"], [], ["confirm"]]);
 });
 
-test("downloads are fetched through handles that check size and digest, and their targets leave the result", { timeout: 10000 }, async t => {
+test("downloads are fetched through handles that check their target, size and digest, their targets leave the result, and a file whose fields do not have their types is left out", { timeout: 10000 }, async t => {
   const target = (name: string, size: number, digest?: string) => ({ name, mimeType: "text/csv", size, ...(digest && { digest: { algorithm: "sha-256", value: digest } }), url: `${server.origin}/d/${name}?sig=x`, credentials: "omit" });
   const server = await files(t, {
     settings: {},
     storage: () => [200, "a,b\n1,2"],
-    tool: () => ({ ...text("Exported."), _meta: { [EXTENSION]: { downloads: [target("good.csv", 7, sha256("a,b\n1,2")), target("long.csv", 6), target("forged.csv", 7, sha256("other"))] }, kept: true } }),
+    tool: () => ({ ...text("Exported."), _meta: { [EXTENSION]: { downloads: [
+      target("good.csv", 7, sha256("a,b\n1,2")), target("long.csv", 6), target("forged.csv", 7, sha256("other")),
+      { ...target("elsewhere.csv", 7), url: "https://storage.example/d" },
+      { ...target("sizeless.csv", 7), size: "7" },
+      { ...target("undigested.csv", 7), digest: { algorithm: "md5", value: "x" } },
+    ] }, kept: true } }),
   });
   const result = await server.app().save({});
   assert.deepEqual([EXTENSION in (result._meta ?? {}), result._meta?.kept], [false, true]);
-  const [good, long, forged] = result.downloads ?? [];
-  assert.deepEqual(result.downloads?.map(({ name, size }) => [name, size]), [["good.csv", 7], ["long.csv", 6], ["forged.csv", 7]]);
+  const [good, long, forged, elsewhere] = result.downloads ?? [];
+  assert.deepEqual(result.downloads?.map(({ name, size }) => [name, size]), [["good.csv", 7], ["long.csv", 6], ["forged.csv", 7], ["elsewhere.csv", 7]]);
   const blob = await good.blob();
   assert.deepEqual([await blob.text(), blob.type], ["a,b\n1,2", "text/csv"]);
   await assert.rejects(long.blob(), /more than the declared 6 bytes/);
   await assert.rejects(forged.blob(), /do not match the digest/);
+  await assert.rejects(elsewhere.blob(), /"elsewhere\.csv" was refused: its target was rejected \(url is not on fileOrigins\)/);
 });

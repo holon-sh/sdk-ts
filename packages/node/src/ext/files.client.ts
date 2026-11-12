@@ -6,7 +6,7 @@ import { EXTENSION, type Download } from "./files.js";
 
 type Json = Record<string, unknown>;
 
-export interface FileConnection {
+interface FileConnection {
   client: Pick<Client, "getServerCapabilities">;
   resolved: { endpoint: URL | string; fileOrigins?: string[]; installationUID?: string };
   authorization?: string;
@@ -14,7 +14,7 @@ export interface FileConnection {
 
 interface FileInput { id: string; name?: string; mimeType: string; size: number; digest?: { algorithm: "sha-256"; value: string }; data?: string }
 interface Attachment { blob: Blob; input: FileInput }
-export type Files = Map<string, Attachment>;
+type Files = Map<string, Attachment>;
 
 const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,7 +26,7 @@ function refuse(reason: string): never {
   throw new Error(reason);
 }
 
-export function settings({ client }: FileConnection): Json | undefined {
+function settings({ client }: FileConnection): Json | undefined {
   const advertised = client.getServerCapabilities()?.extensions?.[EXTENSION];
   return isObject(advertised) && advertised.revision == null ? advertised : undefined;
 }
@@ -143,6 +143,7 @@ const PATH = /^(?:\/(?!\.\.?(?:\/|$))[A-Za-z0-9\-_~.]+)+$/;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 const loopback = (host: string) => host === "localhost" || host.endsWith(".localhost") || /^127\.\d+\.\d+\.\d+$/.test(host) || host === "[::1]";
 const expired = (target: { expiresAt?: string }) => target.expiresAt !== undefined && Date.parse(target.expiresAt) <= Date.now();
+const timestamp = (value: unknown): value is string | undefined => value === undefined || typeof value === "string" && TIMESTAMP.test(value) && !Number.isNaN(Date.parse(value));
 
 function parse(url: string): URL | undefined {
   try { return new URL(url); } catch { return undefined; }
@@ -156,7 +157,7 @@ function check(raw: unknown, kind: "upload" | "download", { resolved }: FileConn
   if (typeof target.url === "string" === (typeof target.path === "string") || [target.url, target.path].some(value => value !== undefined && typeof value !== "string")) refuse("needs exactly one of url and path");
   if (target.credentials !== "omit" && target.credentials !== "include") refuse("credentials must be omit or include");
   const { expiresAt } = target;
-  if (expiresAt !== undefined && !(typeof expiresAt === "string" && TIMESTAMP.test(expiresAt) && !Number.isNaN(Date.parse(expiresAt)))) refuse("expiresAt is not an RFC 3339 timestamp");
+  if (!timestamp(expiresAt)) refuse("expiresAt is not an RFC 3339 timestamp");
   if (target.headers !== undefined && !(isObject(target.headers) && Object.values(target.headers).every(value => typeof value === "string"))) refuse("headers must map names to strings");
   const headers = (target.headers ?? {}) as Record<string, string>;
   let form: Form | undefined;
@@ -175,12 +176,6 @@ function check(raw: unknown, kind: "upload" | "download", { resolved }: FileConn
       }
       form = { fileField: raw.fileField, fields: fields as Form["fields"] };
     }
-  } else {
-    if (target.name !== undefined && typeof target.name !== "string") refuse("name is not a string");
-    if (typeof target.mimeType !== "string") refuse("mimeType is not a string");
-    if (!Number.isSafeInteger(target.size) || (target.size as number) < 0) refuse("size is not a non-negative integer");
-    const digest = target.digest === undefined ? undefined : present(target.digest);
-    if (target.digest !== undefined && (!digest || Object.keys(digest).some(key => key !== "algorithm" && key !== "value") || digest.algorithm !== "sha-256" || typeof digest.value !== "string")) refuse("digest is malformed");
   }
   const include = target.credentials === "include";
   for (const [name, value] of Object.entries(headers)) {
@@ -283,14 +278,22 @@ export async function upload(request: Json, files: Files, connection: FileConnec
   return requestState;
 }
 
-function download(raw: unknown, connection: FileConnection): Download {
+// A download's fields are checked when the result arrives, and one whose fields do not have their types is left out:
+// the tool has run, so the rest of its result stands. Where its target points is checked when it is fetched.
+function download(raw: unknown, connection: FileConnection): Download | undefined {
   const { name, mimeType, size, digest, expiresAt }: Json = present(raw) ?? {};
-  const label = `Downloading ${quoted(typeof name === "string" ? name : undefined)}`;
+  if (name !== undefined && typeof name !== "string" || typeof mimeType !== "string" || typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || !timestamp(expiresAt)) return undefined;
+  let value: string | undefined;
+  if (digest !== undefined) {
+    const given = present(digest);
+    if (!given || Object.keys(given).some(key => key !== "algorithm" && key !== "value") || given.algorithm !== "sha-256" || typeof given.value !== "string") return undefined;
+    value = given.value;
+  }
+  const label = `Downloading ${quoted(name)}`;
   const blob = async ({ signal }: { signal?: AbortSignal } = {}) => {
     let target: Target;
     try { target = check(raw, "download", connection); } catch (error) { throw new Error(`${label} was refused: its target was rejected (${(error as Error).message}).`); }
     if (expired(target)) throw new Error(`${label} was refused: its target expired.`);
-    const declared = size as number;
     const chunks: Uint8Array[] = [];
     let received = 0;
     try {
@@ -304,26 +307,26 @@ function download(raw: unknown, connection: FileConnection): Download {
         const chunk = await reader.read();
         if (chunk.done) break;
         received += chunk.value.byteLength;
-        if (received > declared) {
+        if (received > size) {
           await reader.cancel();
-          throw new Error(`more than the declared ${declared} bytes; discarded`);
+          throw new Error(`more than the declared ${size} bytes; discarded`);
         }
         chunks.push(chunk.value);
       }
     } catch (error) {
       throw new Error(`${label} failed (${reason(error)}).`);
     }
-    if (received !== declared) throw new Error(`${label} failed (${received} bytes, not the declared ${declared}; discarded).`);
-    const file = new Blob(chunks, { type: mimeType as string });
-    if (digest && await sha256(file) !== (digest as { value: string }).value) throw new Error(`${label} failed (the bytes do not match the digest; discarded).`);
+    if (received !== size) throw new Error(`${label} failed (${received} bytes, not the declared ${size}; discarded).`);
+    const file = new Blob(chunks, { type: mimeType });
+    if (value !== undefined && await sha256(file) !== value) throw new Error(`${label} failed (the bytes do not match the digest; discarded).`);
     return file;
   };
-  return Object.freeze({ ...Object.fromEntries(Object.entries({ name, mimeType, size, digest, expiresAt }).filter(([, value]) => value !== undefined)), blob }) as Download;
+  return Object.freeze({ ...(name !== undefined && { name }), mimeType, size, ...(value !== undefined && { digest: { algorithm: "sha-256" as const, value } }), ...(expiresAt !== undefined && { expiresAt }), blob });
 }
 
 export function downloads<R extends { resultType?: string; _meta?: object }>(result: R, connection: FileConnection): R & { downloads?: Download[] } {
   if (result.resultType === "input_required" || !isObject(result._meta) || !(EXTENSION in result._meta)) return result;
   const { [EXTENSION]: meta, ...rest } = result._meta;
-  const handles = settings(connection) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).map(target => download(target, connection)) : [];
+  const handles = settings(connection) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).flatMap(target => download(target, connection) ?? []) : [];
   return { ...result, _meta: rest, ...(handles.length > 0 && { downloads: handles }) };
 }

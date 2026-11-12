@@ -1,7 +1,7 @@
 /** Identifier of the MCP files extension (draft), the key under which a client and a server declare it in their capabilities. */
 export const EXTENSION = "io.modelcontextprotocol/files";
 
-/** A file a tool returned for the caller to fetch. Its fields come from the server and are untrusted. */
+/** A file a tool returned for the caller to fetch. Its fields come from the server: they have the types below, but their values are untrusted. */
 export interface Download {
   readonly name?: string;
   readonly mimeType: string;
