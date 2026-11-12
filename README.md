@@ -11,7 +11,7 @@ This repository contains the Node.js runtime for [`holon`](https://github.com/ho
 ## Install
 
 ```sh
-npm install holon-sh@dev
+npm install holon-sh
 npm install -D holon-types typescript
 ```
 
