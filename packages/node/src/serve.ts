@@ -121,7 +121,6 @@ interface Claims {
   exp?: number;
   aud?: string | string[];
   principal?: { iss: string; sub: string; client_id: string; scope?: string; claims?: object; act?: object | null } | null;
-  hook?: { app: string; job: string } | null;
 }
 
 // Inside Holon only the waypoint reaches the app. It verified the context and replaced whatever x-holon-* a client sent.
@@ -132,8 +131,8 @@ function admit(req: IncomingMessage): { token: string; authInfo?: AuthInfo } {
   const token = claims ? contexts[0]! : "";
   const principal = claims?.principal;
   const [, session, app] = (callers.length === 1 && meshCaller.exec(callers[0]!)) || [];
-  // A lifecycle hook's job calls as the app whose hook it runs.
-  const caller = session && app ? { app: claims?.hook?.job === app ? claims.hook.app : app, session } : undefined;
+  // The waypoint names the calling app of the session, a lifecycle hook's job as its app.
+  const caller = session && app ? { app, session } : undefined;
   if (!principal && !caller) return { token };
   const resource = typeof claims?.aud === "string" ? claims.aud : claims?.aud?.[0];
   return {

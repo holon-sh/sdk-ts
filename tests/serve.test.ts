@@ -158,8 +158,8 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
     [inside, { "x-holon-context": signedIn, "x-holon-caller": mesh("reporter") }, { ...admitted, extra: { ...asUser, caller: reporter } }, user],
     [inside, { "x-holon-caller": mesh("reporter") }, { ...app, extra: { caller: reporter } }, null],
     [inside, { "x-holon-context": signedOut, "x-holon-caller": mesh("reporter") }, { ...anonymous, token: signedOut, extra: { caller: reporter } }, null],
-    // A lifecycle hook's job calls as the app whose hook it runs.
-    [inside, { "x-holon-context": hook, "x-holon-caller": mesh("install-accounts") }, { ...anonymous, token: hook, extra: { caller: { app: "accounts", session: "session" } } }, null],
+    // The waypoint names a lifecycle hook's job as the app whose hook it runs.
+    [inside, { "x-holon-context": hook, "x-holon-caller": mesh("accounts") }, { ...anonymous, token: hook, extra: { caller: { app: "accounts", session: "session" } } }, null],
     [inside, { "x-holon-context": signedOut }, null, null],
     [inside, {}, null, null],
     [outside, { "x-holon-context": signedIn, "x-holon-caller": mesh("reporter") }, null, null],
