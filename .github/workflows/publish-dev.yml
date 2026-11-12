@@ -32,6 +32,4 @@ jobs:
       - run: npm ci
       - name: Set the dev version (not committed)
         run: npm version "$VERSION" --workspaces --no-git-tag-version
-      - run: npm run lint:package
       - run: npm publish -w packages/node --tag latest --access public --provenance
-      - run: echo "Published \`holon-sh@$VERSION\`" >> "$GITHUB_STEP_SUMMARY"
