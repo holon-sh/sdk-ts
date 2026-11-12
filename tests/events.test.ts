@@ -203,6 +203,27 @@ test("a stream that falls behind what is kept is told of the gap, and carries on
   assert.equal(gaps, 1);
 });
 
+test("a subscription's open stream is sent everything emitted to it, even more than is kept, with no gap", async t => {
+  // Ten thousand events are kept, and all of these are emitted before the stream sends any: as it is set up, or after.
+  const burst = Array.from({ length: 10_100 }, (_, n) => `${n}`);
+  for (const opening of [true, false]) {
+    let id: string | undefined;
+    const { factory, say } = rooms({ onSubscribe: ({ subscriptionId }) => {
+      id = subscriptionId;
+      if (opening) for (const text of burst) say("a", "ann", text, id);
+    } });
+    // Signed in, so the stream that resumes after one has sent its budget is the same subscription.
+    const { endpoint } = await serve(t, factory, signedIn);
+    let gaps = 0;
+    const subscription = await connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { onGap: () => gaps++ });
+    if (!opening) for (const text of burst) say("a", "ann", text, id);
+    const [first, ...rest] = burst;
+    assert.deepEqual(await next(subscription, 1), [first]);
+    assert.deepEqual(await take(subscription, rest.length), rest);
+    assert.equal(gaps, 0);
+  }
+});
+
 test("a subscription from the cursor read with a snapshot hears every change after the snapshot and none before", async t => {
   const { factory, said, say } = rooms();
   const { endpoint } = await serve(t, factory);

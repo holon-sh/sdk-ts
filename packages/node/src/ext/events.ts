@@ -79,8 +79,8 @@ export interface Emitter<D, A = unknown> {
   /**
    * `eventId` lets a client drop an occurrence it has seen. Give the source's own id when it has one. With
    * `subscriptionId`, the sketch's targeted emit, the occurrence goes to that subscription alone, whatever its
-   * arguments; it is kept like any other, so a subscription that reconnects or polls again from its cursor still has
-   * it, or is told of a gap.
+   * arguments. It is kept until each of the subscription's open streams has sent it, and otherwise like any other, so
+   * a subscription that reconnects or polls again from its cursor still has it, or is told of a gap.
    *
    * Emitting is synchronous. Occurrences emitted one after another in the same synchronous run reach each
    * subscription in that order, with no other occurrence of this type between them, whether polled or pushed. So a
@@ -156,6 +156,8 @@ interface Held {
   readonly context: SubscriptionContext;
   /** Nothing is emitted to it alone: a poll lease shared by callers without an identity. */
   untargetable?: boolean;
+  /** A push stream's position: what is emitted to its subscription after this sequence is kept until it is sent. */
+  sent?: number;
   /** Called when the app ends the subscription. */
   readonly end: (error: EventError) => void;
   /** Says the hold is over. */
@@ -271,8 +273,9 @@ const STREAM_BUDGET = 2 ** 20;
  * Event types a process emits and the MCP servers it creates serve, in the poll and push delivery modes of MCP Events,
  * the draft extension of the Triggers & Events Working Group. Each type keeps the last ten thousand events it emits,
  * for ten minutes, for polls and for streams that reconnect: those cursors last as long as the process, and after a
- * restart a client is told that events were skipped. A poll is told to come back every second, and a stream hears
- * from the server every thirty seconds.
+ * restart a client is told that events were skipped. An event emitted to one subscription is also kept until that
+ * subscription's open streams have sent it. A poll is told to come back every second, and a stream hears from the
+ * server every thirty seconds.
  */
 export function createEvents(): Events {
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
@@ -329,6 +332,9 @@ export function createEvents(): Events {
     }
     return { ...occurrence, data, cursor: position(type, sequence) };
   };
+
+  // Whether an open stream of the subscription an event was emitted to has yet to send it. Poll leases hold nothing.
+  const unsent = (type: Type, { target, sequence }: Kept) => target !== undefined && [...type.subscriptions.get(target)?.held ?? []].some(held => held.sent !== undefined && held.sent < sequence);
 
   // The event type and arguments a request names, checked as the sketch's errors require, in its order: the type,
   // the delivery mode, the request's own fields, the arguments, and then whether the caller may subscribe. A caller
@@ -387,7 +393,8 @@ export function createEvents(): Events {
     }
     const current = entry;
     let closed = false;
-    const held: Held = { id, arguments: args, context, end, close() {
+    // A stream holds what is emitted to its subscription from the start, so it has what onSubscribe emits.
+    const held: Held = { id, arguments: args, context, end, ...(delivery === "push" && { sent: 0 }), close() {
       if (closed) return;
       closed = true;
       subscribed--;
@@ -477,10 +484,9 @@ export function createEvents(): Events {
           const occurrence = { eventId, name, timestamp, data };
           // Data that cannot be sent as JSON is refused here, before anything is kept or sent.
           JSON.stringify(occurrence);
-          // An event for one subscription is kept like any other, so the subscription has it when it comes back.
           const kept = { sequence: ++type.sequence, at: Date.now(), target, occurrence };
           type.kept.push(kept);
-          while (type.kept.length > KEPT_EVENTS || type.kept[0]!.at < kept.at - KEPT_AGE) type.dropped = type.kept.shift()!.sequence;
+          while ((type.kept.length > KEPT_EVENTS || type.kept[0]!.at < kept.at - KEPT_AGE) && !unsent(type, type.kept[0]!)) type.dropped = type.kept.shift()!.sequence;
           for (const sink of type.sinks) sink();
         },
         cursor() {
@@ -652,7 +658,8 @@ export function createEvents(): Events {
           while (!done) {
             if (behind) {
               behind = false;
-              const result = since(type, held, cursor, { ...(first && request.maxAgeMs !== undefined && { maxAgeMs: request.maxAgeMs }), opened, until });
+              const reading = until ?? type.sequence;
+              const result = since(type, held, cursor, { ...(first && request.maxAgeMs !== undefined && { maxAgeMs: request.maxAgeMs }), opened, until: reading });
               // The stream is confirmed before anything else is said on it.
               if (first || result.truncated) await notify("active", { cursor: result.start, truncated: result.truncated });
               if (first) beat = heartbeats();
@@ -665,6 +672,7 @@ export function createEvents(): Events {
               }
               if (done) break;
               cursor = result.cursor;
+              held.sent = reading;
             }
             // Terminated by the app, the stream ends once it has sent what was emitted before.
             if (done || until !== undefined && !behind) break;
