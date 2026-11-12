@@ -234,9 +234,8 @@ const STREAM_BUDGET = 2 ** 20;
  * Event types a process emits and the MCP servers it creates serve, in the poll and push delivery modes of MCP Events,
  * the draft extension of the Triggers & Events Working Group. Each type keeps the last ten thousand events it emits,
  * for ten minutes, for polls and for streams that reconnect: those cursors last as long as the process, and after a
- * restart a client is told that events were skipped. An event emitted to one subscription is also kept until that
- * subscription's open streams have sent it. A poll is told to come back every second, and a stream hears from the
- * server every thirty seconds.
+ * restart a client is told that events were skipped. A poll is told to come back every second, and a stream hears
+ * from the server every thirty seconds.
  */
 export function createEvents(): Events {
   // Cursors are positions in this process's memory. One from another process names nothing here. The name is made
@@ -294,7 +293,6 @@ export function createEvents(): Events {
     return { ...occurrence, data, cursor: position(sequence) };
   };
 
-  // Whether an open stream of the subscription an event was emitted to has yet to send it. Poll leases hold nothing.
   const unsent = (type: Type, { target, sequence }: Kept) => target !== undefined && [...type.subscriptions.get(target)?.held ?? []].some(held => held.sent !== undefined && held.sent < sequence);
 
   // The event type and arguments a request names, checked as the sketch's errors require, in its order: the type,
@@ -353,7 +351,7 @@ export function createEvents(): Events {
     }
     const current = entry;
     let closed = false;
-    // A stream holds what is emitted to its subscription from the start, so it has what onSubscribe emits.
+    // A stream holds from the start until its first batch is sent: what onSubscribe emits, and what it resumes from.
     const held: Held = { id, arguments: args, context, end, ...(delivery === "push" && { sent: 0 }), close() {
       if (closed) return;
       closed = true;
@@ -588,13 +586,9 @@ export function createEvents(): Events {
         // a slow client is not owed more memory than one batch; when what it is owed is no longer kept, it is told of
         // the gap.
         let cursor = from;
-        let behind = true;
-        const sink = () => {
-          // Nothing emitted after the app terminated the stream is for it.
-          if (until !== undefined) return;
-          behind = true;
-          wake();
-        };
+        // Nothing emitted after the app terminated the stream is for it.
+        const behind = () => held.sent! < (until ?? type.sequence);
+        const sink = () => wake();
         type.sinks.add(sink);
         let beat: ReturnType<typeof setInterval> | undefined;
         let beating = false;
@@ -614,8 +608,7 @@ export function createEvents(): Events {
         let first = true;
         try {
           while (!done) {
-            if (behind) {
-              behind = false;
+            if (first || behind()) {
               const reading = until ?? type.sequence;
               const result = since(type, held, cursor, { ...(first && { maxAgeMs }), opened, until: reading });
               // The stream is confirmed before anything else is said on it.
@@ -633,12 +626,8 @@ export function createEvents(): Events {
               held.sent = reading;
             }
             // Terminated by the app, the stream ends once it has sent what was emitted before.
-            if (done || until !== undefined && !behind) break;
-            await new Promise<void>(resolve => {
-              wake = resolve;
-              if (done || behind) resolve();
-            });
-            wake = () => {};
+            if (done || until !== undefined && !behind()) break;
+            if (!behind()) await new Promise<void>(resolve => wake = resolve);
           }
           if (ending) {
             if (first) throw refusal(ending);

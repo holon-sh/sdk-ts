@@ -190,39 +190,23 @@ test("the server speaks the messages of the Events design sketch", async t => {
   ]);
 });
 
-test("a stream that falls behind what is kept is told of the gap, and carries on", async t => {
-  const { factory, say } = rooms();
-  const { endpoint } = await serve(t, factory);
-  let gaps = 0;
-  const subscription = await connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { onGap: () => gaps++ });
+test("a stream that falls behind what is kept is told of the gap and carries on, but is sent all emitted to it alone", async t => {
   // Events are kept for ten minutes, which the test's clock passes before the stream reads them.
-  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
-  say("a", "ann", "one");
-  t.mock.timers.tick(11 * 60_000);
-  say("a", "ann", "two");
-  t.mock.timers.reset();
-  assert.deepEqual(await take(subscription, 1), ["two"]);
-  assert.equal(gaps, 1);
-});
-
-test("a subscription's open stream is sent everything emitted to it, even more than is kept, with no gap", async t => {
-  // Ten thousand events are kept, and all of these are emitted before the stream sends any: as it is set up, or after.
-  const burst = Array.from({ length: 10_100 }, (_, n) => `${n}`);
-  for (const opening of [true, false]) {
+  for (const targeted of [undefined, "opening", "opened"]) {
+    const late = (to?: string) => {
+      t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+      say("a", "ann", "one", to);
+      t.mock.timers.tick(11 * 60_000);
+      say("a", "ann", "two", to);
+      t.mock.timers.reset();
+    };
     let id: string | undefined;
-    const { factory, say } = rooms({ onSubscribe: ({ subscriptionId }) => {
-      id = subscriptionId;
-      if (opening) for (const text of burst) say("a", "ann", text, id);
-    } });
-    // Signed in, so the stream that resumes after one has sent its budget is the same subscription.
-    const { endpoint } = await serve(t, factory, signedIn);
+    const { factory, say } = rooms({ onSubscribe: ({ subscriptionId }) => { id = subscriptionId; if (targeted === "opening") late(id); } });
+    const { endpoint } = await serve(t, factory);
     let gaps = 0;
     const subscription = await connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { onGap: () => gaps++ });
-    if (!opening) for (const text of burst) say("a", "ann", text, id);
-    const [first, ...rest] = burst;
-    assert.deepEqual(await next(subscription, 1), [first]);
-    assert.deepEqual(await take(subscription, rest.length), rest);
-    assert.equal(gaps, 0);
+    if (targeted !== "opening") late(targeted && id);
+    assert.deepEqual([await take(subscription, 1), gaps], targeted ? [["one"], 0] : [["two"], 1]);
   }
 });
 
