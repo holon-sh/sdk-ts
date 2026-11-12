@@ -337,7 +337,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         if (!(cursor = page.nextCursor)) return events;
       }
     });
-    const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
+    const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, reconnect = true, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
       const resolved = current();
       if (!resolved?.endpoint) throw new Error(`Subscribing to ${name} ${event} requires an endpoint binding.`);
       const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
@@ -386,7 +386,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             wait = result.hasMore ? 0 : Math.max(1000, result.nextPollMs ?? 0);
           } catch (error) {
             if (ended.aborted) return;
-            if (!confirmed || refused(error)) throw error;
+            if (!confirmed || !reconnect || refused(error)) throw error;
           }
           await sleep(wait, ended);
         }
@@ -395,6 +395,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
         while (!ended.aborted) {
           let wait = 1000;
           const quiet = new AbortController();
+          let lost: unknown;
           // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
           // Only the stream's own response is watched: a 2025 server answers its initialization as a stream too.
           const watched: typeof fetch = async (input, init) => {
@@ -408,7 +409,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
                 controller.close();
                 // The answer, when the stream ended with one, is handled first.
                 setTimeout(() => quiet.abort());
-              }, error => { controller.error(error); quiet.abort(); }),
+              }, error => { controller.error(error); lost = error; quiet.abort(); }),
               cancel: reason => reader.cancel(reason),
             });
             return new Response(body, response);
@@ -437,12 +438,13 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             heard();
             await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, anything, { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
           } catch (error) {
-            if (!terminated && !ended.aborted && (!confirmed || refused(error))) throw error;
+            if (!terminated && !ended.aborted && (!confirmed || refused(error) || !reconnect && !quiet.signal.aborted)) throw error;
           } finally {
             clearTimeout(timer);
             await connection.close();
           }
           if (terminated) throw Object.assign(new Error(`${name} ended the subscription to ${event}: ${terminated.message}`), { code: terminated.code, data: terminated.data });
+          if (!reconnect && !ended.aborted) throw lost ?? new Error(`Lost the connection to ${name} for ${event}.`);
           await sleep(wait, ended);
         }
       };
