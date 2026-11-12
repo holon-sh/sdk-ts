@@ -115,15 +115,17 @@ test("a subscription hears what its arguments match, in order and with nothing m
   for (const subscription of [pushed, polled]) assert.deepEqual(await take(subscription, 101), ["one", ...burst]);
 });
 
-test("a subscription that does not reconnect fails once the server goes away, by push or poll", async t => {
+test("a subscription that does not reconnect by itself resumes a stream the server ends, and fails once the server goes away, by push or poll", async t => {
   const { factory, say } = rooms();
   const { endpoint, http } = await serve(t, factory);
   let away = false;
   const events = connect(t, endpoint, { fetch: (input, init) => away ? Promise.reject(new TypeError("fetch failed")) : fetch(input, init) });
   const pushed = await events.subscribe("room.said", { room: "a", listener: "bob" }, { reconnect: false });
   const polled = await events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery: "poll", reconnect: false });
-  say("a", "ann", "one");
-  assert.deepEqual([await next(pushed, 1), await next(polled, 1)], [["one"], ["one"]]);
+  // More is said than one stream sends before the server ends it.
+  const burst = Array.from({ length: 100 }, (_, n) => `${n}`.padEnd(10_000));
+  for (const text of burst) say("a", "ann", text);
+  assert.deepEqual([await next(pushed, 100), await next(polled, 100)], [burst, burst]);
   away = true;
   http.closeAllConnections();
   await assert.rejects(next(pushed, 1), /terminated/);

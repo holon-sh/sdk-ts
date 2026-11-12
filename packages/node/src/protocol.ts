@@ -78,7 +78,7 @@ export interface SubscribeOptions {
   delivery?: "push" | "poll";
   /** Called when the server skipped events, for example after it restarted. Read the current state again. */
   onGap?: () => void;
-  /** False rejects iterating when the connection is lost or a stream ends, instead of reconnecting from the cursor, for a caller that shows it is reconnecting. */
+  /** False rejects iterating when the connection is lost, instead of reconnecting from the cursor, for a caller that shows it is reconnecting. A stream the server ends is still resumed. */
   reconnect?: boolean;
 }
 /** A subscription to an event: iterate it for the occurrences, in the order the server produced them. */
