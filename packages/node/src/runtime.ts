@@ -81,7 +81,7 @@ export function bindApps<B = Binding>(identity: Identity, contracts: Record<stri
   return createApps(identity, selected, bindings, options);
 }
 
-/** Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call. Close persistent clients on shutdown. Most callers use the generated clients. */
+/** Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call and act for the caller of the request holon-sh/serve is answering. Close persistent clients on shutdown. Most callers use the generated clients. */
 export function createApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>> {
   const { validator = defaultValidator, resolve = environment, session: hosted } = options ?? {};
   const expect: Expect = (schema, label) => {

@@ -122,17 +122,30 @@ A refused subscription is answered Forbidden, and access is checked again at eac
 
 Poll and push delivery are here, with targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery and check functions, which read a source that keeps its own history, are not, and neither are typed event names. Clients are not told when the event types change: they list them again.
 
-## Run an app without Holon
+## Run an app
 
-`holon-sh/serve` serves an app's module at the paths Holon gives it, so the app also runs wherever Node does:
+`holon-serve` runs an app's module, in Holon and wherever else Node runs:
 
-```ts
-import { serve } from "holon-sh/serve";
-
-await serve(await import("./server.ts"));
+```sh
+npx holon-serve server.ts
 ```
 
-The MCP endpoint is at `/mcp` and `/mcp/<app>`, and the files of `frontend` are at every other path. `PORT` and `HOST` change where it listens, 127.0.0.1:3000 unless they are set. Holon answers clients of the 2025 MCP versions in front of an app, and here the app's handler answers them, so create it without `legacy: "reject"`.
+The module default-exports its MCP handler, and may export the file URL of its page's directory as `frontend`:
+
+```ts
+export default createMcpHandler(createServer);
+export const frontend = new URL("./dist/", import.meta.url);
+```
+
+The MCP endpoint is at `/mcp` and `/mcp/<app>`, and the files of `frontend` are at every other path, except hidden ones and those a link leads out of the directory to. `PORT` and `HOST` change where it listens, 127.0.0.1:3000 unless they are set, and SIGTERM stops it. Without Holon in front, the app's handler answers clients of the 2025 MCP versions itself, so create it without `legacy: "reject"`.
+
+`holon-sh/serve` does the same from code:
+
+```ts
+import { load, serve } from "holon-sh/serve";
+
+await serve(await load("server.ts"));
+```
 
 ## The caller and the origin
 
@@ -148,6 +161,10 @@ server.registerTool("share", { description: "Links to the page" }, ctx => {
 ```
 
 `principal` is the user Holon admitted, or null. `origin` is the one Holon or a proxy forwards, or else the one the request reached.
+
+Inside Holon, where `HOLON_PLATFORM` is `1`, `serve` reads the caller from the headers Holon sets, which it has already verified, and hands it to the handler as `authInfo`. Anywhere else every request is anonymous. Either way the app sees neither those headers nor the request's `Authorization`. When another app of the same session calls, `ctx.http.authInfo.extra.caller` names it as `{ app, session }`.
+
+A dependency bound by `<NAME>_MCP_URL` acts for the caller of the request that calls it until that request ends, and sends `<NAME>_MCP_TOKEN` as its bearer token. A call after the request ended, from a task it left running, acts as the app alone. A dependency with an explicit binding never acts for the caller.
 
 ## A page in MCP Apps hosts
 

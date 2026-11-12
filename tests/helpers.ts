@@ -30,7 +30,7 @@ export function typecheck(source: string): void {
   }
 }
 
-async function listen(t: TestContext, http: Server, close: () => Promise<unknown>): Promise<string> {
+export async function listen(t: TestContext, http: Server, close: () => Promise<unknown> = async () => {}): Promise<string> {
   t.after(async () => {
     await close();
     http.closeAllConnections();
