@@ -321,9 +321,9 @@ function download(raw: unknown, connection: FileConnection): Download {
   return Object.freeze({ ...Object.fromEntries(Object.entries({ name, mimeType, size, digest, expiresAt }).filter(([, value]) => value !== undefined)), blob }) as Download;
 }
 
-export function downloads<R extends { resultType?: string; _meta?: object }>(result: R, connection: FileConnection, enabled: boolean): R & { downloads?: Download[] } {
+export function downloads<R extends { resultType?: string; _meta?: object }>(result: R, connection: FileConnection): R & { downloads?: Download[] } {
   if (result.resultType === "input_required" || !isObject(result._meta) || !(EXTENSION in result._meta)) return result;
   const { [EXTENSION]: meta, ...rest } = result._meta;
-  const handles = enabled ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).map(target => download(target, connection)) : [];
+  const handles = settings(connection) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).map(target => download(target, connection)) : [];
   return { ...result, _meta: rest, ...(handles.length > 0 && { downloads: handles }) };
 }

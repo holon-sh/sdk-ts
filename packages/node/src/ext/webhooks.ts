@@ -7,14 +7,13 @@
 import { ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import type { Server, ServerContext, StandardSchemaV1 } from "@modelcontextprotocol/server";
 import { Webhook } from "standardwebhooks";
-import { getContext } from "../context.js";
-import type { DeliveryMode, EventError, EventOccurrence, EventTypeState, Internals, Owed, SubscriptionContext } from "./events.js";
+import { getContext, type Principal } from "../context.js";
+import type { EventError, EventOccurrence, EventTypeState, Internals, Owed, SubscriptionContext } from "./events.js";
 
 /** A webhook subscription as the server keeps it, in memory. */
 interface WebhookSubscription {
   /** Derived from the principal, callback URL, event name and arguments, which together are the subscription. */
   id: string;
-  principal: { issuer: string; subject: string };
   url: string;
   name: string;
   secret: string;
@@ -76,18 +75,17 @@ interface WebhookRequest {
 const anything: StandardSchemaV1<unknown, WebhookRequest> = { "~standard": { version: 1, vendor: "holon-sh", validate: value => ({ value: (value ?? {}) as WebhookRequest }) } };
 
 const encoder = new TextEncoder();
-const unbase64 = (text: string) => Uint8Array.from(atob(text), c => c.charCodeAt(0));
 const random = (bytes: number) => crypto.getRandomValues(new Uint8Array(bytes));
 const hex = (bytes: ArrayBuffer | Uint8Array) => [...new Uint8Array(bytes)].map(byte => byte.toString(16).padStart(2, "0")).join("");
 
 // A Standard Webhooks symmetric secret: whsec_ and the base64 of 24 to 64 random bytes.
-function secretBytes(secret: unknown): Uint8Array<ArrayBuffer> | undefined {
+function isSecret(secret: unknown): secret is string {
   const match = typeof secret === "string" ? /^whsec_([A-Za-z0-9+/]+={0,2})$/.exec(secret) : null;
-  if (!match?.[1]) return undefined;
+  if (!match?.[1]) return false;
   try {
-    const bytes = unbase64(match[1]);
-    return bytes.length >= 24 && bytes.length <= 64 ? bytes : undefined;
-  } catch { return undefined; }
+    const { length } = atob(match[1]);
+    return length >= 24 && length <= 64;
+  } catch { return false; }
 }
 
 // JSON with object keys in order, so arguments that are equal give the same subscription.
@@ -151,10 +149,10 @@ interface Entry { state: State; id: string; tries: number; body(): string; event
 /** What delivering to one subscription has come to. */
 interface State {
   type: EventTypeState;
-  opened?: { close(): void };
+  opened: { close(): void };
   queue: Entry[];
   held: Entry[];
-  floor?: string | null | undefined;
+  floor: string | null | undefined;
   gap: boolean;
   unknown: number;
   lastDeliveryAt?: string;
@@ -171,7 +169,7 @@ type Callback = Pick<WebhookSubscription, "id" | "url" | "secret" | "previous">;
  * delivering to it, signs each delivery per Standard Webhooks with the client's secret, retries failed ones, and lets
  * subscriptions lapse when not refreshed.
  */
-export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting = false }: WebhookOptions & { ttl: number; heartbeat: number }): DeliveryMode {
+export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting = false }: WebhookOptions & { ttl: number; heartbeat: number }): (server: Server, internals: Internals) => void {
   const local = allowInsecureLocalCallbacksForTesting === true;
   // Subscriptions being delivered to, by event name, then id; and what delivering to each has come to, which is kept
   // in memory only, lost on restart and begun again.
@@ -190,11 +188,7 @@ export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting
   let internals!: Internals;
 
   const quietly = (promise: unknown) => void Promise.resolve(promise).catch(() => {});
-  const principalOf = (context: SubscriptionContext) => {
-    const { principal } = getContext(context);
-    return principal && { issuer: principal.issuer, subject: principal.subject };
-  };
-  const owner = (principal: WebhookSubscription["principal"], url: string) => canonical([principal.issuer, principal.subject, url]);
+  const owner = (principal: Principal, url: string) => canonical([principal.issuer, principal.subject, url]);
   const endpointError = (reason: string | undefined) => new ProtocolError(CALLBACK_ENDPOINT_ERROR, "CallbackEndpointError", { reason });
   const expired = (record: WebhookSubscription) => record.expiresAt <= Date.now();
   const refreshBefore = (record: WebhookSubscription) => new Date(record.expiresAt).toISOString();
@@ -204,7 +198,7 @@ export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting
   const forget = async (record: WebhookSubscription) => {
     const state = states.get(record);
     states.delete(record);
-    state?.opened?.close();
+    state?.opened.close();
     const records = live.get(record.name);
     if (records?.get(record.id) !== record) return;
     records.delete(record.id);
@@ -315,18 +309,16 @@ export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting
   // against the limits, with the type's onSubscribe run; `ready` runs once it has; and it is sent what it missed
   // since the cursor first. An end that arrives meanwhile is kept, and once setup is done the subscription ends with
   // it, having delivered nothing.
-  const begin = async (type: EventTypeState, record: WebhookSubscription, cursor: string | null | undefined, maxAgeMs?: number, ready?: () => Promise<void>) => {
-    const state: State = { type, queue: [], held: [], gap: false, unknown: 0 };
+  const begin = async (type: EventTypeState, record: WebhookSubscription, cursor: string | null | undefined, maxAgeMs: number | undefined, ready: () => Promise<void>) => {
     let ending: EventError | undefined;
     const end = (error: EventError) => {
-      if (states.get(record) === state) quietly(terminate(record, error));
+      if (states.has(record)) quietly(terminate(record, error));
       else ending ??= error;
     };
     const opened = await internals.open(type, { id: record.id, delivery: "webhook", arguments: record.subscription.arguments, context: record.subscription.context }, end);
-    state.opened = opened;
     let missed: Owed;
     try {
-      await ready?.();
+      await ready();
       // Events emitted while it is read are in what it returns, and none are emitted between it and the sink seeing
       // this subscription, as reading emitted events does not wait.
       const reading = internals.read(type, record.subscription, cursor ?? null, { maxAgeMs });
@@ -338,7 +330,7 @@ export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting
       opened.close();
       throw error;
     }
-    state.floor = missed.start;
+    const state: State = { type, opened, queue: [], held: [], floor: missed.start, gap: false, unknown: 0 };
     states.set(record, state);
     let records = live.get(record.name);
     if (!records) live.set(record.name, records = new Map());
@@ -420,7 +412,7 @@ export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting
   // The endpoint proves it wants deliveries by echoing a challenge, signed like any delivery. A URL whose challenge
   // failed is not challenged again for a while, and a host only so often, so subscribing cannot be used to make the
   // server POST wherever a caller likes.
-  const verify = async (principal: WebhookSubscription["principal"], url: string, id: string, secret: string) => {
+  const verify = async (principal: Principal, url: string, id: string, secret: string) => {
     const key = owner(principal, url);
     const now = Date.now();
     if ((verified.get(key) ?? 0) > now) return;
@@ -451,7 +443,7 @@ export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting
   // id is made from the key the type gives the caller, event and arguments, and the callback URL. A caller with a
   // principal always has that key.
   const keyed = async (request: WebhookRequest, context: SubscriptionContext) => {
-    const principal = principalOf(context);
+    const { principal } = getContext(context);
     if (!principal) throw new ProtocolError(FORBIDDEN, "Forbidden", { reason: "Webhook delivery needs an authenticated principal." });
     const url = request.delivery?.url;
     let parsed: URL | undefined;
@@ -468,45 +460,41 @@ export function webhooks({ ttl, heartbeat, allowInsecureLocalCallbacksForTesting
   // needs storage the server does not have, is granted the cap.
   const grant = (suggested: unknown) => Math.max(Math.min(MIN_TTL, ttl), Math.min(typeof suggested === "number" && suggested > 0 ? suggested : ttl, ttl));
 
-  return {
-    name: "webhook",
-    serve(served, given) {
-      const server = served as Server;
-      start(given);
-      for (const type of internals.types.values()) attach(type);
-      server.setRequestHandler("events/subscribe", { params: anything }, async (request, ctx: ServerContext) => {
-        if (request.delivery?.mode !== undefined && request.delivery.mode !== "webhook") throw new ProtocolError(INVALID_PARAMS, "delivery.mode must be webhook.");
-        const secret = request.delivery?.secret;
-        if (typeof secret !== "string" || !secretBytes(secret)) throw new ProtocolError(INVALID_PARAMS, "delivery.secret must be whsec_ and the base64 of 24 to 64 bytes.");
-        const { type, subscription, principal, url, id } = await keyed(request, ctx.http);
-        attach(type);
-        const expiresAt = Date.now() + grant(request.ttlMs);
-        const existing = live.get(type.name)?.get(id);
-        const state = existing && states.get(existing);
-        if (existing && state?.type === type && !expired(existing)) {
-          // A refresh: the TTL is granted again, and a new secret replaces the old. Delivery is never suspended.
-          const deliveryStatus = { active: true, lastDeliveryAt: state.lastDeliveryAt ?? null, lastError: state.lastError ?? null, ...(state.failedSince && { failedSince: state.failedSince }) };
-          Object.assign(existing, {
-            expiresAt,
-            subscription,
-            ...(existing.secret !== secret && { secret, previous: { secret: existing.secret, until: Date.now() + ROTATION_GRACE } }),
-          });
-          return { id, refreshBefore: refreshBefore(existing), cursor: watermark(state), truncated: false, deliveryStatus };
-        }
-        const record: WebhookSubscription = { id, principal, url, name: type.name, secret, expiresAt, subscription };
-        // A new subscription is counted against the limits before its endpoint is challenged, and starts from the
-        // client's cursor: what it missed since is delivered first.
-        const missed = await begin(type, record, request.cursor, request.maxAgeMs, () => verify(principal, url, id, secret));
-        const started = states.get(record);
-        return { id, refreshBefore: refreshBefore(record), cursor: started ? watermark(started) : missed.cursor, truncated: missed.truncated };
-      });
-      server.setRequestHandler("events/unsubscribe", { params: anything }, async (request, ctx: ServerContext) => {
-        const { type, id } = await keyed(request, ctx.http);
-        const record = live.get(type.name)?.get(id);
-        if (!record || expired(record)) throw new ProtocolError(NOT_FOUND, "NotFound", { kind: "subscription" });
-        await forget(record);
-        return {};
-      });
-    },
+  return (server, given) => {
+    start(given);
+    for (const type of internals.types.values()) attach(type);
+    server.setRequestHandler("events/subscribe", { params: anything }, async (request, ctx: ServerContext) => {
+      if (request.delivery?.mode !== undefined && request.delivery.mode !== "webhook") throw new ProtocolError(INVALID_PARAMS, "delivery.mode must be webhook.");
+      const secret = request.delivery?.secret;
+      if (!isSecret(secret)) throw new ProtocolError(INVALID_PARAMS, "delivery.secret must be whsec_ and the base64 of 24 to 64 bytes.");
+      const { type, subscription, principal, url, id } = await keyed(request, ctx.http);
+      attach(type);
+      const expiresAt = Date.now() + grant(request.ttlMs);
+      const existing = live.get(type.name)?.get(id);
+      const state = existing && states.get(existing);
+      if (existing && state?.type === type && !expired(existing)) {
+        // A refresh: the TTL is granted again, and a new secret replaces the old. Delivery is never suspended.
+        const deliveryStatus = { active: true, lastDeliveryAt: state.lastDeliveryAt ?? null, lastError: state.lastError ?? null, ...(state.failedSince && { failedSince: state.failedSince }) };
+        Object.assign(existing, {
+          expiresAt,
+          subscription,
+          ...(existing.secret !== secret && { secret, previous: { secret: existing.secret, until: Date.now() + ROTATION_GRACE } }),
+        });
+        return { id, refreshBefore: refreshBefore(existing), cursor: watermark(state), truncated: false, deliveryStatus };
+      }
+      const record: WebhookSubscription = { id, url, name: type.name, secret, expiresAt, subscription };
+      // A new subscription is counted against the limits before its endpoint is challenged, and starts from the
+      // client's cursor: what it missed since is delivered first.
+      const missed = await begin(type, record, request.cursor, request.maxAgeMs, () => verify(principal, url, id, secret));
+      const started = states.get(record);
+      return { id, refreshBefore: refreshBefore(record), cursor: started ? watermark(started) : missed.cursor, truncated: missed.truncated };
+    });
+    server.setRequestHandler("events/unsubscribe", { params: anything }, async (request, ctx: ServerContext) => {
+      const { type, id } = await keyed(request, ctx.http);
+      const record = live.get(type.name)?.get(id);
+      if (!record || expired(record)) throw new ProtocolError(NOT_FOUND, "NotFound", { kind: "subscription" });
+      await forget(record);
+      return {};
+    });
   };
 }

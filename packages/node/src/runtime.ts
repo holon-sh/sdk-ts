@@ -2,7 +2,7 @@ import { Client, isInputRequiredResult, SdkHttpError, StreamableHTTPClientTransp
 import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, PriorDiscovery, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { EXTENSION } from "./ext/files.js";
-import { acceptUploadRequests, downloads, isUploadRequest, prepare, settings, upload } from "./ext/files.client.js";
+import { acceptUploadRequests, downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
@@ -253,7 +253,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             throw error;
           }
           // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.
-          if (!elicit || !isInputRequiredResult(result) || round++ === 10) return connection ? downloads(result, connection, settings(connection) !== undefined) : result;
+          if (!elicit || !isInputRequiredResult(result) || round++ === 10) return connection ? downloads(result, connection) : result;
           const inputResponses: InputResponses = {};
           for (const [key, question] of Object.entries(result.inputRequests ?? {})) {
             // Every client declares elicitation alone, so it answers nothing else and such a question reaches the caller.
@@ -324,10 +324,15 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       resources[resource.uri] = Object.freeze({ read, watch });
     }
     // MCP Events, the draft extension: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
-    const list = (options?: CallOptions) => session(options, async client => {
+    // Its requests go over the runtime's own connection, which a hosted session does not have.
+    const connected = <T>(options: CallOptions | undefined, run: (client: Client) => Promise<T>) => session(options, (_, connection) => {
+      if (!connection) throw new Error(`MCP Events of ${name} require an endpoint binding.`);
+      return run(connection.client);
+    });
+    const list = (options?: CallOptions) => connected(options, async client => {
       const events: EventType[] = [];
       for (let cursor: string | undefined; ;) {
-        const page = await (client as Client).request({ method: "events/list", params: { ...(cursor && { cursor }) } }, anything, patient(options)) as Listed;
+        const page = await client.request({ method: "events/list", params: { ...(cursor && { cursor }) } }, anything, patient(options)) as Listed;
         events.push(...page.events ?? []);
         if (!(cursor = page.nextCursor)) return events;
       }
@@ -335,7 +340,6 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
     const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
       const resolved = current();
       if (!resolved?.endpoint) throw new Error(`Subscribing to ${name} ${event} requires an endpoint binding.`);
-      const endpoint = resolved;
       const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
       if (!offered) throw new Error(`${name} has no event ${event}.`);
       // Push hears of an event at once, and poll works wherever a request does. Webhook delivery is not supported.
@@ -368,16 +372,16 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       };
       const request = { name: event, arguments: args, ...(maxAgeMs !== undefined && { maxAgeMs }) };
       let confirmed = false;
-      let established!: { resolve: () => void; reject: (reason: unknown) => void };
-      const active = new Promise<void>((resolve, reject) => { established = { resolve: () => { confirmed = true; resolve(); }, reject }; });
+      const established = Promise.withResolvers<void>();
+      const confirm = () => { confirmed = true; established.resolve(); };
       const poll = async () => {
         while (!ended.aborted) {
           let wait = 1000;
           try {
-            const result = await session({ signal: ended }, client => (client as Client).request({ method: "events/poll", params: { ...request, cursor } }, anything, patient({ signal: ended })) as Promise<Polled>);
+            const result = await connected({ signal: ended }, client => client.request({ method: "events/poll", params: { ...request, cursor } }, anything, patient({ signal: ended })) as Promise<Polled>);
             try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
             reach(result.cursor, result.truncated);
-            established.resolve();
+            confirm();
             // A server that asks for a tight loop is not obeyed.
             wait = result.hasMore ? 0 : Math.max(1000, result.nextPollMs ?? 0);
           } catch (error) {
@@ -394,7 +398,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
           // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
           // Only the stream's own response is watched: a 2025 server answers its initialization as a stream too.
           const watched: typeof fetch = async (input, init) => {
-            const response = await (endpoint.fetch ?? fetch)(input, init);
+            const response = await (resolved.fetch ?? fetch)(input, init);
             const streaming = typeof init?.body === "string" && init.body.includes('"method":"events/stream"');
             if (!streaming || !response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
             const reader = response.body.getReader();
@@ -410,7 +414,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
             return new Response(body, response);
           };
           // Each stream has its own connection, so every event notification on it is this subscription's.
-          const connection = connect({ ...endpoint, fetch: watched });
+          const connection = connect({ ...resolved, fetch: watched });
           let timer: ReturnType<typeof setTimeout> | undefined;
           const heard = () => {
             clearTimeout(timer);
@@ -420,7 +424,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
           try {
             await untilAborted(connection.ready, ended);
             const on = (method: string, handle: (params: any) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: anything }, params => { heard(); handle(params); });
-            on("active", ({ cursor: next, truncated }) => { reach(next, truncated); established.resolve(); });
+            on("active", ({ cursor: next, truncated }) => { reach(next, truncated); confirm(); });
             on("event", occurrence => {
               wait = 0;
               try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
@@ -445,7 +449,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
       void (delivery === "push" ? stream() : poll())
         .catch(error => { failure ??= error; })
         .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
-      await active;
+      await established.promise;
       return {
         delivery,
         get cursor() { return cursor; },
