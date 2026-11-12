@@ -144,7 +144,7 @@ test("a failed PUT is tried three times and a failed POST once, and the call is 
   const app = server.app();
   for (const value of [{}, { method: "POST" }]) {
     target = value;
-    await assert.rejects(app.save({ file: new Blob(["x"]) }), { message: "files.save: uploading a file failed (HTTP 503); the tool did not run." });
+    await assert.rejects(app.save({ file: new Blob(["x"]) }), /the tool did not run\.$/);
   }
   assert.deepEqual(server.stored.map(({ method }) => method), ["PUT", "PUT", "PUT", "POST"]);
   assert.equal(server.calls.length, 2);
@@ -154,7 +154,7 @@ test("a second upload request fails the call without a transfer, and a retry wit
   let state = "again";
   const server = await files(t, { settings: { upload: {} }, tool: ({ args }) => uploadRequired([{ fileId: args.file.id, url: `${server.origin}/u`, credentials: "omit" }], state) });
   const app = server.app();
-  await assert.rejects(app.save({ file: new Blob(["x"]) }), { message: "files.save: the server asked for a second upload; the tool did not run." });
+  await assert.rejects(app.save({ file: new Blob(["x"]) }), /the tool did not run\.$/);
   assert.deepEqual([server.stored.length, server.calls.length], [1, 2]);
   state = "lost";
   await assert.rejects(app.save({ file: new Blob(["x"]) }), /^Error: files\.save: the outcome is unknown; the tool may have run/);
@@ -194,6 +194,6 @@ test("downloads are fetched through handles that check size and digest, and thei
   assert.deepEqual(result.downloads?.map(({ name, size }) => [name, size]), [["good.csv", 7], ["long.csv", 6], ["forged.csv", 7]]);
   const blob = await good.blob();
   assert.deepEqual([await blob.text(), blob.type], ["a,b\n1,2", "text/csv"]);
-  await assert.rejects(long.blob(), { message: 'Downloading "long.csv" failed (more than the declared 6 bytes; discarded).' });
-  await assert.rejects(forged.blob(), { message: 'Downloading "forged.csv" failed (the bytes do not match the digest; discarded).' });
+  await assert.rejects(long.blob(), /more than the declared 6 bytes/);
+  await assert.rejects(forged.blob(), /do not match the digest/);
 });

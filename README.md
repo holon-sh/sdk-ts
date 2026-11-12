@@ -102,20 +102,6 @@ The client is pushed each event on a stream where the server offers one and poll
 
 To hand a page its state and then its changes, a tool returns the state together with `said.cursor()`, read in the same synchronous run, and the page subscribes from that cursor: it hears every change after the state, and none twice. Occurrences emitted one after another in one run reach each subscriber in that order with nothing of the same type between them, so a group of changes is emitted together or sent as one occurrence holding a list.
 
-A source that keeps its own history is read through a check function instead. Its cursor is the source's own, so a client resumes across restarts with nothing skipped. Polls are answered by it, streams ask it every second, and the type can still `emit` to push at once:
-
-```ts
-events.event("email.received", {
-  inputSchema: z.object({ from: z.string() }),
-  payloadSchema: z.object({ subject: z.string() }),
-  check: async (cursor, { from }) => {
-    if (cursor === null) return { events: [], cursor: await mailbox.head() };
-    const { messages, head } = await mailbox.since(cursor, from);
-    return { events: messages.map(m => ({ eventId: m.id, data: { subject: m.subject } })), cursor: head };
-  },
-});
-```
-
 An event type may also say who may subscribe, and hear when subscriptions begin and end:
 
 ```ts
@@ -134,21 +120,7 @@ said.remove();                   // stops offering the type
 
 A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. Each type keeps its last ten thousand events for ten minutes, polls are told to come back every second, a poll subscription ends a minute after its last poll, and subscriptions are limited to ten thousand in all and a thousand per caller. Names follow the design sketch.
 
-Poll, push and webhook delivery are here, with check functions, targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Typed event names are not. Clients are not told when the event types change: they list them again.
-
-### Webhook delivery
-
-A server delivers by webhook too when `createEvents` is given the sketch's `webhookTtl`, the longest lifetime it grants a webhook subscription. Nothing else changes: `emit` reaches webhook subscribers as it does the others. A type with a check function is offered by poll and push only, since webhook delivery sends what is emitted.
-
-```ts
-const events = createEvents({ webhookTtl: 30 * 60_000 });
-```
-
-The SDK keeps each subscription, checks that its callback wants deliveries before sending any, signs each one per [Standard Webhooks](https://www.standardwebhooks.com/), retries failures, and drops a subscription its client stops refreshing. Only an authenticated caller can subscribe, and only an `https` callback at a public address is called. A type's `authorize`, hooks, `terminate`, `remove` and the limits of `createEvents` apply to webhook subscriptions as to the others, and access is checked again every thirty seconds, at each heartbeat. Subscriptions are kept in memory, so after a restart each comes back when its client next refreshes it.
-
-Every subscription expires unless its client refreshes it: one that never expires would need storage the server does not have. On Holon, an app that delivers webhooks leaves `egress` undeclared in `holon.yaml`, since declared hosts are the only ones it can reach.
-
-Subscribing by webhook is for clients that can be reached at an `https` URL. This client does not subscribe by webhook yet: a Holon app cannot serve the route a receiver needs, so it subscribes by push or poll.
+Poll and push delivery are here, with targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery and check functions, which read a source that keeps its own history, are not, and neither are typed event names. Clients are not told when the event types change: they list them again.
 
 ## Community
 
