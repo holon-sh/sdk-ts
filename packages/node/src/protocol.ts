@@ -37,7 +37,6 @@ export class ToolCallError extends Error {
   constructor(app: string, tool: string, result: ToolCallError["result"]) {
     const asking = result.resultType === "input_required";
     const text = (asking ? undefined : result.content.filter(part => part.type === "text").map(part => part.text).join("\n")) || undefined;
-    // A question says what it asks, and a URL question where to answer it.
     const detail = asking
       ? Object.values(result.inputRequests ?? {}).flatMap(question => question.method === "elicitation/create"
         ? [question.params.message, question.params.mode === "url" ? question.params.url : undefined]

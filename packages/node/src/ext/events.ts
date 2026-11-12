@@ -1,7 +1,5 @@
 // The server side of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
-// The draft is experimental, so this lives under ext and may change with it. It serves the poll and push delivery
-// modes. Names follow the sketch, and types are the MCP SDK's own wherever it has them.
 import { ProtocolError, ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import type { JSONRPCErrorResponse, McpServer, Server, ServerCapabilities, ServerContext, StandardSchemaV1, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { getContext } from "../context.js";
@@ -174,13 +172,11 @@ const NOT_FOUND = -32023;
 const FORBIDDEN = -32024;
 const RESOURCE_EXHAUSTED = -32025;
 const UNSUPPORTED = -32026;
-// Requests are checked here, against each event type's own schema.
 const params: StandardSchemaV1<unknown, Record<string, unknown>> = { "~standard": { version: 1, vendor: "holon-sh", validate: value => ({ value: (value ?? {}) as Record<string, unknown> }) } };
 
 const refusal = ({ code, message, data }: EventError) => new ProtocolError(code, message, data);
 const removed: EventError = { code: NOT_FOUND, message: "NotFound", data: { kind: "event" } };
 const forbidden: EventError = { code: FORBIDDEN, message: "Forbidden" };
-// What a client is told of a failure: its code when it is a JSON-RPC one, and its message.
 const described = (error: any): EventError => ({
   code: Number.isInteger(error?.code) ? error.code : ProtocolErrorCode.InternalError,
   message: error?.message || "InternalError",
@@ -190,8 +186,6 @@ const described = (error: any): EventError => ({
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
   : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical((value as Record<string, unknown>)[key])]))
   : value;
-// Who asked, as Holon admitted them: the user, the client acting for them, the agent when one acts for the user, and
-// what the token allows. A caller without a principal has no identity: nobody can tell it from another such caller.
 const caller = (context: SubscriptionContext): string | null => {
   const { principal } = getContext(context);
   return principal && JSON.stringify(canonical([principal.issuer, principal.subject, principal.clientId, principal.actor ?? null, [...principal.scopes].sort()]));
@@ -203,11 +197,8 @@ const identify = async (who: string | null, name: string, args: unknown) => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify([who, name, canonical(args)])));
   return `sub_${hex(new Uint8Array(digest, 0, 16))}`;
 };
-// A caller without an identity gets an id of its own for each stream.
 const unique = () => `sub_${hex(crypto.getRandomValues(new Uint8Array(16)))}`;
-// The subscriber a subscription's arguments name, whoever the caller.
 const named = (args: unknown) => JSON.stringify(canonical(args));
-// Counts up or down under a key, and forgets a key that reaches none.
 const count = (counts: Map<string, number>, key: string, by: number) => {
   const total = (counts.get(key) ?? 0) + by;
   if (total) counts.set(key, total);
@@ -229,7 +220,6 @@ const POLL_SUBSCRIPTION_TTL = 60_000;
 // cannot be told apart, so they count together as one caller.
 const MAX_SUBSCRIPTIONS = 10_000;
 const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
-// How many event types events/list returns at a time.
 const PAGE_SIZE = 100;
 /**
  * What a stream sends before it ends and its client resumes from its cursor. The draft leaves flow control to the
@@ -336,13 +326,11 @@ export function createEvents(): Events {
   // terminated it; `close` is how the holder says its hold is over.
   const open = async (type: Type, { id, delivery, arguments: args, context }: { id: string; delivery: DeliveryModeName; arguments: unknown; context: SubscriptionContext }, end: (error: EventError) => void): Promise<Held> => {
     if (types.get(type.name) !== type) throw refusal(removed);
-    // Callers without an identity cannot be told apart, so they count together as one.
     const who = caller(context) ?? "anonymous";
     if (subscribed >= MAX_SUBSCRIPTIONS) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptions", max: MAX_SUBSCRIPTIONS } });
     if ((callers.get(who) ?? 0) >= MAX_SUBSCRIPTIONS_PER_CALLER) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptionsPerCaller", max: MAX_SUBSCRIPTIONS_PER_CALLER } });
     subscribed++;
     count(callers, who, 1);
-    // A presence keeps a subscriber's value while any of its streams or leases is open.
     const subscriber = named(args);
     const hold = (by: number) => {
       count(type.holds, subscriber, by);
@@ -502,9 +490,9 @@ export function createEvents(): Events {
     /** Serves the declared event types on an MCP server: events/list, events/poll and events/stream. */
     serve(mcp) {
       const server = "server" in mcp ? mcp.server : mcp;
-      // The sketch declares capabilities.events, which neither the MCP SDK's types nor its client know, so the extension
-      // is declared under capabilities.extensions too, where SDK clients read it. Clients are never told the event types
-      // changed: over Holon's stateless HTTP, the notification reaches none.
+      // The sketch declares capabilities.events. The MCP SDK's client drops top-level capabilities it does not know,
+      // so the extension is declared under capabilities.extensions too, where SDK clients read it.
+      // Clients are never told the event types changed: over Holon's stateless HTTP, the notification reaches none.
       server.registerCapabilities({ events: { listChanged: false }, extensions: { [EVENTS_EXTENSION]: { listChanged: false } } } as ServerCapabilities);
       const json = (schema: StandardSchemaWithJSON) => schema["~standard"].jsonSchema.input({ target: "draft-2020-12" });
       server.setRequestHandler("events/list", { params }, request => {

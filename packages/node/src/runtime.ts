@@ -25,7 +25,6 @@ export interface Binding {
   /** Origins the server may name as file upload or download targets, e.g. "https://storage.example.com". Unset, any https origin on a globally reachable address is allowed; set, only these, which may also be http on loopback or have a non-global address. */
   fileOrigins?: string[];
 }
-/** Alias for an endpoint binding. */
 export type EndpointBinding = Binding;
 /** Calling application identity and its declared dependencies. */
 export interface Identity { name: string; version: string; requires?: Record<string, { name?: string; version?: string }> }
@@ -53,9 +52,7 @@ export interface CreateOptions<B = Binding> {
   session?: (app: string, binding: B) => ToolSession | undefined;
 }
 
-/** Checks a value against one JSON Schema; errors describes the last failure. */
 type Check = ReturnType<NonNullable<CreateOptions["validator"]>>;
-/** A check of values against a contract's schema, compiled when it is first used; `label` names what fails it. */
 type Expect = (schema: object, label: string) => (value: unknown) => void;
 
 // The MCP client's own Ajv, one engine per schema so contracts that reuse an $id stay apart. Contracts are module
@@ -99,8 +96,6 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
     const binding = bindings?.[name];
-    // Without explicit bindings, the resolve hook supplies the binding on every call. The session hook serves bindings
-    // the runtime does not connect to itself.
     const link = createLink(identity, name, { binding, resolve: bindings ? undefined : resolve, host: binding ? hosted?.(name, binding) : undefined });
     apps[name] = Object.freeze({ ...tools(link, contract, expect), resources: resources(link, contract, expect), ext: Object.freeze({ events: events(link, contract, expect) }), close: link.close });
   }
@@ -112,7 +107,6 @@ const reserved = new Set(["then", "toJSON", "toString", "valueOf", "toLocaleStri
 
 function tools(link: Link, contract: Contract | null, expect: Expect): Pick<RuntimeClient, "callTool" | "listTools" | "tools"> {
   const { name } = link;
-  // The server validates arguments; the client checks the output against the contract it was compiled against.
   const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition, output: definition.outputSchema && expect(definition.outputSchema, `structured output from ${name}.${definition.name}`) }]));
   const callTool = async (request: CallMetadata & { name: string; arguments?: Record<string, unknown> }, { elicit, ...options }: ToolCallOptions = {}): Promise<ToolResult<unknown>> => {
     const tool = definitions.get(request.name);
@@ -179,7 +173,6 @@ function resources(link: Link, contract: Contract | null, expect: Expect): Runti
   for (const resource of contract?.resources ?? []) {
     const check = expect(resource.outputSchema, `contents from ${name} ${resource.uri}`);
     const parse = (result: ReadResourceResult): unknown => {
-      // Contracted resources are JSON in their first text content.
       const [content] = result.contents;
       if (!content || !("text" in content)) throw new Error(`Invalid contents from ${name} ${resource.uri}: no text content`);
       const value = JSON.parse(content.text);

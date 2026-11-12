@@ -7,20 +7,15 @@ import type { Contract, RuntimeClient } from "../runtime.js";
 
 // A stream that has said nothing for twice the longest heartbeat interval is dead: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#lifecycle
 const QUIET = 60_000;
-/** An occurrence as the server sends it, at the cursor after it. */
 type Sent = EventOccurrence & { cursor?: string | null; _meta?: unknown };
-/** One page of events/list. */
 type Listed = { events?: EventType[]; nextCursor?: string };
-/** What an events/poll answers. */
 type Polled = { events?: Sent[]; cursor?: string | null; truncated?: boolean; hasMore?: boolean; nextPollMs?: number };
 // A server's refusal ends a subscription: a client error, or an answer that the event type is gone, that access was
 // lost, or that the request is no longer valid. Anything else is tried again from the cursor.
 const refused = (error: any): boolean => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500 || [-32602, -32023, -32024, -32026].includes(error?.code);
 
-/** The MCP Events of one app, whose data is checked against the contract's payload schemas. */
 export function events(link: Link, contract: Contract | null, expect: (schema: object, label: string) => (value: unknown) => void): RuntimeClient["ext"]["events"] {
   const { name } = link;
-  // Its requests go over the runtime's own connection, which a hosted session does not have.
   const connected = <T>(options: CallOptions | undefined, run: (client: Client) => Promise<T>) => link.session(options, (_, connection) => {
     if (!connection) throw new Error(`MCP Events of ${name} require an endpoint binding.`);
     return run(connection.client);
@@ -37,7 +32,6 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
     const resolved = link.endpoint(`Subscribing to ${name} ${event}`);
     const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
-    // Push hears of an event at once, and poll works wherever a request does. Webhook delivery is not supported.
     const delivery = options.delivery ?? (["push", "poll"] as const).find(mode => offered.includes(mode));
     // The sketch's NoCompatibleDeliveryMode: none of the modes the server offers is one this client uses.
     if (!delivery || !offered.includes(delivery)) throw Object.assign(new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`), { name: "NoCompatibleDeliveryMode" });
@@ -49,12 +43,10 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
     let wake = () => {};
     let done = false;
     let failure: unknown;
-    // An absent cursor is a null one, and a null one is never resumed from.
     const reach = (next: string | null | undefined, truncated?: boolean) => {
       cursor = next ?? null;
       if (truncated) onGap?.();
     };
-    // The client checks an event's data against the contract it was compiled against, as it does a tool's output.
     const expected = contract?.events?.find(type => type.name === event)?.payloadSchema;
     const check = expected && expect(expected, `data of ${name} ${event}`);
     const deliver = ({ cursor: _, _meta, ...occurrence }: Sent) => {
@@ -161,6 +153,5 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
       }),
     };
   };
-  // Generated clients narrow subscribe to their contract's events, whose data validation upholds.
   return Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] });
 }

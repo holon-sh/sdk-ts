@@ -1,5 +1,3 @@
-// How a runtime client reaches an app's server: through a hosted session, a connection kept open, or a connection for
-// each call, and through connections of a caller's own for what it listens to.
 import { Client, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, PriorDiscovery, StandardSchemaV1 } from "@modelcontextprotocol/client";
 import { EXTENSION } from "./ext/files.js";
@@ -7,26 +5,19 @@ import { acceptUploadRequests } from "./ext/files.client.js";
 import type { CallOptions } from "./protocol.js";
 import type { Binding, Identity, ToolSession } from "./runtime.js";
 
-/** A connection the runtime opened to an endpoint. */
-export interface Connection {
+interface Connection {
   client: Client;
   resolved: Binding;
-  /** The Authorization header sent to the endpoint, for file targets that include it. */
   authorization?: string;
   ready: Promise<void>;
-  /** Whether the server answered any request on this connection. */
   answered: boolean;
   close(): Promise<void>;
 }
 
-/** What the operations of one app share: the ways they reach its server. */
 export interface Link {
   readonly name: string;
-  /** Runs requests over the app's session. `connection` is the runtime's own, which a hosted session does not have. */
   session<T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T>;
-  /** The endpoint binding of the moment. `what` names the caller in the error when there is none. */
   endpoint(what: string): Binding;
-  /** Opens a connection of the caller's own, so every notification on it is the caller's. */
   connect(binding: Binding): Connection;
   close(): Promise<void>;
 }
@@ -37,16 +28,13 @@ const DISCOVERY: unique symbol = Symbol("discovery");
 const discovered = new Map<string, { key: string; prior: PriorDiscovery; expires: number }>();
 const LEGACY_VERDICT_MS = 10 * 60 * 1000;
 
-/** A binding the runtime connects to itself. */
 type Endpoint = Binding & { [DISCOVERY]?: string };
 /** Without an endpoint, a binding is served by the session hook or not at all. */
 type Resolved = Endpoint | { endpoint?: undefined };
 
-/** The binding of an app without one: <NAME>_MCP_URL, connected to for one call at a time. */
 export function environment(name: string): Endpoint {
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
   const endpoint = process.env[`${prefix}URL`];
-  // <NAME>_MCP_TOKEN, when it is set, is sent as the bearer token.
   const token = process.env[`${prefix}TOKEN`];
   if (endpoint) return { endpoint, scoped: true, [DISCOVERY]: `${endpoint} ${token ?? ""}`, ...(token && { authProvider: { token: async () => token } }) };
   throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
@@ -76,10 +64,6 @@ function connect(identity: Identity, resolved: Binding, prior?: PriorDiscovery, 
   return connection;
 }
 
-/**
- * The link of one app. Its binding, when it has one, is used as is; without one, `resolve` supplies it on every call.
- * `host` serves a binding the runtime does not connect to itself.
- */
 export function createLink(identity: Identity, name: string, { binding, resolve, host }: { binding: unknown; resolve?: (app: string) => Binding | undefined; host?: ToolSession | undefined }): Link {
   const current = (): Resolved | undefined => (binding as Resolved | undefined) ?? resolve?.(name);
   let kept: Connection | undefined;
@@ -88,7 +72,6 @@ export function createLink(identity: Identity, name: string, { binding, resolve,
     if (host) return run(host);
     const resolved = current();
     if (!resolved?.endpoint) throw new Error(`Dependency ${name} is unavailable. Provide a binding.`);
-    // Bindings marked scoped connect for one call at a time.
     const scoped = resolved.scoped === true;
     const key = resolved[DISCOVERY];
     const cached = discovered.get(name);
@@ -150,5 +133,4 @@ export function patient(options?: CacheableRequestOptions): CacheableRequestOpti
     : { onprogress: () => {}, resetTimeoutOnProgress: true, ...options };
 }
 
-// Answers outside the core protocol are trusted to be a T; event data is checked against the contract where it is read.
 export const unchecked = <T>(): StandardSchemaV1<unknown, T> => ({ "~standard": { version: 1, vendor: "holon-sh", validate: value => ({ value: (value ?? {}) as T }) } });

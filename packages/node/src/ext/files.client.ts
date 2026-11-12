@@ -278,8 +278,6 @@ export async function upload(request: Json, files: Files, connection: FileConnec
   return requestState;
 }
 
-// A download's fields are checked when the result arrives, and one whose fields do not have their types is left out:
-// the tool has run, so the rest of its result stands. Where its target points is checked when it is fetched.
 function download(raw: unknown, connection: FileConnection): Download | undefined {
   const { name, mimeType, size, digest, expiresAt }: Json = present(raw) ?? {};
   if (name !== undefined && typeof name !== "string" || typeof mimeType !== "string" || typeof size !== "number" || !Number.isSafeInteger(size) || size < 0 || !timestamp(expiresAt)) return undefined;

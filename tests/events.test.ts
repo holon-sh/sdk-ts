@@ -156,7 +156,7 @@ test("the client lists every event type a page at a time, and is refused what th
 test("the server speaks the messages of the Events design sketch", async t => {
   const { events, factory, said, say } = rooms();
   events.event("alarm.rang", { inputSchema: z.object({}), payloadSchema: z.object({}), delivery: ["push"], _meta: { "example.com/sound": "bell" } });
-  // @ts-expect-error An event type offers at least one delivery mode.
+  // @ts-expect-error
   [] satisfies EventDefinition<{}, {}>["delivery"];
   const { endpoint } = await serve(t, factory);
   const { client, heard, request } = await wire(t, endpoint);
