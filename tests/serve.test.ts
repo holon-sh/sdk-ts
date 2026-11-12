@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { createApps } from "holon-sh/runtime";
+import { getContext } from "holon-sh/context";
 import { serve, type App } from "holon-sh/serve";
 import { temporary } from "./helpers.ts";
 
@@ -25,13 +26,10 @@ test("serve runs an app without Holon: its MCP endpoint for clients of every ver
   mkdirSync(join(root, "web"));
   const files = [["web/index.html", "<p>page</p>"], ["web/app.mjs", "page()"], ["web/data", "bytes"], ["web/.env", "hidden"], ["secret", "outside"]];
   for (const [name, text] of files) writeFileSync(join(root, name!), text!);
-  // An app links to itself at the origin Holon forwards.
-  const mcp = createMcpHandler(({ requestInfo }) => {
+  // An app links to itself at its origin.
+  const mcp = createMcpHandler(() => {
     const server = new McpServer({ name: "app", version: "1.0.0" });
-    server.registerTool("origin", {}, () => {
-      const headers = requestInfo!.headers;
-      return { content: [{ type: "text", text: `${headers.get("x-forwarded-proto")}://${headers.get("x-forwarded-host")}` }] };
-    });
+    server.registerTool("origin", {}, ctx => ({ content: [{ type: "text", text: `${getContext(ctx.http).origin}` }] }));
     return server;
   });
   // At /mcp/idle, the app answers with a stream that sends one event and then waits.

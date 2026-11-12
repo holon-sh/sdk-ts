@@ -17,6 +17,13 @@ test("getContext maps the caller Holon admitted", () => {
     ],
     // A hook call carries no user.
     [{ clientId: "", scopes: [], extra: { hook: { event: "installed" } } }, null],
-  ] satisfies Array<[unknown, unknown]>) assert.deepEqual(getContext({ authInfo }), { principal });
-  assert.deepEqual(getContext(), { principal: null });
+  ] satisfies Array<[unknown, unknown]>) assert.deepEqual(getContext({ authInfo }).principal, principal);
+  assert.deepEqual(getContext(), { principal: null, origin: null });
+});
+
+// A factory's McpRequestContext carries the request as requestInfo, where a tool's ctx.http carries it as req.
+test("getContext reads the origin a proxy forwards, or else the one the request reached", () => {
+  const forwarded = { "x-forwarded-host": "app.example", "x-forwarded-proto": "https" };
+  assert.equal(getContext({ requestInfo: new Request("http://127.0.0.1:3000/mcp", { headers: forwarded }) }).origin, "https://app.example");
+  assert.equal(getContext({ req: new Request("http://127.0.0.1:3000/mcp") }).origin, "http://127.0.0.1:3000");
 });

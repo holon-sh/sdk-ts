@@ -50,9 +50,6 @@ async function respond(handler: App["default"], directory: URL | undefined, req:
     res.on("close", () => gone.abort());
     const headers = new Headers();
     for (const [name, values = []] of Object.entries(req.headersDistinct)) for (const value of values) headers.append(name, value);
-    // Holon forwards the origin it serves the app at. Here that is this server, unless a proxy in front forwards its own.
-    if (!headers.has("x-forwarded-host")) headers.set("x-forwarded-host", url.host);
-    if (!headers.has("x-forwarded-proto")) headers.set("x-forwarded-proto", "http");
     const body = req.method === "GET" || req.method === "HEAD" ? undefined : req;
     const response = await handler.fetch(new Request(url, { method: req.method, headers, body, duplex: "half", signal: gone.signal }));
     res.setHeaders(response.headers).writeHead(response.status);
