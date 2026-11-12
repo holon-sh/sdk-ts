@@ -35,6 +35,10 @@
     "./ext/files": {
       "types": "./dist/ext/files.d.ts",
       "import": "./dist/ext/files.js"
+    },
+    "./serve": {
+      "types": "./dist/serve.d.ts",
+      "import": "./dist/serve.js"
     }
   },
   "typesVersions": {
@@ -43,7 +47,8 @@
       "context": ["./dist/context.d.ts"],
       "ext/events": ["./dist/ext/events.d.ts"],
       "protocol": ["./dist/protocol.d.ts"],
-      "ext/files": ["./dist/ext/files.d.ts"]
+      "ext/files": ["./dist/ext/files.d.ts"],
+      "serve": ["./dist/serve.d.ts"]
     }
   },
   "imports": {

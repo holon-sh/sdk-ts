@@ -122,6 +122,18 @@ A refused subscription is answered Forbidden, and access is checked again at eac
 
 Poll and push delivery are here, with targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery and check functions, which read a source that keeps its own history, are not, and neither are typed event names. Clients are not told when the event types change: they list them again.
 
+## Run an app without Holon
+
+`holon-sh/serve` serves an app's module at the paths Holon gives it, so the app also runs wherever Node does:
+
+```ts
+import { serve } from "holon-sh/serve";
+
+await serve(await import("./server.ts"));
+```
+
+The MCP endpoint is at `/mcp` and `/mcp/<app>`, and the files of `frontend` are at every other path. `PORT` and `HOST` change where it listens, 127.0.0.1:3000 unless they are set. Holon answers clients of the 2025 MCP versions in front of an app, and here the app's handler answers them, so create it without `legacy: "reject"`.
+
 ## Community
 
 Ask questions and share what you're building on the [Holon Discord](https://discord.gg/jXExyBdy).
