@@ -13,17 +13,15 @@ export type ToolCallOptions = CallOptions & { elicit?: ElicitHandler };
 /** MCP request metadata and input continuation fields. Pass inputResponses and requestState when continuing an input-required result. */
 export type CallMetadata = Omit<CallToolRequest["params"], "name" | "arguments"> & { inputResponses?: InputResponses; requestState?: string };
 type Fields<T> = { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
-type Files = {
-  /** Files the tool returned, from a server with the files extension. Their targets are removed from _meta. */
+type Completed = Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & {
+  resultType: "complete";
+  /** Files the tool returned, from a server with the files extension. Their targets are removed from _meta, and a file whose fields do not have their types is left out. */
   downloads?: Download[];
 };
 /** Successful tool result with contract-typed structured content. */
-export type CompleteResult<Output> = Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & Files & { resultType: "complete"; isError?: false; structuredContent: Output };
+export type CompleteResult<Output> = Completed & { isError?: false; structuredContent: Output };
 /** Full tool result: successful typed output, an application error, or an input-required continuation. */
-export type ToolResult<Output> =
-  | CompleteResult<Output>
-  | (Omit<Fields<CallToolResult>, "structuredContent" | "isError"> & Files & { resultType: "complete"; isError: true; structuredContent?: unknown })
-  | InputRequiredResult;
+export type ToolResult<Output> = CompleteResult<Output> | (Completed & { isError: true; structuredContent?: unknown }) | InputRequiredResult;
 
 function json(text: string | undefined): unknown {
   try { return text === undefined ? undefined : JSON.parse(text); } catch { return undefined; }
@@ -39,7 +37,6 @@ export class ToolCallError extends Error {
   constructor(app: string, tool: string, result: ToolCallError["result"]) {
     const asking = result.resultType === "input_required";
     const text = (asking ? undefined : result.content.filter(part => part.type === "text").map(part => part.text).join("\n")) || undefined;
-    // A question says what it asks, and a URL question where to answer it.
     const detail = asking
       ? Object.values(result.inputRequests ?? {}).flatMap(question => question.method === "elicitation/create"
         ? [question.params.message, question.params.mode === "url" ? question.params.url : undefined]
@@ -66,7 +63,7 @@ export interface EventType {
   _meta?: Record<string, unknown>;
 }
 /** One occurrence of an event. `eventId` is stable, so an occurrence delivered twice is yielded once. */
-export interface EventOccurrence<Data = unknown> { eventId: string; name: string; timestamp: string; data: Data }
+export interface EventOccurrence<Data = unknown> { eventId: string; name: string; /** When it happened, in ISO 8601. */ timestamp: string; data: Data }
 export interface SubscribeOptions {
   /** Ends the subscription. */
   signal?: AbortSignal;
