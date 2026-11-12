@@ -134,6 +134,38 @@ await serve(await import("./server.ts"));
 
 The MCP endpoint is at `/mcp` and `/mcp/<app>`, and the files of `frontend` are at every other path. `PORT` and `HOST` change where it listens, 127.0.0.1:3000 unless they are set. Holon answers clients of the 2025 MCP versions in front of an app, and here the app's handler answers them, so create it without `legacy: "reject"`.
 
+## The caller and the origin
+
+`getContext` reads who called a tool, and where the app was reached, so a link the app makes works wherever it runs:
+
+```ts
+import { getContext } from "holon-sh/context";
+
+server.registerTool("share", { description: "Links to the page" }, ctx => {
+  const { principal, origin } = getContext(ctx.http);
+  return { content: [{ type: "text", text: `${origin}/?by=${principal?.subject}` }] };
+});
+```
+
+`principal` is the user Holon admitted, or null. `origin` is the one Holon or a proxy forwards, or else the one the request reached.
+
+## A page in MCP Apps hosts
+
+`holon-sh/page` offers an app's page, built as one HTML file, as the view an MCP Apps host shows with a tool's result:
+
+```ts
+import { createPage } from "holon-sh/page";
+
+const page = createPage(new URL("./dist/mcp/index.html", import.meta.url));
+
+function createServer() {
+  const server = new McpServer({ name: "foo", version: "0.1.0" });
+  server.registerTool("open", { description: "Opens the page", _meta: page.meta }, open);
+  page.serve(server);
+  return server;
+}
+```
+
 ## Community
 
 Ask questions and share what you're building on the [Holon Discord](https://discord.gg/jXExyBdy).

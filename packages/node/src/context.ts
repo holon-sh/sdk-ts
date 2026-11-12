@@ -13,17 +13,25 @@ export interface IdentityClaims {
 }
 /** The user a request acts for, as Holon admitted it. */
 export interface Principal { issuer: string; subject: string; clientId: string; scopes: string[]; claims: IdentityClaims; actor?: Record<string, unknown> }
-/** The caller of the current MCP request. principal is null for anonymous requests. */
-export interface RequestContext { principal: Principal | null }
+/** The caller of the current MCP request, and the origin it reached the app at. principal is null for anonymous requests, and origin without HTTP. */
+export interface RequestContext { principal: Principal | null; origin: string | null }
 
 // Holon admits the caller before the request reaches the server and hands it over as MCP's authInfo, with claims and
 // act in these shapes.
 interface Admitted { iss?: unknown; sub?: unknown; claims?: IdentityClaims; act?: Record<string, unknown> }
 
-/** Read the caller from the context an MCP server receives: a tool callback's ctx.http, or the McpRequestContext of a createMcpHandler factory. */
-export function getContext(context: { authInfo?: { clientId: string; scopes: string[]; extra?: Record<string, unknown> } } = {}): RequestContext {
-  const { authInfo } = context;
+/** Read the caller and the app's origin from the context an MCP server receives: a tool callback's ctx.http, or the McpRequestContext of a createMcpHandler factory. */
+export function getContext(context: { authInfo?: { clientId: string; scopes: string[]; extra?: Record<string, unknown> }; req?: Request; requestInfo?: Request } = {}): RequestContext {
+  const { authInfo, req = context.requestInfo } = context;
   const { iss, sub, claims, act } = (authInfo?.extra ?? {}) as Admitted;
-  if (!authInfo || typeof iss !== "string" || typeof sub !== "string") return { principal: null };
-  return { principal: { issuer: iss, subject: sub, clientId: authInfo.clientId, scopes: authInfo.scopes, claims: claims ?? {}, ...(act && { actor: act }) } };
+  const principal = !authInfo || typeof iss !== "string" || typeof sub !== "string" ? null
+    : { issuer: iss, subject: sub, clientId: authInfo.clientId, scopes: authInfo.scopes, claims: claims ?? {}, ...(act && { actor: act }) };
+  return { principal, origin: req ? origin(req) : null };
+}
+
+// Holon forwards the origin it serves the app at, as a proxy in front may. Otherwise the request reached the app where it
+// listens.
+function origin({ url, headers }: Request) {
+  const { protocol, host } = new URL(url);
+  return `${headers.get("x-forwarded-proto") ?? protocol.slice(0, -1)}://${headers.get("x-forwarded-host") ?? host}`;
 }
