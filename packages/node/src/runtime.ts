@@ -11,7 +11,7 @@ export { ToolCallError } from "./protocol.js";
 export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
-export interface Binding {
+export interface EndpointBinding {
   /** Streamable HTTP MCP endpoint. */
   endpoint: URL | string;
   /** Authentication provider; use application-owned credentials. */
@@ -25,7 +25,9 @@ export interface Binding {
   /** Origins the server may name as file upload or download targets, e.g. "https://storage.example.com". Unset, any https origin on a globally reachable address is allowed; set, only these, which may also be http on loopback or have a non-global address. */
   fileOrigins?: string[];
 }
-export type EndpointBinding = Binding;
+/** A session something else owns, such as an MCP Apps host relaying for a view. Calls and reads go through it; watching a resource and MCP Events need an endpoint. */
+export interface SessionBinding { session: ToolSession }
+export type Binding = EndpointBinding | SessionBinding;
 /** Calling application identity and its declared dependencies. */
 export interface Identity { name: string; version: string; requires?: Record<string, { name?: string; version?: string }> }
 /** Generation-time tool, JSON resource and event schemas. A null contract permits unvalidated callTool requests. */
@@ -47,7 +49,7 @@ export interface CreateOptions<B = Binding> {
   /** JSON Schema validator factory. The default uses Ajv. A check may set errors, which a failure reports. */
   validator?: (schema: object) => { (value: unknown): boolean; errors?: unknown };
   /** Binding of an app created without explicit bindings; consulted on every call. */
-  resolve?: (app: string) => Binding | undefined;
+  resolve?: (app: string) => EndpointBinding | undefined;
   /** Session for a binding the runtime does not connect to itself (anything without an endpoint). */
   session?: (app: string, binding: B) => ToolSession | undefined;
 }
