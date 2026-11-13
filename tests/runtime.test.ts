@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { createApps, bindApps, ToolCallError, type ToolSession } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
-import { spawnSync } from "node:child_process";
 import { serve } from "./helpers.ts";
 
 test("tools return output or throw while callTool preserves MCP results and identity", {timeout: 10000}, async t => {
@@ -201,24 +202,21 @@ test("schemas that share an $id validate independently", async () => {
   assert.deepEqual([await results.tools.total({}), await results.tools.status({})], [{ total: 1 }, { status: "ok" }]);
 });
 
-test("a typed call validates its output where code generation is disallowed, as in a view", () => {
+test("a typed call validates its output where code generation is disallowed, as in a view", { timeout: 10000 }, async t => {
+  let calls = 0;
+  const { endpoint } = await serve(t, () => {
+    const server = new McpServer({ name: "orders", version: "1" });
+    server.registerTool("total", {}, async () => ({ content: [], structuredContent: { total: calls++ ? "one" : 1 } }));
+    return server;
+  });
   // A view's bundle resolves the browser condition, and an MCP Apps host's CSP gives it no unsafe-eval: https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx#host-behavior
   const view = `
     import assert from "node:assert/strict";
-    import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
     import { bindApps } from "holon-sh/runtime";
-    let total = 1;
-    const handler = createMcpHandler(() => {
-      const server = new McpServer({ name: "orders", version: "1" });
-      server.registerTool("total", {}, async () => ({ content: [], structuredContent: { total } }));
-      return server;
-    }, { legacy: "reject" });
     const contract = { tools: [{ name: "total", inputSchema: { type: "object" }, outputSchema: { type: "object", properties: { total: { type: "number" } }, required: ["total"] } }] };
-    const { orders } = bindApps({ name: "view", version: "1" }, { orders: contract }, { orders: { endpoint: "http://orders.test/mcp", scoped: true, fetch: (input, init) => handler.fetch(new Request(input, init)) } });
+    const { orders } = bindApps({ name: "view", version: "1" }, { orders: contract }, { orders: { endpoint: process.argv[1], scoped: true } });
     assert.deepEqual(await orders.tools.total({}), { total: 1 });
-    total = "one";
     await assert.rejects(orders.tools.total({}), /Invalid structured output from orders.total/);
   `;
-  const ran = spawnSync(process.execPath, ["--conditions=browser", "--disallow-code-generation-from-strings", "--input-type=module", "-e", view], { cwd: import.meta.dirname, encoding: "utf8" });
-  assert.equal(ran.status, 0, ran.stderr);
+  await promisify(execFile)(process.execPath, ["--conditions=browser", "--disallow-code-generation-from-strings", "--input-type=module", "-e", view, endpoint], { cwd: import.meta.dirname });
 });

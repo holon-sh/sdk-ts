@@ -44,7 +44,7 @@ export interface ToolSession {
 }
 /** Optional validation, binding resolution, and host-session hooks. */
 export interface CreateOptions<B = Binding> {
-  /** JSON Schema validator factory. The default is the MCP client's for the platform: Ajv on Node.js, @cfworker/json-schema in browsers. A check may set errors, which a failure reports. */
+  /** JSON Schema validator factory. The default is the MCP client's for the platform. A check may set errors, which a failure reports. */
   validator?: (schema: object) => { (value: unknown): boolean; errors?: unknown };
   /** Binding of an app created without explicit bindings; consulted on every call. */
   resolve?: (app: string) => Binding | undefined;
