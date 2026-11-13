@@ -95,7 +95,7 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);
 });
 
-test("session bindings and session hooks serve calls and reads and respect validation and binding boundaries", async () => {
+test("session bindings serve calls and reads and respect validation and binding boundaries", async () => {
   const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }], resources: [{ uri: "orders://summary", outputSchema: { type: "object", properties: { total: { type: "number" } }, required: ["total"] } }] };
   const identity = { name: "checkout", version: "1", requires: { orders: {} } };
 
@@ -114,13 +114,8 @@ test("session bindings and session hooks serve calls and reads and respect valid
   assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, true], ["read", { uri: "orders://summary" }]]);
   await assert.rejects(hosted.orders.resources["orders://summary"].watch(() => {}), /endpoint binding/);
   await assert.rejects(hosted.orders.ext.events.subscribe("shipped", {}), /endpoint binding/);
-
-  // The session hook receives (name, binding) and its return value serves a binding the runtime does not connect to itself.
-  const sessions: unknown[] = [];
-  const binding = { token: "opaque" };
-  const hooked = bindApps(identity, { orders: contract }, { orders: binding }, { session: (name, value) => { sessions.push([name, value]); return session; } });
-  assert.deepEqual(sessions, [["orders", binding]]);
-  assert.deepEqual(await hooked.orders.resources["orders://summary"].read(), { total: 7 });
+  // @ts-expect-error A session is the binding, not an option.
+  bindApps(identity, { orders: contract }, { orders: { session } }, { session: () => session });
 
   // Without a binding, a declared dependency is unavailable, from the environment or from a resolve hook that binds nothing.
   await assert.rejects(createApps(identity, { orders: contract }).orders.tools.get_order({ id: "x" }), /Dependency orders is unavailable \(ORDERS_MCP_URL\)/);

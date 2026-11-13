@@ -4,7 +4,7 @@ import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests } from "./ext/files.client.js";
 import type { CallOptions } from "./protocol.js";
-import type { EndpointBinding, Identity, SessionBinding, ToolSession } from "./runtime.js";
+import type { Binding, EndpointBinding, Identity, ToolSession } from "./runtime.js";
 
 interface Connection {
   client: Client;
@@ -30,8 +30,6 @@ const discovered = new Map<string, { key: string; prior: PriorDiscovery; expires
 const LEGACY_VERDICT_MS = 10 * 60 * 1000;
 
 type Endpoint = EndpointBinding & { [DISCOVERY]?: string };
-/** Without an endpoint, a binding is served by the session hook, its own session, or not at all. */
-type Resolved = Endpoint | { endpoint?: undefined };
 
 export function environment(name: string): Endpoint {
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
@@ -65,9 +63,9 @@ function connect(identity: Identity, resolved: EndpointBinding, prior?: PriorDis
   return connection;
 }
 
-export function createLink(identity: Identity, name: string, { binding, resolve, host }: { binding: unknown; resolve?: (app: string) => EndpointBinding | undefined; host?: ToolSession | undefined }): Link {
-  const current = (): Resolved | undefined => (binding as Resolved | undefined) ?? resolve?.(name);
-  const hosted = host ?? (binding as Partial<SessionBinding> | undefined)?.session;
+export function createLink(identity: Identity, name: string, { binding, resolve }: { binding?: Binding; resolve?: (app: string) => EndpointBinding | undefined }): Link {
+  const current = (): Endpoint | undefined => binding && "endpoint" in binding ? binding : resolve?.(name);
+  const hosted = binding && "session" in binding ? binding.session : undefined;
   let kept: Connection | undefined;
   const session = async <T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T> => {
     options?.signal?.throwIfAborted();
