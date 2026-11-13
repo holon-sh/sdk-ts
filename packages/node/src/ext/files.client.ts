@@ -96,13 +96,13 @@ function baseName(name: unknown): string | undefined {
   return base && base !== "." && base !== ".." ? base : undefined;
 }
 
-export async function prepare(args: Json | undefined, { label, connection, schema }: { label: string; connection: FileConnection | undefined; schema: () => Promise<unknown> }): Promise<{ arguments: Json | undefined; files: Files }> {
+export async function prepare<C extends FileConnection>(args: Json | undefined, { label, connection, schema }: { label: string; connection: C | undefined; schema: (connection: C) => Promise<unknown> }): Promise<{ arguments: Json | undefined; files: Files }> {
   const files: Files = new Map();
   if (!contains(args)) return { arguments: args, files };
   if (!connection) throw new Error(`${label}: file arguments need an endpoint binding; the tool was not called.`);
   const server = settings(connection);
   if (!server) throw new Error(`${label}: the server does not accept files; the tool was not called.`);
-  const root = await schema();
+  const root = await schema(connection);
   const found: Found[] = [];
   const replaced = replace(args, [root], root, "", found, label) as Json;
   await Promise.all(found.map(async ({ blob, schema, input }) => {

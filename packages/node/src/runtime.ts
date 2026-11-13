@@ -122,7 +122,7 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
     const result = await link.session(options, async (client, connection) => {
       const { arguments: args, files } = await prepare(request.arguments, {
         label, connection,
-        schema: async () => tool?.definition.inputSchema ?? (await connection?.client.listTools(undefined, patient(options)))?.tools.find(({ name }) => name === request.name)?.inputSchema,
+        schema: async ({ client }) => tool?.definition.inputSchema ?? (await client.listTools(undefined, patient(options))).tools.find(({ name }) => name === request.name)?.inputSchema,
       });
       // The SDK's request type leaves out the continuation fields the protocol carries.
       let next: typeof request = files.size ? { ...request, arguments: args } : request;
