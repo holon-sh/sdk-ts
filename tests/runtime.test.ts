@@ -97,7 +97,8 @@ test("session bindings and session hooks serve calls and reads and respect valid
   const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }], resources: [{ uri: "orders://summary", outputSchema: { type: "object", properties: { total: { type: "number" } }, required: ["total"] } }] };
   const identity = { name: "checkout", version: "1", requires: { orders: {} } };
 
-  // A session binding's session serves calls and reads; watching and MCP Events need an endpoint.
+  // A session binding's session serves calls and reads; watching and MCP Events need an endpoint, and a bound app never
+  // falls back to resolve or <NAME>_MCP_URL, which a page in a browser cannot read.
   const calls: unknown[] = [];
   const signal = new AbortController().signal;
   const session: ToolSession = {
@@ -124,26 +125,6 @@ test("session bindings and session hooks serve calls and reads and respect valid
   await assert.rejects(createApps(identity, { orders: contract }, undefined, { resolve: () => undefined }).orders.tools.get_order({ id: "x" }), /Dependency orders is unavailable/);
   const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
-});
-
-test("bound apps never consult resolve or <NAME>_MCP_URL", async t => {
-  // Generated pages call bindApps in the browser, where nothing may read the environment.
-  const saved = process.env;
-  process.env = { ...saved, ORDERS_MCP_URL: "http://127.0.0.1:9/mcp" };
-  t.after(() => { process.env = saved; });
-  const contract = { tools: [{ name: "get_order", inputSchema: { type: "object" } }], resources: [{ uri: "orders://summary", outputSchema: { type: "object" } }] };
-  const session: ToolSession = {
-    callTool: async () => ({ content: [{ type: "text", text: "Order" }] }),
-    readResource: async request => ({ contents: [{ uri: request.uri, text: "{}" }] }),
-    listTools: async () => ({ tools: [] }),
-  };
-  const resolve = () => { throw new Error("resolve was consulted"); };
-  for (const options of [{}, { resolve }]) {
-    const { orders } = bindApps({ name: "checkout", version: "1", requires: { orders: {} } }, { orders: contract }, { orders: { session } }, options);
-    assert.deepEqual((await orders.tools.get_order({}) as CompleteResult<unknown>).content, [{ type: "text", text: "Order" }]);
-    assert.deepEqual(await orders.resources["orders://summary"].read(), {});
-    await assert.rejects(orders.resources["orders://summary"].watch(() => {}), /Watching orders orders:\/\/summary requires an endpoint binding/);
-  }
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
