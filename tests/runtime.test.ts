@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
-import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/client";
+import { DEFAULT_REQUEST_TIMEOUT_MSEC, ProtocolError } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { createApps, bindApps, ToolCallError, type ToolSession } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
@@ -198,4 +198,82 @@ test("schemas that share an $id validate independently", async () => {
   });
   const { results } = bindApps({ name: "script", version: "1" }, { results: contract }, { results: {} }, { session });
   assert.deepEqual([await results.tools.total({}), await results.tools.status({})], [{ total: 1 }, { status: "ok" }]);
+});
+
+test("HTTP rejections preserve MCP errors through dependency calls without replay", { timeout: 10000 }, async t => {
+  const detail = { type: "https://holonlabs.ai/problems/upstream-authorization-required", connect_url: "https://holon.example/connections?resource=warehouse" };
+  const message = `Connect your warehouse account: ${detail.connect_url}`;
+  const { endpoint } = await serve(t, () => {
+    const server = new McpServer({ name: "warehouse", version: "1" });
+    server.registerTool("read", { inputSchema: z.object({}) }, async () => ({ content: [] }));
+    return server;
+  });
+  for (const phase of ["server/discover", "tools/call"]) {
+    let rejected = 0;
+    const app = createApps({ name: "report", version: "1" }, { warehouse: { tools: [{ name: "read", inputSchema: { type: "object" } }] } }, {
+      warehouse: { endpoint, scoped: true, fetch: async (input, init) => {
+        if (new Headers(init?.headers).get("mcp-method") !== phase) return fetch(input, init);
+        rejected++;
+        return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32000, message, data: detail } }, { status: 403 });
+      } },
+    }).warehouse;
+    const { endpoint: outer } = await serve(t, () => {
+      const server = new McpServer({ name: "report", version: "1" });
+      server.registerTool("report", { inputSchema: z.object({}) }, async () => {
+        await app.tools.read({});
+        return { content: [] };
+      });
+      return server;
+    });
+    const caller = createApps({ name: "browser", version: "1" }, { report: null }, { report: { endpoint: outer } }).report;
+    t.after(() => caller.close());
+    await assert.rejects(app.tools.read({}), error => {
+      assert.ok(error instanceof ProtocolError);
+      assert.equal(error.message, message);
+      assert.deepEqual(error.data, detail);
+      return true;
+    });
+    const result = await caller.callTool({ name: "report", arguments: {} });
+    assert.equal(result.resultType, "complete");
+    assert.equal(result.isError, true);
+    assert.ok(result.content.some(part => part.type === "text" && part.text.includes(message)));
+    assert.equal(rejected, 2);
+    await app.close();
+  }
+});
+
+test("an established resource watch surfaces authorization loss and recovers from a rate limit", { timeout: 10000 }, async t => {
+  for (const status of [403, 429]) await t.test(String(status), async t => {
+    const uri = "warehouse://summary";
+    let denied = false;
+    let rejections = 0;
+    const { endpoint, handler } = await serve(t, () => {
+      const server = new McpServer({ name: "warehouse", version: "1" }, { capabilities: { resources: { subscribe: true } } });
+      server.registerResource("summary", uri, { mimeType: "application/json" }, () => ({ ttlMs: 0, cacheScope: "private", contents: [{ uri, mimeType: "application/json", text: "{}" }] }));
+      return server;
+    });
+    const app = createApps({ name: "report", version: "1" }, { warehouse: { tools: [], resources: [{ uri, outputSchema: { type: "object" } }] } }, {
+      warehouse: { endpoint, fetch: async (input, init) => {
+        if (!denied || rejections > 0) return fetch(input, init);
+        rejections++;
+        return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "Connect your warehouse account", data: { connect_url: "https://holon.example/connections" } } }, { status });
+      } },
+    }).warehouse;
+    t.after(() => app.close());
+    const first = Promise.withResolvers<void>();
+    const resumed = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const watching = app.resources[uri].watch(() => { if (denied) resumed.resolve(); else first.resolve(); }, { signal: AbortSignal.any([t.signal, controller.signal]) });
+    await first.promise;
+    denied = true;
+    handler.notify.resourceUpdated(uri);
+    if (status === 403) {
+      await assert.rejects(watching, error => error instanceof ProtocolError && error.message === "Connect your warehouse account");
+    } else {
+      await resumed.promise;
+      controller.abort();
+      await watching;
+    }
+    assert.equal(rejections, 1);
+  });
 });

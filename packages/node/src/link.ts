@@ -1,4 +1,4 @@
-import { Client, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client, isJSONRPCErrorResponse, ProtocolError, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, PriorDiscovery, StandardSchemaV1 } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
@@ -87,7 +87,7 @@ export function createLink(identity: Identity, name: string, { binding, resolve,
       return await run(active.client, active);
     } catch (error) {
       // A server that no longer speaks the discovered protocol rejects the first request without running it.
-      if (!prior || active.answered || !(SdkHttpError.isInstance(error) && error.status === 400)) throw error;
+      if (!prior || active.answered || !(SdkHttpError.isInstance(error) && error.status === 400)) throw protocolFailure(error);
       discovered.delete(name);
       return session(options, run);
     } finally { if (scoped) await active.close(); }
@@ -103,6 +103,16 @@ export function createLink(identity: Identity, name: string, { binding, resolve,
     connect: resolved => connect(identity, resolved),
     close: async () => { await kept?.close(); },
   };
+}
+
+export function protocolFailure(error: unknown): unknown {
+  if (!SdkHttpError.isInstance(error) || typeof error.data.text !== "string") return error;
+  try {
+    const message: unknown = JSON.parse(error.data.text);
+    if (typeof message === "object" && message !== null && "id" in message && message.id === null) delete message.id;
+    if (isJSONRPCErrorResponse(message)) return Object.assign(ProtocolError.fromError(message.error.code, message.error.message, message.error.data), { status: error.status, cause: error });
+  } catch {}
+  return error;
 }
 
 export function sleep(milliseconds: number, signal?: AbortSignal): Promise<void> {

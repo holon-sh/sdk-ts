@@ -423,3 +423,19 @@ test("an event that cannot be shaped for a subscription is skipped for it, and w
   for (const text of ["unshapeable", "circular", "after"]) noted.emit({ text }, { eventId: text });
   assert.deepEqual(await take(subscription, 1), ["after"]);
 });
+
+test("an established polling subscription surfaces an HTTP connection rejection", { timeout: 10000 }, async t => {
+  const { factory } = rooms();
+  const { endpoint } = await serve(t, factory);
+  let denied = false;
+  let rejections = 0;
+  const events = connect(t, endpoint, { fetch: async (input, init) => {
+    if (!denied) return fetch(input, init);
+    rejections++;
+    return Response.json({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "Connect your account", data: { connect_url: "https://holon.example/connections" } } }, { status: 403 });
+  } });
+  const subscription = await events.subscribe("room.said", { room: "a", listener: "ann" }, { delivery: "poll" });
+  denied = true;
+  await assert.rejects(next(subscription, 1), error => error instanceof Error && error.message === "Connect your account");
+  assert.equal(rejections, 1);
+});

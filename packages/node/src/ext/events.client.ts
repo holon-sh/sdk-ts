@@ -1,7 +1,7 @@
 // The client side of MCP Events, the draft extension of the Triggers & Events Working Group:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 import type { Client } from "@modelcontextprotocol/client";
-import { patient, sleep, unchecked, untilAborted, type Link } from "../link.js";
+import { patient, protocolFailure, sleep, unchecked, untilAborted, type Link } from "../link.js";
 import type { CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription } from "../protocol.js";
 import type { Contract, RuntimeClient } from "../runtime.js";
 
@@ -12,7 +12,10 @@ type Listed = { events?: EventType[]; nextCursor?: string };
 type Polled = { events?: Sent[]; cursor?: string | null; truncated?: boolean; hasMore?: boolean; nextPollMs?: number };
 // A server's refusal ends a subscription: a client error, or an answer that the event type is gone, that access was
 // lost, or that the request is no longer valid. Anything else is tried again from the cursor.
-const refused = (error: any): boolean => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500 || [-32602, -32023, -32024, -32026].includes(error?.code);
+export const refused = (error: any): boolean => {
+  const status = error?.status ?? error?.data?.status;
+  return status >= 400 && status < 500 && status !== 408 && status !== 429 || [-32602, -32023, -32024, -32026].includes(error?.code);
+};
 
 export function events(link: Link, contract: Contract | null, expect: (schema: object, label: string) => (value: unknown) => void): RuntimeClient["ext"]["events"] {
   const { name } = link;
@@ -132,7 +135,7 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
       }
     };
     void (delivery === "push" ? stream() : poll())
-      .catch(error => { failure ??= error; })
+      .catch(error => { failure ??= protocolFailure(error); })
       .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
     await established.promise;
     return {

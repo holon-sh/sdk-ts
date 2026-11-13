@@ -1,9 +1,9 @@
 import { isInputRequiredResult } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
-import { events } from "./ext/events.client.js";
+import { events, refused } from "./ext/events.client.js";
 import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
-import { createLink, environment, patient, sleep, untilAborted, type Link } from "./link.js";
+import { createLink, environment, patient, protocolFailure, sleep, untilAborted, type Link } from "./link.js";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
@@ -205,7 +205,7 @@ function resources(link: Link, contract: Contract | null, expect: Expect): Runti
           await current.close();
         }
         if (signal?.aborted) return;
-        if (failure && !established) throw failure;
+        if (failure && (!established || refused(failure))) throw protocolFailure(failure);
       }
     };
     resources[resource.uri] = Object.freeze({ read, watch });
