@@ -1,6 +1,6 @@
 import { isInputRequiredResult } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
+import { DefaultJsonSchemaValidator } from "@modelcontextprotocol/client/_shims";
 import { events } from "./ext/events.client.js";
 import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
 import { createLink, environment, patient, sleep, untilAborted, type Link } from "./link.js";
@@ -46,7 +46,7 @@ export interface ToolSession {
 }
 /** Optional validation, binding resolution, and host-session hooks. */
 export interface CreateOptions<B = Binding> {
-  /** JSON Schema validator factory. The default uses Ajv. A check may set errors, which a failure reports. */
+  /** JSON Schema validator factory. The default is the MCP client's for the platform. A check may set errors, which a failure reports. */
   validator?: (schema: object) => { (value: unknown): boolean; errors?: unknown };
   /** Binding of an app created without explicit bindings; consulted on every call. */
   resolve?: (app: string) => EndpointBinding | undefined;
@@ -57,14 +57,16 @@ export interface CreateOptions<B = Binding> {
 type Check = ReturnType<NonNullable<CreateOptions["validator"]>>;
 type Expect = (schema: object, label: string) => (value: unknown) => void;
 
-// The MCP client's own Ajv, one engine per schema so contracts that reuse an $id stay apart. Contracts are module
-// constants, so each schema compiles once however often createApps runs.
+// The MCP client's validator for the platform, one engine per schema so contracts that reuse an $id stay apart (the
+// client's fromJsonSchema shares one). In a browser it is @cfworker/json-schema, which needs no eval; Ajv compiles code,
+// which an MCP Apps host's CSP for a view forbids: https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx#host-behavior
+// Contracts are module constants, so each schema compiles once however often createApps runs.
 const checks = new WeakMap<object, Check>();
 
 function defaultValidator(schema: object): Check {
   const cached = checks.get(schema);
   if (cached) return cached;
-  const compiled = new AjvJsonSchemaValidator().getValidator(schema);
+  const compiled = new DefaultJsonSchemaValidator().getValidator(schema);
   const check: Check = value => {
     const { valid, errorMessage } = compiled(value);
     check.errors = errorMessage;
