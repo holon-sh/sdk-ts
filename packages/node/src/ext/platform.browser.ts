@@ -13,3 +13,7 @@ export async function sha256(blob: Blob): Promise<string> {
 export function fetchGlobal(url: string, init: RequestInit): Promise<Response> {
   return fetch(url, init);
 }
+
+export function fetchPeer(input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  return fetch(input, init);
+}

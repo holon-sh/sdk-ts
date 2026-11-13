@@ -12,6 +12,9 @@
   "engines": {
     "node": ">=22"
   },
+  "bin": {
+    "holon-serve": "./dist/holon-serve.js"
+  },
   "publishConfig": {
     "access": "public"
   },

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lookup } from "node:dns";
 import { isIP, type LookupFunction } from "node:net";
 import type * as undici from "undici";
+import { holder } from "../holder.js";
 
 export async function base64(blob: Blob): Promise<string> {
   return Buffer.from(await blob.arrayBuffer()).toString("base64");
@@ -20,6 +21,19 @@ export async function fetchGlobal(url: string, init: RequestInit): Promise<Respo
   const host = new URL(url).hostname.replace(/^\[(.*)\]$/, "$1");
   if (isIP(host) && !global(host)) throw new TypeError("fetch failed", { cause: new Error("the address is not globally reachable") });
   return fetch(url, { ...init, dispatcher: agent } as Parameters<typeof undici.fetch>[1]) as unknown as Promise<Response>;
+}
+
+let plain: Promise<{ fetch: typeof undici.fetch; agent: undici.Agent }> | undefined;
+
+export async function fetchPeer(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
+  const { fetch, agent } = await (plain ??= import("undici").then(({ Agent, fetch }) => ({ fetch, agent: new Agent() })));
+  const request = holder.getStore();
+  if (request && !request.ended && request.token) {
+    const headers = new Headers(init.headers);
+    headers.set("x-holon-context", request.token);
+    init = { ...init, headers };
+  }
+  return fetch(input as string | URL, { ...init, dispatcher: agent } as Parameters<typeof undici.fetch>[1]) as unknown as Promise<Response>;
 }
 
 async function load() {

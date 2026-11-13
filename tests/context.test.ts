@@ -18,7 +18,9 @@ test("getContext maps the caller Holon admitted", () => {
     // A hook call carries no user.
     [{ clientId: "", scopes: [], extra: { hook: { event: "installed" } } }, null],
   ] satisfies Array<[unknown, unknown]>) assert.deepEqual(getContext({ authInfo }).principal, principal);
-  assert.deepEqual(getContext(), { principal: null, origin: null });
+  assert.deepEqual(getContext(), { principal: null, caller: null, origin: null });
+  const caller = { app: "reporter", session: "session" };
+  assert.deepEqual(getContext({ authInfo: { clientId: "", scopes: [], extra: { caller } } }).caller, caller);
 });
 
 // A factory's McpRequestContext carries the request as requestInfo, where a tool's ctx.http carries it as req.
