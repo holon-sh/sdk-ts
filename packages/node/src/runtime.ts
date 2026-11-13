@@ -75,12 +75,9 @@ function defaultValidator(schema: object): Check {
   return check;
 }
 
-/** Construct only the explicitly bound dependencies: a full client for an endpoint binding, a SessionClient for a session binding. Unknown names throw; an empty binding map selects none. Used by generated createApps factories. */
-export function bindApps<B extends Record<string, Binding>>(identity: Identity, contracts: Record<string, Contract | null>, bindings: B, options?: CreateOptions): { readonly [A in keyof B]: Bound<B[A]> } {
-  const selected = Object.fromEntries(Object.keys(bindings).map((name): [string, Contract | null] => {
-    if (!Object.hasOwn(contracts, name) && !Object.hasOwn(identity.requires ?? {}, name)) throw new Error("Unknown app binding: " + name);
-    return [name, contracts[name] ?? null];
-  }));
+/** Construct only the explicitly bound dependencies: a full client for an endpoint binding, a SessionClient for a session binding. A bound name is one the contracts or the identity's requires declare; an empty binding map selects none. Used by generated createApps factories. */
+export function bindApps<C extends Record<string, Contract | null>, B extends Record<string, Binding>, R extends string = never>(identity: Identity & { requires?: Record<R, unknown> }, contracts: C, bindings: B & { [A in Exclude<keyof B & string, keyof C | R>]: never }, options?: CreateOptions): { readonly [A in keyof B]: Bound<B[A]> } {
+  const selected = Object.fromEntries(Object.keys(bindings).map(name => [name, contracts[name] ?? null]));
   return createApps(identity, selected, bindings, options) as { readonly [A in keyof B]: Bound<B[A]> };
 }
 

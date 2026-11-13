@@ -69,7 +69,6 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   const { endpoint } = live;
   const contract = { tools: [], resources: [{ uri, outputSchema: z.toJSONSchema(summary) }] };
   const identity = { name: "script", version: "1", requires: {} };
-  assert.throws(() => bindApps(identity, { orders: contract }, { missing: { endpoint } }), /Unknown app binding/);
   const bound = bindApps(identity, { orders: contract }, { orders: { endpoint, authProvider: { token: async () => "external" }, installationUID: "installation-one" } });
   t.after(() => bound.orders.close());
   assert.deepEqual(await bound.orders.resources[uri].read(), { total: 1 });
