@@ -2,7 +2,7 @@
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 import type { Client } from "@modelcontextprotocol/client";
 import { patient, sleep, unchecked, untilAborted, type Link } from "../link.js";
-import type { CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription } from "../protocol.js";
+import type { CallOptions, EventOccurrence, EventType, Subscription, WatchOptions } from "../protocol.js";
 import type { Contract, RuntimeClient } from "../runtime.js";
 
 // A stream that has said nothing for twice the longest heartbeat interval is dead: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#lifecycle
@@ -28,7 +28,7 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
       if (!(cursor = page.nextCursor)) return events;
     }
   });
-  const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, reconnect = true, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
+  const watch = async (event: string, args: unknown, onEvent: (event: EventOccurrence) => void | Promise<void>, { signal, onOpen, onGap, maxAgeMs, reconnect = true, ...options }: WatchOptions = {}): Promise<void> => {
     const resolved = link.endpoint(`Subscribing to ${name} ${event}`);
     const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
@@ -38,37 +38,48 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
     const cancelled = new AbortController();
     const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
     let cursor = options.cursor ?? null;
-    const queue: EventOccurrence[] = [];
     const seen = new Set<string>();
-    let wake = () => {};
-    let done = false;
     let failure: unknown;
+    let delivered = Promise.resolve();
+    const observe = (callback: () => void | Promise<void>) => {
+      delivered = delivered.then(callback);
+      void delivered.catch(error => { failure = error; cancelled.abort(); });
+    };
+    const subscription: Subscription = { delivery, get cursor() { return cursor; }, cancel: () => cancelled.abort() };
     const reach = (next: string | null | undefined, truncated?: boolean) => {
       cursor = next ?? null;
       if (truncated) onGap?.();
     };
     const expected = contract?.events?.find(type => type.name === event)?.payloadSchema;
     const check = expected && expect(expected, `data of ${name} ${event}`);
-    const deliver = ({ cursor: _, _meta, ...occurrence }: Sent) => {
+    const read = ({ cursor: _, _meta, ...occurrence }: Sent) => {
       if (seen.has(occurrence.eventId)) return;
       seen.add(occurrence.eventId);
       if (seen.size > 1024) seen.delete(seen.values().next().value!);
       check?.(occurrence.data);
-      queue.push(occurrence);
-      wake();
+      return occurrence;
     };
     const request = { name: event, arguments: args, ...(maxAgeMs !== undefined && { maxAgeMs }) };
     let confirmed = false;
-    const established = Promise.withResolvers<void>();
-    const confirm = () => { confirmed = true; established.resolve(); };
+    const confirm = () => { if (!confirmed) { confirmed = true; observe(() => onOpen?.(subscription)); } };
     const poll = async () => {
       while (!ended.aborted) {
         let wait = 1000;
         try {
           const result = await connected({ signal: ended }, client => client.request({ method: "events/poll", params: { ...request, cursor } }, unchecked<Polled>(), patient({ signal: ended })));
-          try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
-          reach(result.cursor, result.truncated);
-          confirm();
+          try {
+            const initial: EventOccurrence[] = [];
+            for (const sent of result.events ?? []) {
+              const occurrence = read(sent);
+              if (occurrence) {
+                if (confirmed) observe(() => onEvent(occurrence));
+                else initial.push(occurrence);
+              }
+            }
+            reach(result.cursor, result.truncated);
+            confirm();
+            for (const occurrence of initial) observe(() => onEvent(occurrence));
+          } catch (error) { failure = error; return cancelled.abort(); }
           // A server that asks for a tight loop is not obeyed.
           wait = result.hasMore ? 0 : Math.max(1000, result.nextPollMs ?? 0);
         } catch (error) {
@@ -109,11 +120,17 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
         };
         try {
           await untilAborted(connection.ready, ended);
-          const on = <P>(method: string, handle: (params: P) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: unchecked<P>() }, params => { heard(); handle(params); });
+          const on = <P>(method: string, handle: (params: P) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: unchecked<P>() }, params => {
+            if (ended.aborted) return;
+            heard();
+            try { handle(params); } catch (error) { failure = error; cancelled.abort(); }
+          });
           on<Pick<Polled, "cursor" | "truncated">>("active", ({ cursor: next, truncated }) => { reach(next, truncated); confirm(); });
           on<Sent>("event", occurrence => {
+            if (!confirmed) throw new Error(`${name} sent an event before confirming ${event}.`);
             wait = 0;
-            try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
+            const value = read(occurrence);
+            if (value) observe(() => onEvent(value));
             reach(occurrence.cursor);
           });
           on<Pick<Polled, "cursor">>("heartbeat", ({ cursor: next }) => reach(next));
@@ -131,25 +148,10 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
         await sleep(wait, ended);
       }
     };
-    void (delivery === "push" ? stream() : poll())
-      .catch(error => { failure ??= error; })
-      .finally(() => { done = true; wake(); established.reject(failure ?? ended.reason); });
-    await established.promise;
-    return {
-      delivery,
-      get cursor() { return cursor; },
-      cancel: () => cancelled.abort(),
-      [Symbol.asyncIterator]: () => ({
-        next: async (): Promise<IteratorResult<EventOccurrence>> => {
-          while (!queue.length && !done) await new Promise<void>(resolve => { wake = resolve; });
-          const value = queue.shift();
-          if (value) return { value, done: false };
-          if (failure) throw failure;
-          return { value: undefined, done: true };
-        },
-        return: async (): Promise<IteratorResult<EventOccurrence>> => { cancelled.abort(); return { value: undefined, done: true }; },
-      }),
-    };
+    try { await (delivery === "push" ? stream() : poll()); }
+    finally { await delivered; }
+    if (failure !== undefined) throw failure;
+    if (!confirmed) throw ended.reason;
   };
-  return Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] });
+  return Object.freeze({ list, watch });
 }

@@ -91,14 +91,16 @@ events.serve(server);
 said.emit({ room: "lobby", text: "hello" });
 ```
 
-A client subscribes and iterates:
+A client watches the events:
 
 ```ts
-const subscription = await apps.rooms.ext.events.subscribe("room.said", { room: "lobby" });
-for await (const { data } of subscription) console.log(data.text);
+const stopping = new AbortController();
+await apps.rooms.ext.events.watch("room.said", { room: "lobby" }, ({ data }) => {
+  console.log(data.text);
+}, { signal: stopping.signal });
 ```
 
-The client is pushed each event on a stream where the server offers one and polls otherwise. It reconnects by itself and resumes from its cursor. Emitted events are kept in the server's memory, so after a restart the client's `onGap` is called: read the current state again.
+The client is pushed each event on a stream where the server offers one and polls otherwise. It awaits each callback in order, reconnects by itself, and resumes from its cursor. `onOpen` receives the confirmed subscription: its chosen delivery, live cursor, and `cancel()` method. Aborting the signal stops receiving; the watch resolves after callbacks for occurrences already received finish. Emitted events are kept in the server's memory, so after a restart the client's `onGap` is called: read the current state again.
 
 To hand a page its state and then its changes, a tool returns the state together with `said.cursor()`, read in the same synchronous run, and the page subscribes from that cursor: it hears every change after the state, and none twice. Occurrences emitted one after another in one run reach each subscriber in that order with nothing of the same type between them, so a group of changes is emitted together or sent as one occurrence holding a list.
 

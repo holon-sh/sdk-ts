@@ -5,7 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { createApps, type SubscribeOptions, type Subscription } from "holon-sh/runtime";
+import { createApps, type EventOccurrence, type WatchOptions, type Subscription } from "holon-sh/runtime";
 import { createEvents, type EventDefinition, type Events } from "holon-sh/ext/events";
 import { serve, serveLegacy } from "./helpers.ts";
 
@@ -40,31 +40,46 @@ function rooms(definition: Partial<EventDefinition<Listener, Said>> = {}) {
 
 // The events of the app at an endpoint, as a Holon client reaches them. Its subscriptions end with the test, or they
 // would keep reconnecting to a server that is gone, and the test would never exit.
+interface Observed {
+  subscription: Subscription;
+  received: EventOccurrence[];
+  ended: boolean;
+  error?: unknown;
+}
+
 function connect(t: TestContext, endpoint: string, { contract = null, fetch }: { contract?: Parameters<typeof createApps>[1][string]; fetch?: typeof globalThis.fetch } = {}) {
   const { app } = createApps(identity, { app: contract }, { app: { endpoint, ...(fetch && { fetch }) } });
   const ended = new AbortController();
   t.after(() => { ended.abort(); return app.close(); });
-  const { list, subscribe } = app.ext.events;
+  const { list, watch } = app.ext.events;
   return {
     list,
-    subscribe: (name: string, args: Record<string, unknown>, { signal, ...options }: SubscribeOptions = {}) =>
-      subscribe(name, args, { ...options, signal: signal ? AbortSignal.any([signal, ended.signal]) : ended.signal }),
+    watch: async (name: string, args: Record<string, unknown>, { signal, onOpen, ...options }: WatchOptions = {}): Promise<Observed> => {
+      const opened = Promise.withResolvers<Subscription>();
+      const observed: Omit<Observed, "subscription"> = { received: [], ended: false };
+      const watching = watch(name, args, event => { observed.received.push(event); }, {
+        ...options,
+        signal: signal ? AbortSignal.any([signal, ended.signal]) : ended.signal,
+        onOpen: async subscription => { await onOpen?.(subscription); opened.resolve(subscription); },
+      });
+      void watching.catch(error => { observed.error = error; opened.reject(error); }).finally(() => { observed.ended = true; });
+      return Object.assign(observed, { subscription: await opened.promise });
+    },
   };
 }
 
 // The ids of the next events a subscription receives, which goes on receiving.
-const iterators = new WeakMap<Subscription, AsyncIterator<{ eventId: string }>>();
-async function next(subscription: Subscription, count: number) {
-  if (!iterators.has(subscription)) iterators.set(subscription, subscription[Symbol.asyncIterator]());
-  const ids: string[] = [];
-  while (ids.length < count) ids.push((await iterators.get(subscription)!.next()).value.eventId);
-  return ids;
+async function received(observed: Observed, count: number): Promise<EventOccurrence[]> {
+  await until(() => observed.received.length >= count || observed.ended);
+  if (observed.received.length < count) throw observed.error ?? new Error("The watch ended");
+  return observed.received.splice(0, count);
 }
+const next = async (observed: Observed, count: number) => (await received(observed, count)).map(event => event.eventId);
 
 // The ids of the next events a subscription receives, after which it is cancelled.
-async function take(subscription: Subscription, count: number) {
+async function take(subscription: Observed, count: number) {
   const ids = await next(subscription, count);
-  subscription.cancel();
+  subscription.subscription.cancel();
   return ids;
 }
 
@@ -104,7 +119,7 @@ test("a subscription hears what its arguments match, in order and with nothing m
   const { endpoint, http } = await serve(t, factory);
   let away = false;
   const events = connect(t, endpoint, { fetch: (input, init) => away ? Promise.reject(new TypeError("fetch failed")) : fetch(input, init) });
-  const subscribe = (delivery: "push" | "poll", reconnect = true) => events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery, reconnect });
+  const subscribe = (delivery: "push" | "poll", reconnect = true) => events.watch("room.said", { room: "a", listener: "bob" }, { delivery, reconnect });
   const [pushed, polled, ...failing] = [await subscribe("push"), await subscribe("poll"), await subscribe("push", false), await subscribe("poll", false)];
   say("a", "ann", "one");
   say("a", "bob", "bob's own words");
@@ -138,7 +153,7 @@ test("a subscription to a 2025 server is pushed its events, and ending it ends i
     return fetch(input, init);
   };
   // A 2025 server answers its initialization as a stream too, which is not the subscription's.
-  const subscription = await connect(t, endpoint, { fetch: counting }).subscribe("room.said", { room: "a" });
+  const subscription = await connect(t, endpoint, { fetch: counting }).watch("room.said", { room: "a" });
   said.emit({ text: "one" }, { eventId: "one" });
   assert.deepEqual(await take(subscription, 1), ["one"]);
   await until(() => ended.length === 1 && methods.includes("DELETE"));
@@ -152,11 +167,11 @@ test("the client lists every event type a page at a time, and is refused what th
   const { endpoint } = await serve(t, factory);
   const app = connect(t, endpoint);
   assert.deepEqual((await app.list()).map(({ name }) => name), ["room.said", ...clocks]);
-  await assert.rejects(app.subscribe("room.left", {}), /no event room.left/);
-  await assert.rejects(app.subscribe("room.said", { room: 1 }), /Invalid arguments/);
+  await assert.rejects(app.watch("room.left", {}), /no event room.left/);
+  await assert.rejects(app.watch("room.said", { room: 1 }), /Invalid arguments/);
   // A contract's schema for the event's data is held against what arrives.
   const typed = connect(t, endpoint, { contract: { tools: [], events: [{ name: "room.said", payloadSchema: { type: "object", required: ["volume"] } }] } });
-  const strict = await typed.subscribe("room.said", { room: "a", listener: "bob" });
+  const strict = await typed.watch("room.said", { room: "a", listener: "bob" });
   say("a", "ann", "quietly");
   await assert.rejects(take(strict, 1), /Invalid data of app room.said/);
 });
@@ -212,7 +227,7 @@ test("a stream that falls behind what is kept is told of the gap and carries on,
     const { factory, say } = rooms({ onSubscribe: ({ subscriptionId }) => { id = subscriptionId; if (targeted === "opening") late(id); } });
     const { endpoint } = await serve(t, factory);
     let gaps = 0;
-    const subscription = await connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { onGap: () => gaps++ });
+    const subscription = await connect(t, endpoint).watch("room.said", { room: "a", listener: "bob" }, { onGap: () => gaps++ });
     if (targeted !== "opening") late(targeted && id);
     assert.deepEqual([await take(subscription, 1), gaps], targeted ? [["one"], 0] : [["two"], 1]);
   }
@@ -228,7 +243,7 @@ test("a subscription from the cursor read with a snapshot hears every change aft
   const snapshot = { state: [...state], cursor: said.cursor() };
   tell("after the snapshot");
   tell("later still");
-  const subscription = await connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { cursor: snapshot.cursor });
+  const subscription = await connect(t, endpoint).watch("room.said", { room: "a", listener: "bob" }, { cursor: snapshot.cursor });
   tell("once subscribed");
   assert.deepEqual([...snapshot.state, ...await take(subscription, 3)], state);
 });
@@ -242,7 +257,7 @@ test("what onSubscribe emits to its subscription reaches it first, by push or po
   for (const cursor of [undefined, rooms().said.cursor()]) {
     for (const delivery of ["push", "poll"] as const) {
       const room = `${delivery} ${cursor ? "resumed" : "fresh"}`;
-      const subscription = await events.subscribe("room.said", { room, listener: "bob" }, { delivery, cursor, onGap: () => gaps.push(room) });
+      const subscription = await events.watch("room.said", { room, listener: "bob" }, { delivery, cursor, onGap: () => gaps.push(room) });
       say(room, "ann", "hello");
       assert.deepEqual(await take(subscription, 2), ["welcome", "hello"]);
     }
@@ -260,16 +275,16 @@ test("a signed-in caller's subscription is one per arguments, set up once while 
   const { endpoint, http } = await serve(t, factory, signedIn);
   const events = connect(t, endpoint);
   // However the arguments are ordered.
-  const first = await events.subscribe("room.said", { room: "a", listener: "bob" });
-  const second = await events.subscribe("room.said", { listener: "bob", room: "a" });
-  const other = await events.subscribe("room.said", { room: "a", listener: "cat" });
+  const first = await events.watch("room.said", { room: "a", listener: "bob" });
+  const second = await events.watch("room.said", { listener: "bob", room: "a" });
+  const other = await events.watch("room.said", { room: "a", listener: "cat" });
   const [bob, cat] = begun;
   // Emitted to bob's subscription, which is not asked whether bob hears his own words.
   say("a", "bob", "for bob", bob);
   assert.deepEqual([await next(first, 1), await next(second, 1)], [["for bob"], ["for bob"]]);
   // It ends with its last stream.
-  first.cancel();
-  other.cancel();
+  first.subscription.cancel();
+  other.subscription.cancel();
   await until(() => ended.length);
   assert.deepEqual(ended, [cat]);
 
@@ -280,8 +295,8 @@ test("a signed-in caller's subscription is one per arguments, set up once while 
   assert.deepEqual(await heard, ["while away"]);
   assert.deepEqual(begun, [bob, cat, bob]);
   // Polls share a subscription too.
-  await events.subscribe("room.said", { room: "b", listener: "bob" }, { delivery: "poll" });
-  await events.subscribe("room.said", { listener: "bob", room: "b" }, { delivery: "poll" });
+  await events.watch("room.said", { room: "b", listener: "bob" }, { delivery: "poll" });
+  await events.watch("room.said", { listener: "bob", room: "b" }, { delivery: "poll" });
   assert.equal(begun.length, 4);
 });
 
@@ -290,8 +305,8 @@ test("callers without an identity do not share a subscription, so what is emitte
   const { factory, say } = rooms({ onSubscribe: ({ subscriptionId }) => { begun.push(subscriptionId); } });
   const { endpoint } = await serve(t, factory);
   const events = connect(t, endpoint);
-  const first = await events.subscribe("room.said", { room: "a", listener: "bob" });
-  const second = await events.subscribe("room.said", { room: "a", listener: "bob" });
+  const first = await events.watch("room.said", { room: "a", listener: "bob" });
+  const second = await events.watch("room.said", { room: "a", listener: "bob" });
   say("a", "ann", "for the first", begun[0]);
   say("a", "ann", "for both");
   assert.deepEqual([await take(first, 2), await take(second, 1)], [["for the first", "for both"], ["for both"]]);
@@ -303,21 +318,19 @@ test("a subscriber's value is shown while it subscribes, survives a reconnect wi
   const status = said.presence<string>(({ room, listener }, text) => ({ room, speaker: listener, text: text ?? `${listener} left` }));
   const { endpoint } = await serve(t, factory);
   const events = connect(t, endpoint);
-  const leave = async (subscription: Subscription) => {
+  const leave = async (subscription: Observed) => {
     const before = ended.length;
-    subscription.cancel();
+    subscription.subscription.cancel();
     await until(() => ended.length > before);
   };
   const bob = { room: "a", listener: "bob" };
-  const told = (await events.subscribe("room.said", bob))[Symbol.asyncIterator]();
+  const told = await events.watch("room.said", bob);
   const hear = async (count: number) => {
-    const texts: string[] = [];
-    while (texts.length < count) texts.push(((await told.next()).value.data as Said).text);
-    return texts;
+    return (await received(told, count)).map(event => (event.data as Said).text);
   };
   const cat = { room: "a", listener: "cat" };
   // One subscriber's overlapping streams: a caller without an identity holds each as a subscription of its own.
-  const streams = [await events.subscribe("room.said", cat), await events.subscribe("room.said", cat)];
+  const streams = [await events.watch("room.said", cat), await events.watch("room.said", cat)];
   // Timers run in the order they are due, so a linger this short would end before each wait that follows it.
   status.set(cat, "typing", 1);
   await sleep(20);
@@ -328,7 +341,7 @@ test("a subscriber's value is shown while it subscribes, survives a reconnect wi
   status.set(cat, "idle", 500);
   await leave(streams[1]!);
   const left = Date.now();
-  const back = await events.subscribe("room.said", cat);
+  const back = await events.watch("room.said", cat);
   await sleep(left + 600 - Date.now());
   assert.deepEqual(status.seen(bob), ["idle"]);
   await leave(back);
@@ -350,9 +363,9 @@ test("a subscription the app ends is told why: a stream after what was emitted t
   const { factory, said, say } = rooms({ onSubscribe: ({ subscriptionId, arguments: { listener } }) => { ids.set(listener, subscriptionId); } });
   const { endpoint } = await serve(t, factory);
   const events = connect(t, endpoint);
-  const bob = await events.subscribe("room.said", { room: "a", listener: "bob" });
-  const cat = await events.subscribe("room.said", { room: "a", listener: "cat" });
-  const dan = await events.subscribe("room.said", { room: "a", listener: "dan" }, { delivery: "poll" });
+  const bob = await events.watch("room.said", { room: "a", listener: "bob" });
+  const cat = await events.watch("room.said", { room: "a", listener: "cat" });
+  const dan = await events.watch("room.said", { room: "a", listener: "dan" }, { delivery: "poll" });
   say("a", "ann", "last words");
   said.terminate(ids.get("bob"), { code: -32000, message: "Closed", data: { reason: "The room closed" } });
   // Forbidden, the default, says the caller lost access, so nothing more is sent.
@@ -372,13 +385,13 @@ test("a subscription the caller may not have is refused, and one it no longer ma
   const events = connect(t, endpoint);
   // Lost access is noticed at the next heartbeat, every thirty seconds, which the test's clock jumps to.
   t.mock.timers.enable({ apis: ["setInterval"] });
-  await assert.rejects(events.subscribe("room.said", { room: "a", listener: "eve" }), refusedWith(-32024));
+  await assert.rejects(events.watch("room.said", { room: "a", listener: "eve" }), refusedWith(-32024));
 
-  const cat = await events.subscribe("room.said", { room: "a", listener: "cat" });
+  const cat = await events.watch("room.said", { room: "a", listener: "cat" });
   // Every delivery mode counts against the thousand a caller may hold: these callers have no identity, so are one.
   const { request } = await wire(t, endpoint);
   for (let index = 0; index < 999; index++) await request("events/poll", { name: "room.said", arguments: { room: "a", listener: `filler ${index}` }, cursor: null });
-  await assert.rejects(events.subscribe("room.said", { room: "a", listener: "fay" }, { delivery: "poll" }), refusedWith(-32025, { limit: "subscriptionsPerCaller", max: 1000 }));
+  await assert.rejects(events.watch("room.said", { room: "a", listener: "fay" }, { delivery: "poll" }), refusedWith(-32025, { limit: "subscriptionsPerCaller", max: 1000 }));
 
   revoked.add("cat");
   let noticed = false;
@@ -396,7 +409,7 @@ test("a stream left while its subscription is being set up is torn down once the
   });
   const { endpoint } = await serve(t, factory);
   const leaving = new AbortController();
-  const subscribing = connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { signal: leaving.signal });
+  const subscribing = connect(t, endpoint).watch("room.said", { room: "a", listener: "bob" }, { signal: leaving.signal });
   await until(() => release);
   leaving.abort();
   await assert.rejects(subscribing);
@@ -417,9 +430,59 @@ test("an event that cannot be shaped for a subscription is skipped for it, and w
     },
   });
   const { endpoint } = await serve(t, served(events));
-  const subscription = await connect(t, endpoint).subscribe("note.added", {});
+  const subscription = await connect(t, endpoint).watch("note.added", {});
   // Each event skipped is logged.
   t.mock.method(console, "error", () => {});
   for (const text of ["unshapeable", "circular", "after"]) noted.emit({ text }, { eventId: text });
   assert.deepEqual(await take(subscription, 1), ["after"]);
+});
+
+test("a watch awaits asynchronous consumers in order and drains received events before cancellation finishes", async t => {
+  const { factory, say } = rooms();
+  const { endpoint } = await serve(t, factory);
+  const { app } = createApps(identity, { app: null }, { app: { endpoint } });
+  t.after(() => app.close());
+  const opened = Promise.withResolvers<Subscription>();
+  const order: string[] = [];
+  let subscription: Subscription;
+  const watching = app.ext.events.watch("room.said", { room: "a", listener: "bob" }, async ({ eventId }) => {
+    order.push(`start ${eventId}`);
+    if (eventId === "one") subscription.cancel();
+    await Promise.resolve();
+    order.push(`finish ${eventId}`);
+  }, {
+    delivery: "poll",
+    onOpen: async current => {
+      subscription = current;
+      await Promise.resolve();
+      order.push("open");
+      opened.resolve(current);
+    },
+  });
+  await opened.promise;
+  say("a", "ann", "one");
+  say("a", "ann", "two");
+  await watching;
+  assert.deepEqual(order, ["open", "start one", "finish one", "start two", "finish two"]);
+});
+
+test("a watch rejects a failed consumer and stops calling it", async t => {
+  const { factory, say } = rooms();
+  const { endpoint } = await serve(t, factory);
+  const { app } = createApps(identity, { app: null }, { app: { endpoint } });
+  t.after(() => app.close());
+  const opened = Promise.withResolvers<void>();
+  const failure = new Error("could not save the event");
+  const received: string[] = [];
+  const watching = app.ext.events.watch("room.said", { room: "a", listener: "bob" }, async ({ eventId }) => {
+    received.push(eventId);
+    await Promise.resolve();
+    throw failure;
+  }, { delivery: "poll", onOpen: () => opened.resolve() });
+  const failed = assert.rejects(watching, error => error === failure);
+  await opened.promise;
+  say("a", "ann", "one");
+  say("a", "ann", "two");
+  await failed;
+  assert.deepEqual(received, ["one"]);
 });
