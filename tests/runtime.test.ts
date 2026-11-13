@@ -126,6 +126,26 @@ test("session bindings and session hooks serve calls and reads and respect valid
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
 });
 
+test("bound apps never consult resolve or <NAME>_MCP_URL", async t => {
+  // Generated pages call bindApps in the browser, where nothing may read the environment.
+  const saved = process.env;
+  process.env = { ...saved, ORDERS_MCP_URL: "http://127.0.0.1:9/mcp" };
+  t.after(() => { process.env = saved; });
+  const contract = { tools: [{ name: "get_order", inputSchema: { type: "object" } }], resources: [{ uri: "orders://summary", outputSchema: { type: "object" } }] };
+  const session: ToolSession = {
+    callTool: async () => ({ content: [{ type: "text", text: "Order" }] }),
+    readResource: async request => ({ contents: [{ uri: request.uri, text: "{}" }] }),
+    listTools: async () => ({ tools: [] }),
+  };
+  const resolve = () => { throw new Error("resolve was consulted"); };
+  for (const options of [{}, { resolve }]) {
+    const { orders } = bindApps({ name: "checkout", version: "1", requires: { orders: {} } }, { orders: contract }, { orders: { session } }, options);
+    assert.deepEqual((await orders.tools.get_order({}) as CompleteResult<unknown>).content, [{ type: "text", text: "Order" }]);
+    assert.deepEqual(await orders.resources["orders://summary"].read(), {});
+    await assert.rejects(orders.resources["orders://summary"].watch(() => {}), /Watching orders orders:\/\/summary requires an endpoint binding/);
+  }
+});
+
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
   const problem = { type: "about:blank", title: "Conflict", status: 409 };
   const { endpoint } = await serve(t, () => {
