@@ -18,7 +18,6 @@ interface Connection {
 interface Shared {
   readonly name: string;
   session<T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T>;
-  close(): Promise<void>;
 }
 /** A link through a session something else owns. */
 export interface HostedLink extends Shared { readonly hosted: true }
@@ -28,6 +27,7 @@ export interface EndpointLink extends Shared {
   connected<T>(options: CallOptions | undefined, run: (connection: Connection) => Promise<T>): Promise<T>;
   endpoint(): EndpointBinding;
   connect(binding: EndpointBinding): Connection;
+  close(): Promise<void>;
 }
 export type Link = HostedLink | EndpointLink;
 
@@ -74,7 +74,7 @@ function connect(identity: Identity, resolved: EndpointBinding, prior?: PriorDis
 export function createLink(identity: Identity, name: string, { binding, resolve }: { binding?: Binding; resolve?: (app: string) => EndpointBinding | undefined }): Link {
   if (binding && !("endpoint" in binding)) {
     const { session } = binding;
-    return { name, hosted: true, session: async (options, run) => { options?.signal?.throwIfAborted(); return run(session); }, close: async () => {} };
+    return { name, hosted: true, session: async (options, run) => { options?.signal?.throwIfAborted(); return run(session); } };
   }
   const endpoint = (): Endpoint => {
     const resolved: Endpoint | undefined = binding ?? resolve?.(name);

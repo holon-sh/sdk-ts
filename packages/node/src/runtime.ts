@@ -96,10 +96,10 @@ export function createApps<B extends Binding = EndpointBinding>(identity: Identi
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
     const link = createLink(identity, name, bindings ? { binding: bindings[name] } : { resolve });
-    const shared = { ...tools(link, contract, expect), close: link.close };
+    const shared = tools(link, contract, expect);
     apps[name] = Object.freeze(link.hosted
       ? { ...shared, resources: resources(link, contract, expect) }
-      : { ...shared, listTools: (options?: CallOptions) => link.connected(options, ({ client }) => client.listTools(undefined, patient(options))), resources: resources(link, contract, expect), ext: Object.freeze({ events: events(link, contract, expect) }) });
+      : { ...shared, listTools: (options?: CallOptions) => link.connected(options, ({ client }) => client.listTools(undefined, patient(options))), resources: resources(link, contract, expect), ext: Object.freeze({ events: events(link, contract, expect) }), close: link.close });
   }
   return Object.freeze(apps) as Readonly<Record<string, Bound<B>>>;
 }
