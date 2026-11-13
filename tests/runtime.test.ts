@@ -93,35 +93,38 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);
 });
 
-test("session hooks serve custom bindings and respect validation and binding boundaries", async () => {
+test("session bindings and session hooks serve calls and reads and respect validation and binding boundaries", async () => {
   const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }], resources: [{ uri: "orders://summary", outputSchema: { type: "object", properties: { total: { type: "number" } }, required: ["total"] } }] };
   const identity = { name: "checkout", version: "1", requires: { orders: {} } };
 
-  // session receives (name, binding) and its return value serves calls and reads.
-  const sessions: unknown[] = [];
+  // A session binding's session serves calls and reads; watching and MCP Events need an endpoint, and a bound app never
+  // falls back to resolve or <NAME>_MCP_URL, which a page in a browser cannot read.
   const calls: unknown[] = [];
-  const binding = { token: "opaque" };
-  const session = (name: string, value: unknown): ToolSession => {
-    sessions.push([name, value]);
-    return {
-      callTool: async (request, options) => { calls.push(["call", request, options?.signal]); return { content: [], structuredContent: { id: request.arguments?.id } }; },
-      readResource: async request => { calls.push(["read", request]); return { contents: [{ uri: request.uri, text: '{"total":7}' }] }; },
-      listTools: async () => ({ tools: [] }),
-    };
-  };
   const signal = new AbortController().signal;
-  const hosted = bindApps(identity, { orders: contract }, { orders: binding }, { session });
-  assert.deepEqual(sessions, [["orders", binding]]);
+  const session: ToolSession = {
+    callTool: async (request, options) => { calls.push(["call", request, options?.signal === signal]); return { content: [], structuredContent: { id: request.arguments?.id } }; },
+    readResource: async request => { calls.push(["read", request]); return { contents: [{ uri: request.uri, text: '{"total":7}' }] }; },
+    listTools: async () => ({ tools: [] }),
+  };
+  const hosted = bindApps(identity, { orders: contract }, { orders: { session } });
   assert.deepEqual((await hosted.orders.tools.get_order({ id: "s" }, { signal }) as CompleteResult<unknown>).structuredContent, { id: "s" });
   assert.deepEqual(await hosted.orders.resources["orders://summary"].read(), { total: 7 });
-  assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, signal], ["read", { uri: "orders://summary" }]]);
+  assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, true], ["read", { uri: "orders://summary" }]]);
   await assert.rejects(hosted.orders.resources["orders://summary"].watch(() => {}), /endpoint binding/);
+  await assert.rejects(hosted.orders.ext.events.subscribe("shipped", {}), /endpoint binding/);
+
+  // The session hook receives (name, binding) and its return value serves a binding the runtime does not connect to itself.
+  const sessions: unknown[] = [];
+  const binding = { token: "opaque" };
+  const hooked = bindApps(identity, { orders: contract }, { orders: binding }, { session: (name, value) => { sessions.push([name, value]); return session; } });
+  assert.deepEqual(sessions, [["orders", binding]]);
+  assert.deepEqual(await hooked.orders.resources["orders://summary"].read(), { total: 7 });
 
   // Without a binding, a declared dependency is unavailable, from the environment or from a resolve hook that binds nothing.
   await assert.rejects(createApps(identity, { orders: contract }).orders.tools.get_order({ id: "x" }), /Dependency orders is unavailable \(ORDERS_MCP_URL\)/);
   await assert.rejects(createApps(identity, { orders: contract }, undefined, { resolve: () => undefined }).orders.tools.get_order({ id: "x" }), /Dependency orders is unavailable/);
   const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
-  await assert.rejects(bindApps(identity, { orders: contract }, { orders: binding }, { session, validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
+  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
@@ -191,11 +194,11 @@ test("schemas that share an $id validate independently", async () => {
     { name: "total", inputSchema: { type: "object" }, outputSchema: { $id, type: "object", required: ["total"] } },
     { name: "status", inputSchema: { type: "object" }, outputSchema: { $id, type: "object", required: ["status"] } },
   ] };
-  const session = (): ToolSession => ({
+  const session: ToolSession = {
     callTool: async request => ({ content: [], structuredContent: request.name === "total" ? { total: 1 } : { status: "ok" } }),
     readResource: async () => ({ contents: [] }),
     listTools: async () => ({ tools: [] }),
-  });
-  const { results } = bindApps({ name: "script", version: "1" }, { results: contract }, { results: {} }, { session });
+  };
+  const { results } = bindApps({ name: "script", version: "1" }, { results: contract }, { results: { session } });
   assert.deepEqual([await results.tools.total({}), await results.tools.status({})], [{ total: 1 }, { status: "ok" }]);
 });

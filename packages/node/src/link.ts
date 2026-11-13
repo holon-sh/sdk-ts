@@ -4,11 +4,11 @@ import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests } from "./ext/files.client.js";
 import type { CallOptions } from "./protocol.js";
-import type { Binding, Identity, ToolSession } from "./runtime.js";
+import type { EndpointBinding, Identity, SessionBinding, ToolSession } from "./runtime.js";
 
 interface Connection {
   client: Client;
-  resolved: Binding;
+  resolved: EndpointBinding;
   authorization?: string;
   ready: Promise<void>;
   answered: boolean;
@@ -18,8 +18,8 @@ interface Connection {
 export interface Link {
   readonly name: string;
   session<T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T>;
-  endpoint(what: string): Binding;
-  connect(binding: Binding): Connection;
+  endpoint(what: string): EndpointBinding;
+  connect(binding: EndpointBinding): Connection;
   close(): Promise<void>;
 }
 
@@ -29,8 +29,8 @@ const DISCOVERY: unique symbol = Symbol("discovery");
 const discovered = new Map<string, { key: string; prior: PriorDiscovery; expires: number }>();
 const LEGACY_VERDICT_MS = 10 * 60 * 1000;
 
-type Endpoint = Binding & { [DISCOVERY]?: string };
-/** Without an endpoint, a binding is served by the session hook or not at all. */
+type Endpoint = EndpointBinding & { [DISCOVERY]?: string };
+/** Without an endpoint, a binding is served by the session hook, its own session, or not at all. */
 type Resolved = Endpoint | { endpoint?: undefined };
 
 export function environment(name: string): Endpoint {
@@ -41,7 +41,7 @@ export function environment(name: string): Endpoint {
   throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
 }
 
-function connect(identity: Identity, resolved: Binding, prior?: PriorDiscovery, onclose?: (connection: Connection) => void): Connection {
+function connect(identity: Identity, resolved: EndpointBinding, prior?: PriorDiscovery, onclose?: (connection: Connection) => void): Connection {
   // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
   // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
   const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
@@ -65,12 +65,13 @@ function connect(identity: Identity, resolved: Binding, prior?: PriorDiscovery, 
   return connection;
 }
 
-export function createLink(identity: Identity, name: string, { binding, resolve, host }: { binding: unknown; resolve?: (app: string) => Binding | undefined; host?: ToolSession | undefined }): Link {
+export function createLink(identity: Identity, name: string, { binding, resolve, host }: { binding: unknown; resolve?: (app: string) => EndpointBinding | undefined; host?: ToolSession | undefined }): Link {
   const current = (): Resolved | undefined => (binding as Resolved | undefined) ?? resolve?.(name);
+  const hosted = host ?? (binding as Partial<SessionBinding> | undefined)?.session;
   let kept: Connection | undefined;
   const session = async <T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T> => {
     options?.signal?.throwIfAborted();
-    if (host) return run(host);
+    if (hosted) return run(hosted);
     const resolved = current();
     if (!resolved?.endpoint) throw new Error(`Dependency ${name} is unavailable. Provide a binding.`);
     const scoped = resolved.scoped === true;
