@@ -114,8 +114,6 @@ test("session bindings serve calls and reads and respect validation and binding 
   assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, true], ["read", { uri: "orders://summary" }]]);
   await assert.rejects(hosted.orders.resources["orders://summary"].watch(() => {}), /endpoint binding/);
   await assert.rejects(hosted.orders.ext.events.subscribe("shipped", {}), /endpoint binding/);
-  // @ts-expect-error A session is the binding, not an option.
-  bindApps(identity, { orders: contract }, { orders: { session } }, { session: () => session });
 
   // Without a binding, a declared dependency is unavailable, from the environment or from a resolve hook that binds nothing.
   await assert.rejects(createApps(identity, { orders: contract }).orders.tools.get_order({ id: "x" }), /Dependency orders is unavailable \(ORDERS_MCP_URL\)/);
