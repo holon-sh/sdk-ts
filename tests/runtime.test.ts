@@ -68,11 +68,12 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   const contract = { tools: [], resources: [{ uri, outputSchema: z.toJSONSchema(summary) }] };
   const identity = { name: "script", version: "1", requires: {} };
   assert.throws(() => bindApps(identity, { orders: contract }, { missing: { endpoint } }), /Unknown app binding/);
-  const bound = bindApps(identity, { orders: contract }, { orders: { endpoint, authProvider: { token: async () => "external" }, installationUID: "installation-one" } });
+  let installation = "installation-one";
+  const bound = bindApps(identity, { orders: contract }, { orders: { endpoint, authProvider: { token: async () => "external" }, requestInit: { get headers() { return { "X-Holon-Installation-UID": installation }; } } } });
   t.after(() => bound.orders.close());
   assert.deepEqual(await bound.orders.resources[uri].read(), { total: 1 });
-  assert.ok(authorizations.length > 0 && authorizations.every(value => value === "Bearer external"), JSON.stringify(authorizations));
-  assert.ok(installations.length > 0 && installations.every(value => value === "installation-one"), JSON.stringify(installations));
+  assert.deepEqual(new Set(installations), new Set(["installation-one"]));
+  installation = "installation-two";
 
   const seen: unknown[] = [];
   const arrivals: Array<() => void> = [];
@@ -88,6 +89,8 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   assert.deepEqual(seen, [{ total: 1 }, { total: 2 }]);
   controller.abort();
   await watching;
+  assert.deepEqual(new Set(authorizations), new Set(["Bearer external"]));
+  assert.deepEqual(new Set(installations), new Set(["installation-one", "installation-two"]));
 
   await assert.rejects(createApps({ ...identity, requires: { orders: {} } }, { orders: contract }).orders.resources[uri].watch(() => {}), /ORDERS_MCP_URL/);
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);

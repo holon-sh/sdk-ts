@@ -1,25 +1,19 @@
 import { isInputRequiredResult } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, ReadResourceRequest, ReadResourceResult, StreamableHTTPClientTransportOptions, Tool } from "@modelcontextprotocol/client";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { events } from "./ext/events.client.js";
 import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
 import { createLink, environment, patient, sleep, untilAborted, type Link } from "./link.js";
 import { ToolCallError } from "./protocol.js";
-import type { AuthProvider, CallMetadata, CallOptions, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
+import type { CallMetadata, CallOptions, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
 export { ToolCallError } from "./protocol.js";
 export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
-export interface Binding {
+export interface Binding extends Pick<StreamableHTTPClientTransportOptions, "authProvider" | "fetch" | "requestInit"> {
   /** Streamable HTTP MCP endpoint. */
   endpoint: URL | string;
-  /** Authentication provider; use application-owned credentials. */
-  authProvider?: AuthProvider;
-  /** Custom fetch implementation, for example for an in-process transport. */
-  fetch?: typeof fetch;
-  /** Optional X-Holon-Installation-UID routing header. */
-  installationUID?: string;
   /** Close the session after every call instead of keeping one connection open. */
   scoped?: boolean;
   /** Origins the server may name as file upload or download targets, e.g. "https://storage.example.com". Unset, any https origin on a globally reachable address is allowed; set, only these, which may also be http on loopback or have a non-global address. */

@@ -3,13 +3,14 @@
 import type { Client, JSONRPCMessage, MessageExtraInfo, Transport } from "@modelcontextprotocol/client";
 import { base64, fetchGlobal, sha256 } from "#platform";
 import { EXTENSION, type Download } from "./files.js";
+import type { Binding } from "../runtime.js";
 
 type Json = Record<string, unknown>;
 
 interface FileConnection {
   client: Pick<Client, "getServerCapabilities">;
-  resolved: { endpoint: URL | string; fileOrigins?: string[]; installationUID?: string };
-  authorization?: string;
+  resolved: Pick<Binding, "endpoint" | "fileOrigins">;
+  headers?: Headers;
 }
 
 interface FileInput { id: string; name?: string; mimeType: string; size: number; digest?: { algorithm: "sha-256"; value: string }; data?: string }
@@ -209,10 +210,12 @@ function check(raw: unknown, kind: "upload" | "download", { resolved }: FileConn
   return { url: url.href, path: target.path !== undefined, allowlisted, include, headers, method: (target.method ?? "PUT") as string, form, expiresAt };
 }
 
-function send(target: Target, init: RequestInit, { resolved, authorization }: FileConnection): Promise<Response> {
+function send(target: Target, init: RequestInit, connection: FileConnection): Promise<Response> {
   const headers = new Headers(target.headers);
+  const authorization = connection.headers?.get("authorization");
+  const installation = connection.headers?.get("x-holon-installation-uid");
   if (target.include && authorization) headers.set("authorization", authorization);
-  if (target.path && resolved.installationUID) headers.set("x-holon-installation-uid", resolved.installationUID);
+  if (target.path && installation) headers.set("x-holon-installation-uid", installation);
   return (target.path || target.allowlisted ? fetch : fetchGlobal)(target.url, { ...init, headers, credentials: "omit", redirect: "error" });
 }
 
@@ -325,6 +328,7 @@ function download(raw: unknown, connection: FileConnection): Download | undefine
 export function downloads<R extends { resultType?: string; _meta?: object }>(result: R, connection: FileConnection): R & { downloads?: Download[] } {
   if (result.resultType === "input_required" || !isObject(result._meta) || !(EXTENSION in result._meta)) return result;
   const { [EXTENSION]: meta, ...rest } = result._meta;
-  const handles = settings(connection) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).flatMap(target => download(target, connection) ?? []) : [];
+  const source = { ...connection };
+  const handles = settings(source) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).flatMap(target => download(target, source) ?? []) : [];
   return { ...result, _meta: rest, ...(handles.length > 0 && { downloads: handles }) };
 }

@@ -9,7 +9,7 @@ import type { Binding, Identity, ToolSession } from "./runtime.js";
 interface Connection {
   client: Client;
   resolved: Binding;
-  authorization?: string;
+  headers?: Headers;
   ready: Promise<void>;
   answered: boolean;
   close(): Promise<void>;
@@ -47,11 +47,11 @@ function connect(identity: Identity, resolved: Binding, prior?: PriorDiscovery, 
   const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
   const endpoint = new URL(resolved.endpoint);
   const transport = acceptUploadRequests(new StreamableHTTPClientTransport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
-    if (String(input) === endpoint.href) connection.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
+    if (String(input) === endpoint.href) connection.headers = new Headers(init?.headers);
     const response = await (resolved.fetch ?? fetch)(input, init);
     connection.answered ||= response.ok;
     return response;
-  }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }));
+  }, requestInit: resolved.requestInit ?? { credentials: "include", redirect: "error" } }));
   transport.onclose = () => onclose?.(connection);
   const ready = client.connect(transport, { prior }).catch(async (error: unknown) => {
     await transport.close();

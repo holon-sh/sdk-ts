@@ -44,6 +44,21 @@ Declare dependencies under `sh.holon.requires` in a [`server.json`](https://mode
 }
 ```
 
+Endpoint bindings accept the MCP transport's `authProvider`, `fetch`, and standard `requestInit`. Set routing headers in `requestInit.headers`, including `X-Holon-Installation-UID` in place of the former `installationUID` option. A headers getter is read for each request:
+
+```ts
+const binding: Binding = {
+  endpoint: new URL("https://example.com/mcp"),
+  requestInit: {
+    credentials: "include",
+    redirect: "error",
+    get headers() { return session.headers(); },
+  },
+};
+```
+
+Without `requestInit`, requests include credentials and reject redirects. A supplied `requestInit` is passed through unchanged and owns those settings. File transfers retain only the permitted authorization and installation-routing headers; other request headers do not follow a file target.
+
 ### Type-checking MCP invocations
 
 ```sh

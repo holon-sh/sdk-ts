@@ -93,12 +93,11 @@ test("out-of-band files go to a url target without credentials and a path target
         { fileId: args.more[0].id, path: "/uploads/b", credentials: "include", _meta: { ignored: true } },
       ]),
   });
-  const result = await server.app().save({ file: new File(["alpha"], "a.txt", { type: "text/plain" }), more: [new Blob(["beta!"], { type: "application/x-beta" })] });
+  const result = await server.app({ requestInit: { headers: { "X-Holon-Installation-UID": "installation-one", "X-App-Secret": "private" } } }).save({ file: new File(["alpha"], "a.txt", { type: "text/plain" }), more: [new Blob(["beta!"], { type: "application/x-beta" })] });
   assert.equal(textOf(result), "saved");
-  const transfers = server.stored.map(({ method, url, headers, body }) => [method, url, body, headers["content-type"], headers["content-length"], headers.authorization]).sort();
-  assert.deepEqual(transfers, [["PUT", "/mcp/uploads/b", "beta!", undefined, "5", "Bearer secret"], ["PUT", "/storage/a?sig=x", "alpha", "text/plain", "5", undefined]]);
-  assert.equal(server.calls.length, 2);
-  assert.deepEqual(server.calls[1].args, server.calls[0].args);
+  const transfers = server.stored.map(({ method, url, headers, body }) => [method, url, body, headers["content-type"], headers["content-length"], headers.authorization, headers["x-holon-installation-uid"], headers["x-app-secret"]]).sort();
+  assert.deepEqual(transfers, [["PUT", "/mcp/uploads/b", "beta!", undefined, "5", "Bearer secret", "installation-one", undefined], ["PUT", "/storage/a?sig=x", "alpha", "text/plain", "5", undefined, undefined, undefined]]);
+  assert.deepEqual(server.calls.find(call => call.requestState === "state")?.args, server.calls.find(call => call.requestState === undefined)?.args);
 });
 
 test("a form target gets the fields in order and the file last, under a 128-bit boundary and an escaped base name", { timeout: 10000 }, async t => {
@@ -187,18 +186,27 @@ test("downloads are fetched through handles that check their target, size and di
     settings: {},
     storage: () => [200, "a,b\n1,2"],
     tool: () => ({ ...text("Exported."), _meta: { [EXTENSION]: { downloads: [
-      target("good.csv", 7, sha256("a,b\n1,2")), target("long.csv", 6), target("forged.csv", 7, sha256("other")),
+      { ...target("good.csv", 7, sha256("a,b\n1,2")), url: undefined, path: "/downloads/good.csv", credentials: "include" }, target("long.csv", 6), target("forged.csv", 7, sha256("other")),
       { ...target("elsewhere.csv", 7), url: "https://storage.example/d" },
       { ...target("sizeless.csv", 7), size: "7" },
       { ...target("undigested.csv", 7), digest: { algorithm: "md5", value: "x" } },
     ] }, kept: true } }),
   });
-  const result = await server.app().save({});
+  let installation = "installation-one";
+  const app = server.app({
+    authProvider: { token: async () => installation },
+    requestInit: { get headers() { return { "X-Holon-Installation-UID": installation }; } },
+  });
+  const result = await app.save({});
+  installation = "installation-two";
+  await app.save({});
   assert.deepEqual([EXTENSION in (result._meta ?? {}), result._meta?.kept], [false, true]);
   const [good, long, forged, elsewhere] = result.downloads ?? [];
   assert.deepEqual(result.downloads?.map(({ name, size }) => [name, size]), [["good.csv", 7], ["long.csv", 6], ["forged.csv", 7], ["elsewhere.csv", 7]]);
   const blob = await good.blob();
   assert.deepEqual([await blob.text(), blob.type], ["a,b\n1,2", "text/csv"]);
+  const downloaded = server.stored.find(entry => entry.url === "/mcp/downloads/good.csv");
+  assert.deepEqual([downloaded?.headers["x-holon-installation-uid"], downloaded?.headers.authorization], ["installation-one", "Bearer installation-one"]);
   await assert.rejects(long.blob(), /more than the declared 6 bytes/);
   await assert.rejects(forged.blob(), /do not match the digest/);
   await assert.rejects(elsewhere.blob(), /"elsewhere\.csv" was refused: its target was rejected \(url is not on fileOrigins\)/);
