@@ -44,14 +44,12 @@ export interface ToolSession {
   readResource(request: ReadResourceRequest["params"], options?: CacheableRequestOptions): Promise<ReadResourceResult>;
   listTools(params?: ListToolsRequest["params"], options?: CacheableRequestOptions): Promise<ListToolsResult>;
 }
-/** Optional validation, binding resolution, and host-session hooks. */
-export interface CreateOptions<B = Binding> {
+/** Optional validation and binding resolution hooks. */
+export interface CreateOptions {
   /** JSON Schema validator factory. The default is the MCP client's for the platform. A check may set errors, which a failure reports. */
   validator?: (schema: object) => { (value: unknown): boolean; errors?: unknown };
   /** Binding of an app created without explicit bindings; consulted on every call. */
   resolve?: (app: string) => EndpointBinding | undefined;
-  /** Session for a binding the runtime does not serve itself (anything without an endpoint or a session). */
-  session?: (app: string, binding: B) => ToolSession | undefined;
 }
 
 type Check = ReturnType<NonNullable<CreateOptions["validator"]>>;
@@ -77,7 +75,7 @@ function defaultValidator(schema: object): Check {
 }
 
 /** Construct only the explicitly bound dependencies. Unknown names throw; an empty binding map selects none. Used by generated createApps factories. */
-export function bindApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>> {
+export function bindApps(identity: Identity, contracts: Record<string, Contract | null>, bindings: Record<string, Binding>, options?: CreateOptions): Readonly<Record<string, RuntimeClient>> {
   const selected = Object.fromEntries(Object.keys(bindings).map((name): [string, Contract | null] => {
     if (!Object.hasOwn(contracts, name) && !Object.hasOwn(identity.requires ?? {}, name)) throw new Error("Unknown app binding: " + name);
     return [name, contracts[name] ?? null];
@@ -86,8 +84,8 @@ export function bindApps<B = Binding>(identity: Identity, contracts: Record<stri
 }
 
 /** Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call and act for the caller of the request holon-sh/serve is answering. Close persistent clients on shutdown. Most callers use the generated clients. */
-export function createApps<B = Binding>(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, B>, options?: CreateOptions<B>): Readonly<Record<string, RuntimeClient>> {
-  const { validator = defaultValidator, resolve = environment, session: hosted } = options ?? {};
+export function createApps(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, Binding>, options?: CreateOptions): Readonly<Record<string, RuntimeClient>> {
+  const { validator = defaultValidator, resolve = environment } = options ?? {};
   const expect: Expect = (schema, label) => {
     let check: Check | undefined;
     return value => {
@@ -100,7 +98,7 @@ export function createApps<B = Binding>(identity: Identity, contracts: Record<st
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
     const binding = bindings?.[name];
-    const link = createLink(identity, name, { binding, resolve: bindings ? undefined : resolve, host: binding ? hosted?.(name, binding) : undefined });
+    const link = createLink(identity, name, { binding, resolve: bindings ? undefined : resolve });
     apps[name] = Object.freeze({ ...tools(link, contract, expect), resources: resources(link, contract, expect), ext: Object.freeze({ events: events(link, contract, expect) }), close: link.close });
   }
   return Object.freeze(apps);
