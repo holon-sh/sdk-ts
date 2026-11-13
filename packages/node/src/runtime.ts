@@ -25,7 +25,7 @@ export interface EndpointBinding {
   /** Origins the server may name as file upload or download targets, e.g. "https://storage.example.com". Unset, any https origin on a globally reachable address is allowed; set, only these, which may also be http on loopback or have a non-global address. */
   fileOrigins?: string[];
 }
-/** A session something else owns, such as an MCP Apps host relaying for a view. Its client is a SessionClient: calls and reads go through the session. */
+/** A session something else owns, such as an MCP Apps host relaying for a view. A client bound to it can call tools and read resources. */
 export interface SessionBinding { session: ToolSession }
 export type Binding = EndpointBinding | SessionBinding;
 /** Calling application identity and its declared dependencies. */
@@ -38,7 +38,7 @@ export interface Contract {
 }
 /** Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources. */
 export type RuntimeClient = ToolClient<Record<string, Record<string, unknown>>, Record<string, unknown>, Record<string, unknown>>;
-/** The client a binding gives: the full client for an endpoint, a session client for a session. */
+/** The client a binding gives: a full client for an endpoint, a SessionClient for a session. */
 type Bound<B extends Binding> = B extends EndpointBinding ? RuntimeClient : SessionClient<RuntimeClient>;
 /** The subset of an MCP client a session must provide. A tool call may also resolve to the server's input_required question. */
 export interface ToolSession {
@@ -75,7 +75,7 @@ function defaultValidator(schema: object): Check {
   return check;
 }
 
-/** Construct only the explicitly bound dependencies: a full client for an endpoint binding, a SessionClient for a session binding. A bound name is one the contracts or the identity's requires declare; an empty binding map selects none. Used by generated createApps factories. */
+/** Create clients for the bound apps only: a full client for an endpoint binding, a SessionClient for a session binding. Each bound name must be an app the identity or the contracts declare. Used by generated createApps factories. */
 export function bindApps<C extends Record<string, Contract | null>, B extends Record<string, Binding>, R extends string = never>(identity: Identity & { requires?: Record<R, unknown> }, contracts: C, bindings: B & { [A in Exclude<keyof B & string, keyof C | R>]: never }, options?: CreateOptions): { readonly [A in keyof B]: Bound<B[A]> } {
   const selected = Object.fromEntries(Object.keys(bindings).map(name => [name, contracts[name] ?? null]));
   return createApps(identity, selected, bindings, options) as { readonly [A in keyof B]: Bound<B[A]> };

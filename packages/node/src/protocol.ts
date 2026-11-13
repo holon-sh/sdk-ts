@@ -89,7 +89,7 @@ export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurre
 
 /** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. A Blob at a file argument (x-mcp-file) is sent with the files extension: inline when the server takes it, else uploaded to the target the server names. A failure before the call completes says whether the tool did not run or the outcome is unknown. */
 export interface ToolClient<I, O, R, E extends Record<string, { arguments: unknown; data: unknown }> = Record<string, { arguments: Record<string, unknown>; data: unknown }>> {
-  /** Close the cached endpoint session. Scoped calls close their own session. */
+  /** Close the client's connection to its endpoint. */
   readonly close: () => Promise<void>;
   /** Fetch the live tool catalog. */
   readonly listTools: (options?: CallOptions) => Promise<ListToolsResult>;
@@ -117,5 +117,5 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
 }
 
-/** The client C as bound to a session something else owns, such as an MCP Apps host relaying for a view: it calls tools and reads resources. Listing tools, watching a resource and MCP Events need an endpoint, and the session is its owner's to close, so a session client has none of them. */
+/** What the client C can do through a session something else owns, such as an MCP Apps host relaying for a view: call its tools and read its resources. */
 export type SessionClient<C extends ToolClient<any, any, any, any>> = Pick<C, "tools" | "callTool"> & { readonly resources: { readonly [U in keyof C["resources"]]: Pick<C["resources"][U], "read"> } };

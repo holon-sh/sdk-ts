@@ -21,7 +21,7 @@ interface Shared {
 }
 /** A link through a session something else owns. */
 export interface HostedLink extends Shared { readonly hosted: true }
-/** A link that opens its own connections to an endpoint, which it resolves on every use. */
+/** A link to an MCP endpoint. */
 export interface EndpointLink extends Shared {
   readonly hosted: false;
   connected<T>(options: CallOptions | undefined, run: (connection: Connection) => Promise<T>): Promise<T>;
