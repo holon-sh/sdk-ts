@@ -30,7 +30,7 @@ const discovered = new Map<string, { key: string; prior: PriorDiscovery; expires
 const LEGACY_VERDICT_MS = 10 * 60 * 1000;
 
 type Endpoint = EndpointBinding & { [DISCOVERY]?: string };
-/** Without an endpoint, a binding is served by its own session, the session hook, or not at all. */
+/** Without an endpoint, a binding is served by the session hook, its own session, or not at all. */
 type Resolved = Endpoint | { endpoint?: undefined };
 
 export function environment(name: string): Endpoint {

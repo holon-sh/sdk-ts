@@ -99,16 +99,16 @@ test("session bindings and session hooks serve calls and reads and respect valid
 
   // A session binding's session serves calls and reads; watching and MCP Events need an endpoint.
   const calls: unknown[] = [];
+  const signal = new AbortController().signal;
   const session: ToolSession = {
-    callTool: async (request, options) => { calls.push(["call", request, options?.signal]); return { content: [], structuredContent: { id: request.arguments?.id } }; },
+    callTool: async (request, options) => { calls.push(["call", request, options?.signal === signal]); return { content: [], structuredContent: { id: request.arguments?.id } }; },
     readResource: async request => { calls.push(["read", request]); return { contents: [{ uri: request.uri, text: '{"total":7}' }] }; },
     listTools: async () => ({ tools: [] }),
   };
-  const signal = new AbortController().signal;
   const hosted = bindApps(identity, { orders: contract }, { orders: { session } });
   assert.deepEqual((await hosted.orders.tools.get_order({ id: "s" }, { signal }) as CompleteResult<unknown>).structuredContent, { id: "s" });
   assert.deepEqual(await hosted.orders.resources["orders://summary"].read(), { total: 7 });
-  assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, signal], ["read", { uri: "orders://summary" }]]);
+  assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, true], ["read", { uri: "orders://summary" }]]);
   await assert.rejects(hosted.orders.resources["orders://summary"].watch(() => {}), /endpoint binding/);
   await assert.rejects(hosted.orders.ext.events.subscribe("shipped", {}), /endpoint binding/);
 
@@ -193,11 +193,11 @@ test("schemas that share an $id validate independently", async () => {
     { name: "total", inputSchema: { type: "object" }, outputSchema: { $id, type: "object", required: ["total"] } },
     { name: "status", inputSchema: { type: "object" }, outputSchema: { $id, type: "object", required: ["status"] } },
   ] };
-  const session = (): ToolSession => ({
+  const session: ToolSession = {
     callTool: async request => ({ content: [], structuredContent: request.name === "total" ? { total: 1 } : { status: "ok" } }),
     readResource: async () => ({ contents: [] }),
     listTools: async () => ({ tools: [] }),
-  });
-  const { results } = bindApps({ name: "script", version: "1" }, { results: contract }, { results: {} }, { session });
+  };
+  const { results } = bindApps({ name: "script", version: "1" }, { results: contract }, { results: { session } });
   assert.deepEqual([await results.tools.total({}), await results.tools.status({})], [{ total: 1 }, { status: "ok" }]);
 });

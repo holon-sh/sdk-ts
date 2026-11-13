@@ -7,7 +7,7 @@ import { once } from "node:events";
 import { acceptedContent, createMcpHandler, fromJsonSchema, inputRequired, McpServer, type CallToolResult, type InputRequiredResult, type JSONObject } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { z } from "zod";
-import { createApps, type Binding, type ToolCallOptions } from "holon-sh/runtime";
+import { createApps, type EndpointBinding, type ToolCallOptions } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
 import { EXTENSION } from "holon-sh/ext/files";
 const fileInput = { type: "object", "x-mcp-file": { maxSize: 64 }, properties: { id: { type: "string" }, name: { type: "string" }, mimeType: { type: "string" }, size: { type: "integer" }, digest: { type: "object" }, data: { type: "string" } }, required: ["id", "mimeType", "size"] };
@@ -57,7 +57,7 @@ async function files(t: TestContext, { settings, tool, storage = () => [200] }: 
   http.listen(0, "127.0.0.1");
   await once(http, "listening");
   const origin = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
-  const app = (binding?: Partial<Binding>) => {
+  const app = (binding?: Partial<EndpointBinding>) => {
     const { files: client } = createApps({ name: "script", version: "1" }, { files: { tools: [{ name: "save", inputSchema: schema }] } }, { files: { endpoint: `${origin}/mcp`, fileOrigins: [origin], authProvider: { token: async () => "secret" }, ...binding } });
     t.after(() => client.close());
     return { save: async (input: Record<string, unknown>, options?: ToolCallOptions) => await client.tools.save(input, options) as CompleteResult<unknown> };

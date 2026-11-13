@@ -50,7 +50,7 @@ export interface CreateOptions<B = Binding> {
   validator?: (schema: object) => { (value: unknown): boolean; errors?: unknown };
   /** Binding of an app created without explicit bindings; consulted on every call. */
   resolve?: (app: string) => EndpointBinding | undefined;
-  /** Session for a binding the runtime does not connect to itself (anything without an endpoint). */
+  /** Session for a binding the runtime does not serve itself (anything without an endpoint or a session). */
   session?: (app: string, binding: B) => ToolSession | undefined;
 }
 
