@@ -63,7 +63,7 @@ function connect(identity: Identity, resolved: EndpointBinding, prior?: PriorDis
   return connection;
 }
 
-export function createLink(identity: Identity, name: string, { binding, resolve }: { binding: Binding | undefined; resolve?: (app: string) => EndpointBinding | undefined }): Link {
+export function createLink(identity: Identity, name: string, { binding, resolve }: { binding?: Binding; resolve?: (app: string) => EndpointBinding | undefined }): Link {
   const current = (): Endpoint | undefined => binding && "endpoint" in binding ? binding : resolve?.(name);
   const hosted = binding && "session" in binding ? binding.session : undefined;
   let kept: Connection | undefined;

@@ -97,8 +97,7 @@ export function createApps(identity: Identity, contracts: Record<string, Contrac
   // Without explicit bindings, every declared dependency gets a client; those without a contract are untyped.
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
-    const binding = bindings?.[name];
-    const link = createLink(identity, name, { binding, resolve: bindings ? undefined : resolve });
+    const link = createLink(identity, name, bindings ? { binding: bindings[name] } : { resolve });
     apps[name] = Object.freeze({ ...tools(link, contract, expect), resources: resources(link, contract, expect), ext: Object.freeze({ events: events(link, contract, expect) }), close: link.close });
   }
   return Object.freeze(apps);
