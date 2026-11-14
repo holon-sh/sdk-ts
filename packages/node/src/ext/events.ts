@@ -3,6 +3,7 @@
 import { ProtocolError, ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import type { JSONRPCErrorResponse, McpServer, Server, ServerCapabilities, ServerContext, StandardSchemaV1, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { getContext } from "../context.js";
+import { holder } from "../holder.js";
 import type { EventOccurrence as Occurrence } from "../protocol.js";
 
 /** How a subscription receives its events. */
@@ -585,6 +586,8 @@ export function createEvents(): Events {
           throw refusal(ending);
         }
         signal.addEventListener("abort", finish, { once: true });
+        const serving = holder.getStore();
+        if (serving) serving.end = finish;
         // A stream that cannot be written to is over.
         let sent = 0;
         const notify = async (method: string, body: object) => {

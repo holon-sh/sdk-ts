@@ -8,7 +8,9 @@ import type { AddressInfo } from "node:net";
 import { dirname, join, relative } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import { bindApps, createApps } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
 import { getContext } from "holon-sh/context";
@@ -255,7 +257,7 @@ test("a dependency bound by the environment acts for the caller until its reques
   assert.deepEqual(received(), [`${token} Bearer peer-secret`]);
 });
 
-test("holon-serve runs an app's module until SIGTERM, and load takes only a module serve can run", { timeout: 10000 }, async t => {
+test("holon-serve runs an app's module until SIGTERM, when it closes its event streams with their final frame, and load takes only a module serve can run", { timeout: 10000 }, async t => {
   const root = temporary(t);
   writeFileSync(join(root, "plain.mjs"), "export default {};");
   writeFileSync(join(root, "named.mjs"), "export default { fetch() {} }; export const frontend = 'web';");
@@ -276,7 +278,14 @@ test("holon-serve runs an app's module until SIGTERM, and load takes only a modu
   assert.deepEqual((await app!.callTool({ name: "hello", arguments: {} })).content, [{ type: "text", text: "hello" }]);
   const waiting = app!.callTool({ name: "wait", arguments: {} }).then(() => "answered", () => "ended");
   assert.equal((await lines.next()).value, "waiting");
+  const client = new Client({ name: "test", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
+  t.after(() => client.close());
+  const active = new Promise<void>(resolve => client.setNotificationHandler("notifications/events/active", { params: z.any() }, () => resolve()));
+  const stream = client.request({ method: "events/stream", params: { name: "ticked", arguments: {} } }, z.any()).then(() => "closed", () => "dropped");
+  await active;
   child.kill("SIGTERM");
   assert.deepEqual(await exited, [0, null]);
   assert.equal(await waiting, "ended");
+  assert.equal(await stream, "closed");
 });
