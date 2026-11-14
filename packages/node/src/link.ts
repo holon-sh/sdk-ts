@@ -15,13 +15,21 @@ interface Connection {
   close(): Promise<void>;
 }
 
-export interface Link {
+interface Shared {
   readonly name: string;
   session<T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T>;
-  endpoint(what: string): EndpointBinding;
+}
+/** A link through a session something else owns. */
+export interface HostedLink extends Shared { readonly hosted: true }
+/** A link to an MCP endpoint. */
+export interface EndpointLink extends Shared {
+  readonly hosted: false;
+  connected<T>(options: CallOptions | undefined, run: (connection: Connection) => Promise<T>): Promise<T>;
+  endpoint(): EndpointBinding;
   connect(binding: EndpointBinding): Connection;
   close(): Promise<void>;
 }
+export type Link = HostedLink | EndpointLink;
 
 // Environment-bound calls reuse the last server/discover result for the same endpoint and token instead of discovering
 // the server on every call. A dependency keeps only its latest result, so a changed endpoint or token replaces it.
@@ -64,14 +72,19 @@ function connect(identity: Identity, resolved: EndpointBinding, prior?: PriorDis
 }
 
 export function createLink(identity: Identity, name: string, { binding, resolve }: { binding?: Binding; resolve?: (app: string) => EndpointBinding | undefined }): Link {
-  const current = (): Endpoint | undefined => binding && "endpoint" in binding ? binding : resolve?.(name);
-  const hosted = binding && "session" in binding ? binding.session : undefined;
-  let kept: Connection | undefined;
-  const session = async <T>(options: CallOptions | undefined, run: (client: ToolSession, connection?: Connection) => Promise<T>): Promise<T> => {
-    options?.signal?.throwIfAborted();
-    if (hosted) return run(hosted);
-    const resolved = current();
+  if (binding && !("endpoint" in binding)) {
+    const { session } = binding;
+    return { name, hosted: true, session: async (options, run) => { options?.signal?.throwIfAborted(); return run(session); } };
+  }
+  const endpoint = (): Endpoint => {
+    const resolved: Endpoint | undefined = binding ?? resolve?.(name);
     if (!resolved?.endpoint) throw new Error(`Dependency ${name} is unavailable. Provide a binding.`);
+    return resolved;
+  };
+  let kept: Connection | undefined;
+  const connected = async <T>(options: CallOptions | undefined, run: (connection: Connection) => Promise<T>): Promise<T> => {
+    options?.signal?.throwIfAborted();
+    const resolved = endpoint();
     const scoped = resolved.scoped === true;
     const key = resolved[DISCOVERY];
     const cached = discovered.get(name);
@@ -83,22 +96,20 @@ export function createLink(identity: Identity, name: string, { binding, resolve 
         const discover = active.client.getDiscoverResult();
         discovered.set(name, { key, prior: discover ? { kind: "modern", discover } : { kind: "legacy" }, expires: discover ? Infinity : Date.now() + LEGACY_VERDICT_MS });
       }
-      return await run(active.client, active);
+      return await run(active);
     } catch (error) {
       // A server that no longer speaks the discovered protocol rejects the first request without running it.
       if (!prior || active.answered || !(SdkHttpError.isInstance(error) && error.status === 400)) throw error;
       discovered.delete(name);
-      return session(options, run);
+      return connected(options, run);
     } finally { if (scoped) await active.close(); }
   };
   return {
     name,
-    session,
-    endpoint(what) {
-      const resolved = current();
-      if (!resolved?.endpoint) throw new Error(`${what} requires an endpoint binding.`);
-      return resolved;
-    },
+    hosted: false,
+    session: (options, run) => connected(options, connection => run(connection.client, connection)),
+    connected,
+    endpoint,
     connect: resolved => connect(identity, resolved),
     close: async () => { await kept?.close(); },
   };

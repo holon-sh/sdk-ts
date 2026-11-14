@@ -89,24 +89,24 @@ export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurre
 
 /** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. A Blob at a file argument (x-mcp-file) is sent with the files extension: inline when the server takes it, else uploaded to the target the server names. A failure before the call completes says whether the tool did not run or the outcome is unknown. */
 export interface ToolClient<I, O, R, E extends Record<string, { arguments: unknown; data: unknown }> = Record<string, { arguments: Record<string, unknown>; data: unknown }>> {
-  /** Close the cached endpoint session. Scoped calls close their own session; a host-owned session is closed by its host. */
+  /** Close the client's connection to its endpoint. */
   readonly close: () => Promise<void>;
   /** Fetch the live tool catalog. */
   readonly listTools: (options?: CallOptions) => Promise<ListToolsResult>;
   /** Experimental MCP extensions. They follow drafts that are still changing, so what is here may change with them. */
   readonly ext: {
     /**
-     * MCP Events, the draft extension of the Triggers & Events Working Group. subscribe requires an endpoint binding.
-     * It resolves once the server has confirmed the subscription, then reconnects and resumes from its cursor by
-     * itself, and rejects when the server offers no such event. A contract types an event's arguments and data by its
-     * name, and its data is checked against the contract. Without one, the data is unknown.
+     * MCP Events, the draft extension of the Triggers & Events Working Group. subscribe resolves once the server has
+     * confirmed the subscription, then reconnects and resumes from its cursor by itself, and rejects when the server
+     * offers no such event. A contract types an event's arguments and data by its name, and its data is checked against
+     * the contract. Without one, the data is unknown.
      */
     readonly events: {
       readonly list: (options?: CallOptions) => Promise<EventType[]>;
       readonly subscribe: <K extends keyof E & string>(name: K, args: E[K]["arguments"], options?: SubscribeOptions) => Promise<Subscription<E[K]["data"]>>;
     };
   };
-  /** Contracted JSON resources. read validates the first text content as JSON. watch requires an endpoint binding to a server that supports subscriptions; it reads the initial value, then listens for updates until aborted. */
+  /** Contracted JSON resources. read validates the first text content as JSON. watch needs a server that supports subscriptions; it reads the initial value, then listens for updates until aborted. */
   readonly resources: { readonly [U in keyof R]: {
     readonly read: (options?: CallOptions) => Promise<R[U]>;
     readonly watch: (onChange: (value: R[U]) => void | Promise<void>, options?: { signal?: AbortSignal }) => Promise<void>;
@@ -116,3 +116,6 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
   /** Return the full MCP result, preserving error results and questions left unanswered. Successful output is contract-validated; the server validates arguments. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
 }
+
+/** What the client C can do through a session something else owns, such as an MCP Apps host relaying for a view: call its tools and read its resources. */
+export type SessionClient<C extends ToolClient<any, any, any, any>> = Pick<C, "tools" | "callTool"> & { readonly resources: { readonly [U in keyof C["resources"]]: Pick<C["resources"][U], "read"> } };

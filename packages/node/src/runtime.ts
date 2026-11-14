@@ -1,14 +1,14 @@
 import { isInputRequiredResult } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ListToolsRequest, ListToolsResult, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { DefaultJsonSchemaValidator } from "@modelcontextprotocol/client/_shims";
 import { events } from "./ext/events.client.js";
 import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
-import { createLink, environment, patient, sleep, untilAborted, type Link } from "./link.js";
+import { createLink, environment, patient, sleep, untilAborted, type EndpointLink, type HostedLink, type Link } from "./link.js";
 import { ToolCallError } from "./protocol.js";
-import type { AuthProvider, CallMetadata, CallOptions, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
+import type { AuthProvider, CallMetadata, CallOptions, SessionClient, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
 export { ToolCallError } from "./protocol.js";
-export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
+export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SessionClient, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
 export interface EndpointBinding {
@@ -25,7 +25,7 @@ export interface EndpointBinding {
   /** Origins the server may name as file upload or download targets, e.g. "https://storage.example.com". Unset, any https origin on a globally reachable address is allowed; set, only these, which may also be http on loopback or have a non-global address. */
   fileOrigins?: string[];
 }
-/** A session something else owns, such as an MCP Apps host relaying for a view. Calls and reads go through it; watching a resource and MCP Events need an endpoint. */
+/** A session something else owns, such as an MCP Apps host relaying for a view. A client bound to it can call tools and read resources. */
 export interface SessionBinding { session: ToolSession }
 export type Binding = EndpointBinding | SessionBinding;
 /** Calling application identity and its declared dependencies. */
@@ -38,11 +38,12 @@ export interface Contract {
 }
 /** Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources. */
 export type RuntimeClient = ToolClient<Record<string, Record<string, unknown>>, Record<string, unknown>, Record<string, unknown>>;
+/** The client a binding gives: a full client for an endpoint, a SessionClient for a session. */
+type Bound<B extends Binding> = B extends EndpointBinding ? RuntimeClient : SessionClient<RuntimeClient>;
 /** The subset of an MCP client a session must provide. A tool call may also resolve to the server's input_required question. */
 export interface ToolSession {
   callTool(request: CallToolRequest["params"], options?: CallToolRequestOptions): Promise<CallToolResult | InputRequiredResult>;
   readResource(request: ReadResourceRequest["params"], options?: CacheableRequestOptions): Promise<ReadResourceResult>;
-  listTools(params?: ListToolsRequest["params"], options?: CacheableRequestOptions): Promise<ListToolsResult>;
 }
 /** Optional validation and binding resolution hooks. */
 export interface CreateOptions {
@@ -74,17 +75,14 @@ function defaultValidator(schema: object): Check {
   return check;
 }
 
-/** Construct only the explicitly bound dependencies. Unknown names throw; an empty binding map selects none. Used by generated createApps factories. */
-export function bindApps(identity: Identity, contracts: Record<string, Contract | null>, bindings: Record<string, Binding>, options?: CreateOptions): Readonly<Record<string, RuntimeClient>> {
-  const selected = Object.fromEntries(Object.keys(bindings).map((name): [string, Contract | null] => {
-    if (!Object.hasOwn(contracts, name) && !Object.hasOwn(identity.requires ?? {}, name)) throw new Error("Unknown app binding: " + name);
-    return [name, contracts[name] ?? null];
-  }));
-  return createApps(identity, selected, bindings, options);
+/** Create clients for the bound apps only: a full client for an endpoint binding, a SessionClient for a session binding. Each bound name must be an app the identity or the contracts declare. Used by generated createApps factories. */
+export function bindApps<C extends Record<string, Contract | null>, B extends Record<string, Binding>, R extends string = never>(identity: Identity & { requires?: Record<R, unknown> }, contracts: C, bindings: B & { [A in Exclude<keyof B & string, keyof C | R>]: never }, options?: CreateOptions): { readonly [A in keyof B]: Bound<B[A]> } {
+  const selected = Object.fromEntries(Object.keys(bindings).map(name => [name, contracts[name] ?? null]));
+  return createApps(identity, selected, bindings, options) as { readonly [A in keyof B]: Bound<B[A]> };
 }
 
 /** Construct runtime clients from identity and contracts. Connections open lazily. Explicit and resolved endpoint bindings reuse one session unless scoped is true; <NAME>_MCP_URL bindings use one session per call and act for the caller of the request holon-sh/serve is answering. Close persistent clients on shutdown. Most callers use the generated clients. */
-export function createApps(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, Binding>, options?: CreateOptions): Readonly<Record<string, RuntimeClient>> {
+export function createApps<B extends Binding = EndpointBinding>(identity: Identity, contracts: Record<string, Contract | null>, bindings?: Record<string, B>, options?: CreateOptions): Readonly<Record<string, Bound<B>>> {
   const { validator = defaultValidator, resolve = environment } = options ?? {};
   const expect: Expect = (schema, label) => {
     let check: Check | undefined;
@@ -93,20 +91,23 @@ export function createApps(identity: Identity, contracts: Record<string, Contrac
       if (!check(value)) throw new Error(`Invalid ${label}: ${JSON.stringify(check.errors)}`);
     };
   };
-  const apps: Record<string, RuntimeClient> = Object.create(null);
+  const apps: Record<string, SessionClient<RuntimeClient>> = Object.create(null);
   // Without explicit bindings, every declared dependency gets a client; those without a contract are untyped.
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
     const link = createLink(identity, name, bindings ? { binding: bindings[name] } : { resolve });
-    apps[name] = Object.freeze({ ...tools(link, contract, expect), resources: resources(link, contract, expect), ext: Object.freeze({ events: events(link, contract, expect) }), close: link.close });
+    const shared = tools(link, contract, expect);
+    apps[name] = Object.freeze(link.hosted
+      ? { ...shared, resources: resources(link, contract, expect) }
+      : { ...shared, listTools: (options?: CallOptions) => link.connected(options, ({ client }) => client.listTools(undefined, patient(options))), resources: resources(link, contract, expect), ext: Object.freeze({ events: events(link, contract, expect) }), close: link.close });
   }
-  return Object.freeze(apps);
+  return Object.freeze(apps) as Readonly<Record<string, Bound<B>>>;
 }
 
 // Object methods JavaScript calls implicitly; tools with these names stay reachable through callTool.
 const reserved = new Set(["then", "toJSON", "toString", "valueOf", "toLocaleString"]);
 
-function tools(link: Link, contract: Contract | null, expect: Expect): Pick<RuntimeClient, "callTool" | "listTools" | "tools"> {
+function tools(link: Link, contract: Contract | null, expect: Expect): Pick<RuntimeClient, "callTool" | "tools"> {
   const { name } = link;
   const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition, output: definition.outputSchema && expect(definition.outputSchema, `structured output from ${name}.${definition.name}`) }]));
   const callTool = async (request: CallMetadata & { name: string; arguments?: Record<string, unknown> }, { elicit, ...options }: ToolCallOptions = {}): Promise<ToolResult<unknown>> => {
@@ -118,7 +119,7 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
     const result = await link.session(options, async (client, connection) => {
       const { arguments: args, files } = await prepare(request.arguments, {
         label, connection,
-        schema: async () => tool?.definition.inputSchema ?? (await client.listTools(undefined, patient(options))).tools.find(({ name }) => name === request.name)?.inputSchema,
+        schema: async ({ client }) => tool?.definition.inputSchema ?? (await client.listTools(undefined, patient(options))).tools.find(({ name }) => name === request.name)?.inputSchema,
       });
       // The SDK's request type leaves out the continuation fields the protocol carries.
       let next: typeof request = files.size ? { ...request, arguments: args } : request;
@@ -155,7 +156,6 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
     // isError tells ToolResult's success variant from its error variant.
     return { ...result, resultType: "complete" } as ToolResult<unknown>;
   };
-  const listTools = (options?: CallOptions) => link.session(options, client => client.listTools(undefined, patient(options)));
   const tools: Record<string, RuntimeClient["tools"][string]> = Object.create(null);
   for (const tool of contract?.tools ?? []) if (!reserved.has(tool.name)) {
     tools[tool.name] = async (input, options) => {
@@ -165,12 +165,14 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
     };
   }
   // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
-  return { callTool: callTool as RuntimeClient["callTool"], listTools, tools: Object.freeze(tools) };
+  return { callTool: callTool as RuntimeClient["callTool"], tools: Object.freeze(tools) };
 }
 
-function resources(link: Link, contract: Contract | null, expect: Expect): RuntimeClient["resources"] {
+function resources(link: EndpointLink, contract: Contract | null, expect: Expect): RuntimeClient["resources"];
+function resources(link: HostedLink, contract: Contract | null, expect: Expect): SessionClient<RuntimeClient>["resources"];
+function resources(link: Link, contract: Contract | null, expect: Expect): SessionClient<RuntimeClient>["resources"] {
   const { name } = link;
-  const resources: Record<string, RuntimeClient["resources"][string]> = Object.create(null);
+  const resources: Record<string, SessionClient<RuntimeClient>["resources"][string]> = Object.create(null);
   for (const resource of contract?.resources ?? []) {
     const check = expect(resource.outputSchema, `contents from ${name} ${resource.uri}`);
     const parse = (result: ReadResourceResult): unknown => {
@@ -181,8 +183,9 @@ function resources(link: Link, contract: Contract | null, expect: Expect): Runti
       return value;
     };
     const read = async (options?: CallOptions) => parse(await link.session(options, client => client.readResource({ uri: resource.uri }, patient(options))));
+    if (link.hosted) { resources[resource.uri] = Object.freeze({ read }); continue; }
     const watch = async (onChange: (value: unknown) => void | Promise<void>, { signal }: { signal?: AbortSignal } = {}) => {
-      const resolved = link.endpoint(`Watching ${name} ${resource.uri}`);
+      const resolved = link.endpoint();
       // An abort ends the wait between attempts early instead of failing it.
       for (let established = false; !signal?.aborted; await sleep(1000, signal)) {
         const current = link.connect(resolved);

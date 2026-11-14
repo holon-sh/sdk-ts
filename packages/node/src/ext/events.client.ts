@@ -1,7 +1,6 @@
 // The client side of MCP Events, the draft extension of the Triggers & Events Working Group:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
-import type { Client } from "@modelcontextprotocol/client";
-import { patient, sleep, unchecked, untilAborted, type Link } from "../link.js";
+import { patient, sleep, unchecked, untilAborted, type EndpointLink } from "../link.js";
 import type { CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription } from "../protocol.js";
 import type { Contract, RuntimeClient } from "../runtime.js";
 
@@ -14,13 +13,9 @@ type Polled = { events?: Sent[]; cursor?: string | null; truncated?: boolean; ha
 // lost, or that the request is no longer valid. Anything else is tried again from the cursor.
 const refused = (error: any): boolean => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500 || [-32602, -32023, -32024, -32026].includes(error?.code);
 
-export function events(link: Link, contract: Contract | null, expect: (schema: object, label: string) => (value: unknown) => void): RuntimeClient["ext"]["events"] {
+export function events(link: EndpointLink, contract: Contract | null, expect: (schema: object, label: string) => (value: unknown) => void): RuntimeClient["ext"]["events"] {
   const { name } = link;
-  const connected = <T>(options: CallOptions | undefined, run: (client: Client) => Promise<T>) => link.session(options, (_, connection) => {
-    if (!connection) throw new Error(`MCP Events of ${name} require an endpoint binding.`);
-    return run(connection.client);
-  });
-  const list = (options?: CallOptions) => connected(options, async client => {
+  const list = (options?: CallOptions) => link.connected(options, async ({ client }) => {
     const events: EventType[] = [];
     for (let cursor: string | undefined; ;) {
       const page = await client.request({ method: "events/list", params: { ...(cursor && { cursor }) } }, unchecked<Listed>(), patient(options));
@@ -29,7 +24,7 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
     }
   });
   const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, reconnect = true, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
-    const resolved = link.endpoint(`Subscribing to ${name} ${event}`);
+    const resolved = link.endpoint();
     const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
     const delivery = options.delivery ?? (["push", "poll"] as const).find(mode => offered.includes(mode));
@@ -65,7 +60,7 @@ export function events(link: Link, contract: Contract | null, expect: (schema: o
       while (!ended.aborted) {
         let wait = 1000;
         try {
-          const result = await connected({ signal: ended }, client => client.request({ method: "events/poll", params: { ...request, cursor } }, unchecked<Polled>(), patient({ signal: ended })));
+          const result = await link.connected({ signal: ended }, ({ client }) => client.request({ method: "events/poll", params: { ...request, cursor } }, unchecked<Polled>(), patient({ signal: ended })));
           try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
           reach(result.cursor, result.truncated);
           confirm();
