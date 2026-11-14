@@ -15,7 +15,7 @@ export type EventError = JSONRPCErrorResponse["error"];
 export interface Subscription<A> {
   /**
    * The sketch's subscription_id: names the subscription to `emit` and `terminate`. For a caller with an identity it
-   * is the same for the same caller, event type and arguments as sent, so it survives a reconnect and a poll lease that lapses. The caller is the user, the
+   * is the same for the same caller, event type and arguments, so it survives a reconnect and a poll lease that lapses. The caller is the user, the
    * client acting for them, the agent acting for the user and the token's scopes, as Holon admitted them; two streams
    * with the same id both receive what is emitted to it. A caller without a subject has no identity: each of its
    * streams has an id of its own, which ends with the stream, and its polls share one lease per arguments with every
@@ -308,7 +308,6 @@ export function createEvents(): Events {
     const checked = await type.inputSchema["~standard"].validate(args);
     if (checked.issues) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for ${name}: ${checked.issues.map(issue => issue.message).join("; ")}`);
     const who = caller(context);
-    // Polls share a lease per caller and arguments as sent, and callers without an identity share one per arguments.
     const lease = await identify(who, type.name, args);
     if (type.authorize && !(await type.authorize(checked.value, context))) {
       endSubscription(type, lease, forbidden);
