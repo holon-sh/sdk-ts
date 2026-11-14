@@ -391,39 +391,27 @@ test("a subscription the caller may not have is refused, and one it no longer ma
 
 test("a subscription left while it is being set up has what the setup made cleaned up, and a request waiting for it sets it up again, by push or poll", async t => {
   for (const delivery of ["push", "poll"] as const) {
-    let release: (() => void) | undefined;
-    let first: AbortSignal | undefined;
     let asked = 0;
-    const settled: boolean[] = [];
+    let begun = 0;
     let cleaned = 0;
     const { factory } = rooms({
       authorize: () => ++asked > 0,
-      onSubscribe: async ({ context }) => {
-        if (!first) {
-          first = context.mcpReq.signal;
-          await new Promise<void>(resolve => { release = resolve; });
-        }
-        settled.push(context.mcpReq.signal.aborted);
+      onSubscribe: async ({ context: { mcpReq: { signal } } }) => {
+        if (begun++ === 0) await new Promise(resolve => signal.addEventListener("abort", resolve));
         return () => { cleaned++; };
       },
     });
-    const { endpoint } = await serve(t, factory, signedIn);
-    const events = connect(t, endpoint);
+    const events = connect(t, (await serve(t, factory, signedIn)).endpoint);
     const leaving = new AbortController();
     const args = { room: "a", listener: "bob" };
     const subscribing = events.subscribe("room.said", args, { delivery, signal: leaving.signal });
-    await until(() => release);
-    leaving.abort();
-    await assert.rejects(subscribing);
-    await until(() => first!.aborted);
+    await until(() => begun);
     const staying = events.subscribe("room.said", args, { delivery });
     await until(() => asked === 2);
-    await new Promise(resolve => setImmediate(resolve));
-    release!();
-    const stayed = await staying;
-    assert.deepEqual(settled, [true, false], delivery);
-    await until(() => cleaned === 1);
-    stayed.cancel();
+    leaving.abort();
+    await assert.rejects(subscribing);
+    await staying;
+    assert.deepEqual([begun, cleaned], [2, 1], delivery);
   }
 });
 
