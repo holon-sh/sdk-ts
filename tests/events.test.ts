@@ -279,10 +279,11 @@ test("a signed-in caller's subscription is one per arguments, set up once while 
   say("a", "bob", "while away", bob);
   assert.deepEqual(await heard, ["while away"]);
   assert.deepEqual(begun, [bob, cat, bob]);
-  // Polls share a subscription too.
+  // Polls share a subscription too, named by the arguments as sent, not as the input schema reads them.
   await events.subscribe("room.said", { room: "b", listener: "bob" }, { delivery: "poll" });
   await events.subscribe("room.said", { listener: "bob", room: "b" }, { delivery: "poll" });
-  assert.equal(begun.length, 4);
+  await events.subscribe("room.said", { room: "b", listener: "bob", mood: "glad" }, { delivery: "poll" });
+  assert.equal(begun.length, 5);
 });
 
 test("callers without an identity do not share a subscription, so what is emitted to one's reaches it alone", async t => {
