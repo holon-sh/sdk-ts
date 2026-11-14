@@ -102,23 +102,23 @@ The client is pushed each event on a stream where the server offers one and poll
 
 To hand a page its state and then its changes, a tool returns the state together with `said.cursor()`, read in the same synchronous run, and the page subscribes from that cursor: it hears every change after the state, and none twice. Occurrences emitted one after another in one run reach each subscriber in that order with nothing of the same type between them, so a group of changes is emitted together or sent as one occurrence holding a list.
 
-An event type may also say who may subscribe, and hear when subscriptions begin and end:
+An event type may also say who may subscribe, and set up what a subscription's events come from, returning what undoes it when the subscription ends:
 
 ```ts
 const said = events.event("room.said", {
   // ...
-  authorize: ({ room }, context) => mayRead(getContext(context).principal, room),
+  authorize: ({ room }, context) => mayRead(getContext(context.http).principal, room),
   onSubscribe: ({ subscriptionId, arguments: { room } }) => {
-    listeners.set(subscriptionId, upstream.join(room, text => said.emit({ room, text }, { subscriptionId })));
+    const listener = upstream.join(room, text => said.emit({ room, text }, { subscriptionId }));
+    return () => listener.leave();
   },
-  onUnsubscribe: ({ subscriptionId }) => listeners.get(subscriptionId)?.leave(),
 });
 
 said.terminate(subscriptionId);  // terminates one subscription; said.terminate() terminates them all
 said.remove();                   // stops offering the type
 ```
 
-A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. Each type keeps its last ten thousand events for ten minutes, and one emitted to a subscription until its open streams have sent it; polls are told to come back every second, a poll subscription ends a minute after its last poll, and subscriptions are limited to ten thousand in all and a thousand per caller. Names follow the design sketch.
+Each hook gets the server's context of the request it runs in. A subscription outlives the request that set it up, so keep what a hook reads from its context, not the context. A refused subscription is answered Forbidden, and access is checked again at each poll and heartbeat. A subscription begins when its stream opens or its first poll arrives, and ends when its last stream closes or polls stop for a while. For a signed-in caller its `id` is the same for the same user, client, agent, scopes, event type and arguments, so what is emitted to it while its client reconnects is still delivered. A caller without an identity gets a new id for each stream, and its polls share one lease per arguments with every such caller, to which nothing is emitted alone. Each type keeps its last ten thousand events for ten minutes, and one emitted to a subscription until its open streams have sent it; polls are told to come back every second, a poll subscription ends a minute after its last poll, and subscriptions are limited to ten thousand in all and a thousand per caller. Names follow the design sketch.
 
 Poll and push delivery are here, with targeted emits, subscription hooks, authorization, ending subscriptions, limits, paged listing and removing event types. Webhook delivery and check functions, which read a source that keeps its own history, are not, and neither are typed event names. Clients are not told when the event types change: they list them again.
 
