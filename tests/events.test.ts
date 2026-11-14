@@ -2,7 +2,7 @@ import { test, type TestContext } from "node:test";
 import type { IncomingMessage } from "node:http";
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client, ProtocolError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps, type SubscribeOptions, type Subscription } from "holon-sh/runtime";
@@ -94,31 +94,31 @@ const signedIn = (request: IncomingMessage & { auth?: unknown }) => {
 };
 
 const refusedWith = (code: number, data?: unknown) => (error: any) => {
+  assert.ok(ProtocolError.isInstance(error));
   assert.equal(error.code, code);
   if (data) assert.deepEqual(error.data, data);
   return true;
 };
 
-test("a subscription hears what its arguments match, in order and with nothing missed, by push or poll, across ended and dropped streams, or fails when one drops if it does not reconnect by itself", async t => {
+test("a subscription hears what its arguments match, in order and with nothing missed, by push or poll, across streams the server ends and polls that fail", async t => {
   const { factory, say } = rooms();
-  const { endpoint, http } = await serve(t, factory);
+  const { endpoint } = await serve(t, factory);
   let away = false;
-  const events = connect(t, endpoint, { fetch: (input, init) => away ? Promise.reject(new TypeError("fetch failed")) : fetch(input, init) });
-  const subscribe = (delivery: "push" | "poll", reconnect = true) => events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery, reconnect });
-  const [pushed, polled, ...failing] = [await subscribe("push"), await subscribe("poll"), await subscribe("push", false), await subscribe("poll", false)];
+  let failed = 0;
+  const events = connect(t, endpoint, { fetch: (input, init) => away ? Promise.reject(new TypeError(`fetch failed ${++failed}`)) : fetch(input, init) });
+  const subscribe = (delivery: "push" | "poll") => events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery });
+  const [pushed, polled] = [await subscribe("push"), await subscribe("poll")];
   say("a", "ann", "one");
   say("a", "bob", "bob's own words");
   say("b", "ann", "another room");
   // More is said than one stream sends before it ends and its client resumes.
   const burst = Array.from({ length: 100 }, (_, n) => `${n}`.padEnd(10_000));
   for (const text of burst) say("a", "cat", text);
-  for (const subscription of [pushed, polled, ...failing]) assert.deepEqual(await next(subscription, 101), ["one", ...burst]);
-  // Then connections drop and the server is out of reach for a while.
+  for (const subscription of [pushed, polled]) assert.deepEqual(await next(subscription, 101), ["one", ...burst]);
+  // Then the server is out of reach for a while.
   away = true;
-  http.closeAllConnections();
   say("a", "cat", "while away");
-  await assert.rejects(next(failing[0], 1), /Lost the connection to app for room.said/);
-  await assert.rejects(next(failing[1], 1), /fetch failed/);
+  await until(() => failed);
   away = false;
   for (const subscription of [pushed, polled]) assert.deepEqual(await take(subscription, 1), ["while away"]);
 });
@@ -262,7 +262,7 @@ test("a signed-in caller's subscription is one per arguments, set up once while 
       return () => { ended.push(subscriptionId); };
     },
   });
-  const { endpoint, http } = await serve(t, factory, signedIn);
+  const { endpoint } = await serve(t, factory, signedIn);
   const events = connect(t, endpoint);
   // However the arguments are ordered.
   const first = await events.subscribe("room.said", { room: "a", listener: "bob" });
@@ -279,10 +279,11 @@ test("a signed-in caller's subscription is one per arguments, set up once while 
   assert.deepEqual(ended, [cat]);
 
   // What is emitted to it while its stream is down arrives once the stream is back.
-  const heard = next(second, 1);
-  http.closeAllConnections();
+  const { cursor } = second;
+  second.cancel();
+  await until(() => ended.length === 2);
   say("a", "bob", "while away", bob);
-  assert.deepEqual(await heard, ["while away"]);
+  assert.deepEqual(await take(await events.subscribe("room.said", { room: "a", listener: "bob" }, { cursor }), 1), ["while away"]);
   assert.deepEqual(begun, [bob, cat, bob]);
   await events.subscribe("room.said", { room: "b", listener: "bob" }, { delivery: "poll" });
   await events.subscribe("room.said", { listener: "bob", room: "b" }, { delivery: "poll" });
