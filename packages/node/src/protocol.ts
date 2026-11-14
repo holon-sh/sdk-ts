@@ -71,7 +71,7 @@ export interface SubscribeOptions {
   cursor?: string | null;
   /** Do not replay events older than this many milliseconds. */
   maxAgeMs?: number;
-  /** The delivery mode to use. Without one, push where the server offers it, and poll otherwise. One the server does not offer rejects with an error named NoCompatibleDeliveryMode. */
+  /** The delivery mode to use, which the server refuses when it does not offer it. Without one, push where the server offers it, and poll otherwise, or an error named NoCompatibleDeliveryMode. */
   delivery?: "push" | "poll";
   /** Called when the server skipped events, for example after it restarted. Read the current state again. */
   onGap?: () => void;
