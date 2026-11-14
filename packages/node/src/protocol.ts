@@ -73,10 +73,12 @@ export interface SubscribeOptions {
   maxAgeMs?: number;
   /** The delivery mode to use, which the server refuses when it does not offer it. Without one, push where the server offers it, and poll otherwise, or an error named NoCompatibleDeliveryMode. */
   delivery?: "push" | "poll";
-  /** Called when the server skipped events, for example after it restarted. Read the current state again. */
-  onGap?: () => void;
-  /** False rejects iterating when the connection is lost, instead of reconnecting from the cursor, for a caller that shows it is reconnecting. A stream the server ends is still resumed. */
-  reconnect?: boolean;
+  /**
+   * Called as the subscription's status changes: "connected" when the server confirms it, "reconnecting" when the
+   * connection is lost and it reconnects from its cursor, and "gap" when the server confirms it after skipping events,
+   * for example after a restart. On a gap, read the current state again.
+   */
+  onStatus?: (status: "connected" | "reconnecting" | "gap") => void;
 }
 /** A subscription to an event: iterate it for the occurrences, in the order the server produced them. */
 export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurrence<Data>> {
@@ -98,8 +100,9 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
     /**
      * MCP Events, the draft extension of the Triggers & Events Working Group. subscribe resolves once the server has
      * confirmed the subscription, then reconnects and resumes from its cursor by itself, and rejects when the server
-     * offers no such event. A contract types an event's arguments and data by its name, and its data is checked against
-     * the contract. Without one, the data is unknown.
+     * offers no such event. A server that refuses or ends the subscription rejects it, or iterating it, with a
+     * ProtocolError carrying the server's code and data. A contract types an event's arguments and data by its name,
+     * and its data is checked against the contract. Without one, the data is unknown.
      */
     readonly events: {
       readonly list: (options?: CallOptions) => Promise<EventType[]>;

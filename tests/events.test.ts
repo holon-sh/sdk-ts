@@ -2,7 +2,7 @@ import { test, type TestContext } from "node:test";
 import type { IncomingMessage } from "node:http";
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client, ProtocolError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps, type SubscribeOptions, type Subscription } from "holon-sh/runtime";
@@ -93,34 +93,37 @@ const signedIn = (request: IncomingMessage & { auth?: unknown }) => {
   request.auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } };
 };
 
+// Refused or ended, a subscription rejects with the MCP client's ProtocolError.
 const refusedWith = (code: number, data?: unknown) => (error: any) => {
+  assert.ok(ProtocolError.isInstance(error));
   assert.equal(error.code, code);
   if (data) assert.deepEqual(error.data, data);
   return true;
 };
 
-test("a subscription hears what its arguments match, in order and with nothing missed, by push or poll, across ended and dropped streams, or fails when one drops if it does not reconnect by itself", async t => {
+test("a subscription hears what its arguments match, in order and with nothing missed, by push or poll, across ended and dropped streams, and says when it is reconnecting", async t => {
   const { factory, say } = rooms();
   const { endpoint, http } = await serve(t, factory);
   let away = false;
   const events = connect(t, endpoint, { fetch: (input, init) => away ? Promise.reject(new TypeError("fetch failed")) : fetch(input, init) });
-  const subscribe = (delivery: "push" | "poll", reconnect = true) => events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery, reconnect });
-  const [pushed, polled, ...failing] = [await subscribe("push"), await subscribe("poll"), await subscribe("push", false), await subscribe("poll", false)];
+  const statuses = { push: [] as string[], poll: [] as string[] };
+  const subscribe = (delivery: "push" | "poll") => events.subscribe("room.said", { room: "a", listener: "bob" }, { delivery, onStatus: status => statuses[delivery].push(status) });
+  const [pushed, polled] = [await subscribe("push"), await subscribe("poll")];
   say("a", "ann", "one");
   say("a", "bob", "bob's own words");
   say("b", "ann", "another room");
   // More is said than one stream sends before it ends and its client resumes.
   const burst = Array.from({ length: 100 }, (_, n) => `${n}`.padEnd(10_000));
   for (const text of burst) say("a", "cat", text);
-  for (const subscription of [pushed, polled, ...failing]) assert.deepEqual(await next(subscription, 101), ["one", ...burst]);
+  for (const subscription of [pushed, polled]) assert.deepEqual(await next(subscription, 101), ["one", ...burst]);
   // Then connections drop and the server is out of reach for a while.
   away = true;
   http.closeAllConnections();
   say("a", "cat", "while away");
-  await assert.rejects(next(failing[0], 1), /Lost the connection to app for room.said/);
-  await assert.rejects(next(failing[1], 1), /fetch failed/);
+  await until(() => statuses.push.at(-1) === "reconnecting" && statuses.poll.at(-1) === "reconnecting");
   away = false;
   for (const subscription of [pushed, polled]) assert.deepEqual(await take(subscription, 1), ["while away"]);
+  await until(() => statuses.push.at(-1) === "connected" && statuses.poll.at(-1) === "connected");
 });
 
 test("a subscription to a 2025 server is pushed its events, and ending it ends its session", async t => {
@@ -215,7 +218,7 @@ test("a stream that falls behind what is kept is told of the gap and carries on,
     const { factory, say } = rooms({ onSubscribe: ({ subscriptionId }) => { id = subscriptionId; if (targeted === "opening") late(id); } });
     const { endpoint } = await serve(t, factory);
     let gaps = 0;
-    const subscription = await connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { onGap: () => gaps++ });
+    const subscription = await connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { onStatus: status => { if (status === "gap") gaps++; } });
     if (targeted !== "opening") late(targeted && id);
     assert.deepEqual([await take(subscription, 1), gaps], targeted ? [["one"], 0] : [["two"], 1]);
   }
@@ -245,7 +248,7 @@ test("what onSubscribe emits to its subscription reaches it first, by push or po
   for (const cursor of [undefined, rooms().said.cursor()]) {
     for (const delivery of ["push", "poll"] as const) {
       const room = `${delivery} ${cursor ? "resumed" : "fresh"}`;
-      const subscription = await events.subscribe("room.said", { room, listener: "bob" }, { delivery, cursor, onGap: () => gaps.push(room) });
+      const subscription = await events.subscribe("room.said", { room, listener: "bob" }, { delivery, cursor, onStatus: status => { if (status === "gap") gaps.push(room); } });
       say(room, "ann", "hello");
       assert.deepEqual(await take(subscription, 2), ["welcome", "hello"]);
     }

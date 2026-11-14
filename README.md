@@ -98,7 +98,7 @@ const subscription = await apps.rooms.ext.events.subscribe("room.said", { room: 
 for await (const { data } of subscription) console.log(data.text);
 ```
 
-The client is pushed each event on a stream where the server offers one and polls otherwise. It reconnects by itself and resumes from its cursor. Emitted events are kept in the server's memory, so after a restart the client's `onGap` is called: read the current state again.
+The client is pushed each event on a stream where the server offers one and polls otherwise. It reconnects by itself and resumes from its cursor, and `onStatus` says when it is `reconnecting` and `connected` again. Emitted events are kept in the server's memory, so after a restart `onStatus` is called with `gap`: read the current state again. A server that refuses or ends a subscription rejects it with the MCP client's `ProtocolError`, carrying the server's code and data.
 
 To hand a page its state and then its changes, a tool returns the state together with `said.cursor()`, read in the same synchronous run, and the page subscribes from that cursor: it hears every change after the state, and none twice. Occurrences emitted one after another in one run reach each subscriber in that order with nothing of the same type between them, so a group of changes is emitted together or sent as one occurrence holding a list.
 
