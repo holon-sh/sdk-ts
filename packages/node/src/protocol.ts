@@ -73,12 +73,8 @@ export interface SubscribeOptions {
   maxAgeMs?: number;
   /** The delivery mode to use, which the server refuses when it does not offer it. Without one, push where the server offers it, and poll otherwise, or an error named NoCompatibleDeliveryMode. */
   delivery?: "push" | "poll";
-  /**
-   * Called as the subscription's status changes: "connected" when the server confirms it, "reconnecting" when the
-   * connection is lost and it reconnects from its cursor, and "gap" when the server confirms it after skipping events,
-   * for example after a restart. On a gap, read the current state again.
-   */
-  onStatus?: (status: "connected" | "reconnecting" | "gap") => void;
+  /** Called when the server skipped events, for example after it restarted. Read the current state again. */
+  onGap?: () => void;
 }
 /** A subscription to an event: iterate it for the occurrences, in the order the server produced them. */
 export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurrence<Data>> {

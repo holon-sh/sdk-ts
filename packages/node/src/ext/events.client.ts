@@ -9,7 +9,6 @@ import type { Contract, RuntimeClient } from "../runtime.js";
 const QUIET = 60_000;
 type Sent = EventOccurrence & { cursor?: string | null; _meta?: unknown };
 type Listed = { events?: EventType[]; nextCursor?: string };
-type Status = Parameters<NonNullable<SubscribeOptions["onStatus"]>>[0];
 type Polled = { events?: Sent[]; cursor?: string | null; truncated?: boolean; hasMore?: boolean; nextPollMs?: number };
 // A server's refusal ends a subscription: a client error, or an answer that the event type is gone, that access was
 // lost, or that the request is no longer valid. Anything else is tried again from the cursor.
@@ -25,7 +24,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
       if (!(cursor = page.nextCursor)) return events;
     }
   });
-  const subscribe = async (event: string, args: unknown = {}, { signal, onStatus, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
+  const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
     const resolved = link.endpoint();
     const offered = options.delivery ? [options.delivery] : (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
@@ -40,13 +39,9 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
     let wake = () => {};
     let done = false;
     let failure: unknown;
-    let status: Status | undefined;
-    const report = (next: Status) => {
-      if ((next === "gap" || next !== status) && !ended.aborted) onStatus?.(status = next);
-    };
     const reach = (next: string | null | undefined, truncated?: boolean) => {
       cursor = next ?? null;
-      if (truncated !== undefined) report(truncated ? "gap" : "connected");
+      if (truncated) onGap?.();
     };
     const expected = contract?.events?.find(type => type.name === event)?.payloadSchema;
     const check = expected && expect(expected, `data of ${name} ${event}`);
@@ -68,14 +63,13 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
         try {
           const result = await link.connected({ signal: ended }, ({ client }) => client.request({ method: "events/poll", params: { ...request, cursor } }, unchecked<Polled>(), patient({ signal: ended })));
           try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
-          reach(result.cursor, result.truncated ?? false);
+          reach(result.cursor, result.truncated);
           confirm();
           // A server that asks for a tight loop is not obeyed.
           wait = result.hasMore ? 0 : Math.max(1000, result.nextPollMs ?? 0);
         } catch (error) {
           if (ended.aborted) return;
           if (!confirmed || refused(error)) throw error;
-          report("reconnecting");
         }
         await sleep(wait, ended);
       }
@@ -84,26 +78,8 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
       while (!ended.aborted) {
         let wait = 1000;
         const quiet = new AbortController();
-        // The MCP client keeps waiting for the answer of a request whose stream has ended, so the end is watched for here.
-        // Only the stream's own response is watched: a 2025 server answers its initialization as a stream too.
-        const watched: typeof fetch = async (input, init) => {
-          const response = await (resolved.fetch ?? fetch)(input, init);
-          const streaming = typeof init?.body === "string" && init.body.includes('"method":"events/stream"');
-          if (!streaming || !response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) return response;
-          const reader = response.body.getReader();
-          const body = new ReadableStream({
-            pull: controller => reader.read().then(({ done, value }) => {
-              if (!done) return controller.enqueue(value);
-              controller.close();
-              // The answer, when the stream ended with one, is handled first.
-              setTimeout(() => quiet.abort());
-            }, error => { controller.error(error); quiet.abort(); }),
-            cancel: reason => reader.cancel(reason),
-          });
-          return new Response(body, response);
-        };
         // Each stream has its own connection, so every event notification on it is this subscription's.
-        const connection = link.connect({ ...resolved, fetch: watched });
+        const connection = link.connect(resolved);
         let timer: ReturnType<typeof setTimeout> | undefined;
         const heard = () => {
           clearTimeout(timer);
@@ -112,7 +88,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
         try {
           await untilAborted(connection.ready, ended);
           const on = <P>(method: string, handle: (params: P) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: unchecked<P>() }, params => { heard(); handle(params); });
-          on<Pick<Polled, "cursor" | "truncated">>("active", ({ cursor: next, truncated }) => { reach(next, truncated ?? false); confirm(); });
+          on<Pick<Polled, "cursor" | "truncated">>("active", ({ cursor: next, truncated }) => { reach(next, truncated); confirm(); });
           on<Sent>("event", occurrence => {
             wait = 0;
             try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
@@ -130,7 +106,6 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
           clearTimeout(timer);
           await connection.close();
         }
-        report("reconnecting");
         await sleep(wait, ended);
       }
     };
