@@ -69,7 +69,8 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
 
 async function respond(handler: App["default"], platform: boolean, directory: URL | undefined, req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  if (/^\/mcp(\/[^/]+)?$/.test(url.pathname)) {
+  // A name is one segment: no slash, encoded or not, and only valid percent-escapes.
+  if (/^\/mcp(\/(?:[^/%]|%(?!2[fF])[0-9a-fA-F]{2})+)?$/.test(url.pathname)) {
     const admitted = platform ? admit(req) : { token: "" };
     // A context the waypoint could not have sent is a malformed request (RFC 9110 §15.5.1).
     if (!admitted) {
@@ -123,6 +124,8 @@ const isObject = (value: unknown): value is Fields => typeof value === "object" 
 const isString = (value: unknown): value is string => typeof value === "string";
 const text = (value: unknown) => (isString(value) ? value : "");
 const principalTypes = { iss: isString, sub: isString, client_id: isString, scope: isString, claims: isObject, act: isObject };
+// A byte order mark stays in the text, where JSON.parse refuses it.
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 function admit(req: IncomingMessage): { token: string; authInfo?: AuthInfo } | undefined {
   const contexts = req.headersDistinct["x-holon-context"] ?? [];
@@ -155,7 +158,8 @@ function principalOf(token: string): Fields | null | undefined {
   const payload = contextForm.exec(token)?.[1];
   let claims: unknown;
   try {
-    claims = payload && JSON.parse(Buffer.from(payload, "base64url").toString());
+    // Base64url without padding never leaves one character over, and the payload is UTF-8.
+    claims = payload && payload.length % 4 !== 1 && JSON.parse(utf8.decode(Buffer.from(payload, "base64url")));
   } catch {
     return undefined;
   }
