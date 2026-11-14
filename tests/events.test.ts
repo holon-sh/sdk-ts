@@ -129,7 +129,7 @@ test("a subscription to a 2025 server is pushed its events, and ending it ends i
   const said = events.event<{ room: string }, { text: string }>("room.said", {
     inputSchema: z.object({ room: z.string() }),
     payloadSchema: z.object({ text: z.string() }),
-    onUnsubscribe: ({ subscriptionId }) => { ended.push(subscriptionId); },
+    onSubscribe: ({ subscriptionId }) => () => { ended.push(subscriptionId); },
   });
   const { endpoint } = await serveLegacy(t, served(events));
   const methods: string[] = [];
@@ -254,8 +254,10 @@ test("a signed-in caller's subscription is one per arguments, set up once while 
   const begun: string[] = [];
   const ended: string[] = [];
   const { factory, say } = rooms({
-    onSubscribe: ({ subscriptionId }) => { begun.push(subscriptionId); },
-    onUnsubscribe: ({ subscriptionId }) => { ended.push(subscriptionId); },
+    onSubscribe: ({ subscriptionId }) => {
+      begun.push(subscriptionId);
+      return () => { ended.push(subscriptionId); };
+    },
   });
   const { endpoint, http } = await serve(t, factory, signedIn);
   const events = connect(t, endpoint);
@@ -299,7 +301,7 @@ test("callers without an identity do not share a subscription, so what is emitte
 
 test("a subscriber's value is shown while it subscribes, survives a reconnect within its linger, and leaves its linger after its last stream ends or it was last set", { timeout: 10_000 }, async t => {
   const ended: string[] = [];
-  const { factory, said } = rooms({ onUnsubscribe: ({ subscriptionId }) => { ended.push(subscriptionId); } });
+  const { factory, said } = rooms({ onSubscribe: ({ subscriptionId }) => () => { ended.push(subscriptionId); } });
   const status = said.presence<string>(({ room, listener }, text) => ({ room, speaker: listener, text: text ?? `${listener} left` }));
   const { endpoint } = await serve(t, factory);
   const events = connect(t, endpoint);
@@ -387,21 +389,42 @@ test("a subscription the caller may not have is refused, and one it no longer ma
   await lost;
 });
 
-test("a stream left while its subscription is being set up is torn down once the setup finishes", async t => {
-  let release: (() => void) | undefined;
-  let ended = false;
-  const { factory } = rooms({
-    onSubscribe: () => new Promise<void>(resolve => { release = resolve; }),
-    onUnsubscribe: () => { ended = true; },
-  });
-  const { endpoint } = await serve(t, factory);
-  const leaving = new AbortController();
-  const subscribing = connect(t, endpoint).subscribe("room.said", { room: "a", listener: "bob" }, { signal: leaving.signal });
-  await until(() => release);
-  leaving.abort();
-  await assert.rejects(subscribing);
-  release!();
-  await until(() => ended);
+test("a subscription left while it is being set up has what the setup made cleaned up, and a request waiting for it sets it up again, by push or poll", async t => {
+  for (const delivery of ["push", "poll"] as const) {
+    let release: (() => void) | undefined;
+    let first: AbortSignal | undefined;
+    let asked = 0;
+    const settled: boolean[] = [];
+    let cleaned = 0;
+    const { factory } = rooms({
+      authorize: () => ++asked > 0,
+      onSubscribe: async ({ context }) => {
+        if (!first) {
+          first = context.mcpReq.signal;
+          await new Promise<void>(resolve => { release = resolve; });
+        }
+        settled.push(context.mcpReq.signal.aborted);
+        return () => { cleaned++; };
+      },
+    });
+    const { endpoint } = await serve(t, factory, signedIn);
+    const events = connect(t, endpoint);
+    const leaving = new AbortController();
+    const args = { room: "a", listener: "bob" };
+    const subscribing = events.subscribe("room.said", args, { delivery, signal: leaving.signal });
+    await until(() => release);
+    leaving.abort();
+    await assert.rejects(subscribing);
+    await until(() => first!.aborted);
+    const staying = events.subscribe("room.said", args, { delivery });
+    await until(() => asked === 2);
+    await new Promise(resolve => setImmediate(resolve));
+    release!();
+    const stayed = await staying;
+    assert.deepEqual(settled, [true, false], delivery);
+    await until(() => cleaned === 1);
+    stayed.cancel();
+  }
 });
 
 test("an event that cannot be shaped for a subscription is skipped for it, and what follows still arrives", async t => {
