@@ -1,7 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-/**
- * The MCP request serve is answering: its context, which a peer call carries until the request ends. An event stream
- * sets end, which closes the stream as the server does: it sends its final frame, and its client opens it again.
- */
-export const holder: AsyncLocalStorage<{ token: string; ended: boolean; end?: () => void }> = new AsyncLocalStorage();
+/** An MCP request serve is answering. */
+export interface Answering {
+  token: string;
+  ended: boolean;
+  /** Set by an event stream: closes it as the server does, with its final frame, so its client opens it again. */
+  end?: () => void;
+}
+
+/** The MCP request serve is answering: its context, which a peer call carries until the request ends. */
+export const holder: AsyncLocalStorage<Answering> = new AsyncLocalStorage();

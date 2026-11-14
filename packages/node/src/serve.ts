@@ -9,7 +9,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AuthInfo } from "@modelcontextprotocol/client";
 import mime from "mime";
-import { holder } from "./holder.js";
+import { holder, type Answering } from "./holder.js";
 
 /** An app's module: the MCP handler it exports by default, and the directory of its page. */
 export interface App {
@@ -70,8 +70,6 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   console.log(`Serving ${origin}/ with the MCP endpoint at ${origin}/mcp`);
   return server;
 }
-
-type Answering = NonNullable<ReturnType<typeof holder.getStore>>;
 
 async function respond(handler: App["default"], platform: boolean, directory: URL | undefined, req: IncomingMessage, res: ServerResponse, answering: Map<ServerResponse, Answering>) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
