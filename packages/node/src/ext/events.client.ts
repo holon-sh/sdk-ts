@@ -41,7 +41,6 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
     let done = false;
     let failure: unknown;
     let status: Status | undefined;
-    // A gap is reported each time; a status only when it changes, since every poll confirms the subscription.
     const report = (next: Status) => {
       if ((next === "gap" || next !== status) && !ended.aborted) onStatus?.(status = next);
     };

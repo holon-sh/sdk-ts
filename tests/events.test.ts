@@ -93,7 +93,6 @@ const signedIn = (request: IncomingMessage & { auth?: unknown }) => {
   request.auth = { token: "token", clientId: "page", scopes: ["read"], extra: { iss: "https://issuer.example", sub: "ann" } };
 };
 
-// Refused or ended, a subscription rejects with the MCP client's ProtocolError.
 const refusedWith = (code: number, data?: unknown) => (error: any) => {
   assert.ok(ProtocolError.isInstance(error));
   assert.equal(error.code, code);
