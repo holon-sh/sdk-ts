@@ -1,5 +1,6 @@
 // The client side of MCP Events, the draft extension of the Triggers & Events Working Group:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
+import { ProtocolError } from "@modelcontextprotocol/client";
 import { patient, sleep, unchecked, untilAborted, type EndpointLink } from "../link.js";
 import type { CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription } from "../protocol.js";
 import type { Contract, RuntimeClient } from "../runtime.js";
@@ -8,6 +9,7 @@ import type { Contract, RuntimeClient } from "../runtime.js";
 const QUIET = 60_000;
 type Sent = EventOccurrence & { cursor?: string | null; _meta?: unknown };
 type Listed = { events?: EventType[]; nextCursor?: string };
+type Status = Parameters<NonNullable<SubscribeOptions["onStatus"]>>[0];
 type Polled = { events?: Sent[]; cursor?: string | null; truncated?: boolean; hasMore?: boolean; nextPollMs?: number };
 // A server's refusal ends a subscription: a client error, or an answer that the event type is gone, that access was
 // lost, or that the request is no longer valid. Anything else is tried again from the cursor.
@@ -23,7 +25,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
       if (!(cursor = page.nextCursor)) return events;
     }
   });
-  const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, reconnect = true, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
+  const subscribe = async (event: string, args: unknown = {}, { signal, onStatus, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
     const resolved = link.endpoint();
     const offered = options.delivery ? [options.delivery] : (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
@@ -38,9 +40,13 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
     let wake = () => {};
     let done = false;
     let failure: unknown;
+    let status: Status | undefined;
+    const report = (next: Status) => {
+      if ((next === "gap" || next !== status) && !ended.aborted) onStatus?.(status = next);
+    };
     const reach = (next: string | null | undefined, truncated?: boolean) => {
       cursor = next ?? null;
-      if (truncated) onGap?.();
+      if (truncated !== undefined) report(truncated ? "gap" : "connected");
     };
     const expected = contract?.events?.find(type => type.name === event)?.payloadSchema;
     const check = expected && expect(expected, `data of ${name} ${event}`);
@@ -62,13 +68,14 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
         try {
           const result = await link.connected({ signal: ended }, ({ client }) => client.request({ method: "events/poll", params: { ...request, cursor } }, unchecked<Polled>(), patient({ signal: ended })));
           try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
-          reach(result.cursor, result.truncated);
+          reach(result.cursor, result.truncated ?? false);
           confirm();
           // A server that asks for a tight loop is not obeyed.
           wait = result.hasMore ? 0 : Math.max(1000, result.nextPollMs ?? 0);
         } catch (error) {
           if (ended.aborted) return;
-          if (!confirmed || !reconnect || refused(error)) throw error;
+          if (!confirmed || refused(error)) throw error;
+          report("reconnecting");
         }
         await sleep(wait, ended);
       }
@@ -105,7 +112,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
         try {
           await untilAborted(connection.ready, ended);
           const on = <P>(method: string, handle: (params: P) => void) => connection.client.setNotificationHandler(`notifications/events/${method}`, { params: unchecked<P>() }, params => { heard(); handle(params); });
-          on<Pick<Polled, "cursor" | "truncated">>("active", ({ cursor: next, truncated }) => { reach(next, truncated); confirm(); });
+          on<Pick<Polled, "cursor" | "truncated">>("active", ({ cursor: next, truncated }) => { reach(next, truncated ?? false); confirm(); });
           on<Sent>("event", occurrence => {
             wait = 0;
             try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
@@ -114,15 +121,16 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
           on<Pick<Polled, "cursor">>("heartbeat", ({ cursor: next }) => reach(next));
           // The server recovers from an error by itself, and the stream stays open.
           on("error", () => {});
-          on<{ error: { code?: number; message?: string; data?: unknown } }>("terminated", ({ error: { message, ...error } }) => { failure = Object.assign(new Error(`${name} ended the subscription to ${event}: ${message}`), error); cancelled.abort(); });
+          on<{ error: { code: number; message: string; data?: unknown } }>("terminated", ({ error }) => { failure = new ProtocolError(error.code, error.message, error.data); cancelled.abort(); });
           heard();
           await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, unchecked<unknown>(), { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
         } catch (error) {
-          if (!ended.aborted && (!confirmed || !reconnect || refused(error))) throw quiet.signal.aborted ? new Error(`Lost the connection to ${name} for ${event}.`) : error;
+          if (!ended.aborted && (!confirmed || refused(error))) throw quiet.signal.aborted ? new Error(`Lost the connection to ${name} for ${event}.`) : error;
         } finally {
           clearTimeout(timer);
           await connection.close();
         }
+        report("reconnecting");
         await sleep(wait, ended);
       }
     };
