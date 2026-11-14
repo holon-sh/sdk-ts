@@ -3,6 +3,7 @@
 import { ProtocolError, ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
 import type { JSONRPCErrorResponse, McpServer, Server, ServerCapabilities, ServerContext, StandardSchemaV1, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { getContext } from "../context.js";
+import { holder } from "../holder.js";
 import type { EventOccurrence as Occurrence } from "../protocol.js";
 
 /** How a subscription receives its events. */
@@ -550,18 +551,20 @@ export function createEvents(): Events {
       });
 
       server.setRequestHandler("events/stream", { params }, async (request, ctx) => {
-        const { type, subscription: subscribed, cursor: from, maxAgeMs } = await subscription(request, ctx, "push");
-        const { signal } = ctx.mcpReq;
-        const meta = { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id };
         let done = false;
-        let ending: EventError | undefined;
-        // Set when the app terminates the stream: the last event emitted before, which the stream still sends.
-        let until: number | undefined;
         let wake = () => {};
         const finish = () => {
           done = true;
           wake();
         };
+        const serving = holder.getStore();
+        if (serving) serving.end = finish;
+        const { type, subscription: subscribed, cursor: from, maxAgeMs } = await subscription(request, ctx, "push");
+        const { signal } = ctx.mcpReq;
+        const meta = { [SUBSCRIPTION_ID_META_KEY]: ctx.mcpReq.id };
+        let ending: EventError | undefined;
+        // Set when the app terminates the stream: the last event emitted before, which the stream still sends.
+        let until: number | undefined;
         // What is emitted from here on is the stream's, so it has what onSubscribe emits to it.
         const opened = type.sequence;
         const held = await open(type, { ...subscribed, delivery: "push" }, error => {
@@ -622,7 +625,7 @@ export function createEvents(): Events {
         }, HEARTBEAT);
         let first = true;
         try {
-          while (!done) {
+          do {
             if (first || behind()) {
               const reading = until ?? type.sequence;
               const result = since(type, held, ctx, cursor, { ...(first && { maxAgeMs }), opened, until: reading });
@@ -643,7 +646,7 @@ export function createEvents(): Events {
             // Terminated by the app, the stream ends once it has sent what was emitted before.
             if (done || until !== undefined && !behind()) break;
             if (!behind()) await new Promise<void>(resolve => wake = resolve);
-          }
+          } while (!done);
           if (ending) {
             if (first) throw refusal(ending);
             await notify("terminated", { error: ending });

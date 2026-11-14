@@ -5,10 +5,11 @@ import type { AddressInfo } from "node:net";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AuthInfo } from "@modelcontextprotocol/client";
 import mime from "mime";
-import { holder } from "./holder.js";
+import { holder, type Answering } from "./holder.js";
 
 /** An app's module: the MCP handler it exports by default, and the directory of its page. */
 export interface App {
@@ -45,9 +46,10 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   const { PORT = "3000", HOST = "127.0.0.1", HOLON_PLATFORM } = process.env;
   // A directory's URL ends in `/`. Without it, a name would resolve beside the directory instead of in it.
   const directory = frontend && new URL(frontend.href.replace(/\/?$/, "/"));
+  const answering = new Map<ServerResponse, Answering>();
   const server = createServer({ maxHeaderSize: 65536 }, (req, res) => {
     res.on("close", () => server.listening || server.closeIdleConnections());
-    respond(handler, HOLON_PLATFORM === "1", directory, req, res).catch((error: unknown) => {
+    respond(handler, HOLON_PLATFORM === "1", directory, req, res, answering).catch((error: unknown) => {
       console.error(error);
       if (!res.headersSent) res.writeHead(500);
       res.end();
@@ -55,8 +57,12 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   });
   server.listen(Number(PORT), HOST);
   await once(server, "listening");
-  const stop = () => {
+  const stop = async () => {
     server.close();
+    const deadline = sleep(1000, undefined, { ref: false });
+    void deadline.then(() => server.closeAllConnections());
+    const closed = Array.from(answering, ([res, { end }]) => end && (end(), new Promise(resolve => res.once("close", resolve))));
+    await Promise.race([Promise.all(closed), deadline]);
     handler.close?.().catch((error: unknown) => console.error(error));
   };
   process.once("SIGTERM", stop);
@@ -67,7 +73,7 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   return server;
 }
 
-async function respond(handler: App["default"], platform: boolean, directory: URL | undefined, req: IncomingMessage, res: ServerResponse) {
+async function respond(handler: App["default"], platform: boolean, directory: URL | undefined, req: IncomingMessage, res: ServerResponse, answering: Map<ServerResponse, Answering>) {
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
   if (/^\/mcp(\/[^/]+)?$/.test(url.pathname)) {
     const admitted = platform ? admit(req) : { token: "" };
@@ -77,11 +83,13 @@ async function respond(handler: App["default"], platform: boolean, directory: UR
       return;
     }
     const { token, authInfo } = admitted;
-    const request = { token, ended: false };
+    const request: Answering = { token, ended: false };
     const gone = new AbortController();
+    answering.set(res, request);
     res.on("close", () => {
       request.ended = true;
       gone.abort();
+      answering.delete(res);
     });
     const headers = new Headers();
     for (const [name, values = []] of Object.entries(req.headersDistinct))
