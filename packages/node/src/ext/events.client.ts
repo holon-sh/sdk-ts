@@ -79,7 +79,9 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
         let wait = 1000;
         const quiet = new AbortController();
         // Each stream has its own connection, so every event notification on it is this subscription's.
-        const connection = link.connect(resolved);
+        const connection = link.connect(resolved, message => {
+          if (!Array.isArray(message) && "method" in message && message.method === "events/stream") quiet.abort();
+        });
         let timer: ReturnType<typeof setTimeout> | undefined;
         const heard = () => {
           clearTimeout(timer);
@@ -101,7 +103,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
           heard();
           await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, unchecked<unknown>(), { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
         } catch (error) {
-          if (!ended.aborted && (!confirmed || refused(error))) throw quiet.signal.aborted ? new Error(`Lost the connection to ${name} for ${event}.`) : error;
+          if (!ended.aborted && (!confirmed || refused(error))) throw quiet.signal.aborted && !refused(error) ? new Error(`Lost the connection to ${name} for ${event}.`) : error;
         } finally {
           clearTimeout(timer);
           await connection.close();
