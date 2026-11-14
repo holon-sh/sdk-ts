@@ -308,8 +308,7 @@ export function createEvents(): Events {
     const checked = await type.inputSchema["~standard"].validate(args);
     if (checked.issues) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for ${name}: ${checked.issues.map(issue => issue.message).join("; ")}`);
     const who = caller(context);
-    // Polls share a lease per caller and arguments, and callers without an identity share one per arguments.
-    const lease = await identify(who, type.name, checked.value);
+    const lease = await identify(who, type.name, args);
     if (type.authorize && !(await type.authorize(checked.value, context))) {
       endSubscription(type, lease, forbidden);
       // This refusal is the answer the poll lease would have given, so the next poll begins afresh.
