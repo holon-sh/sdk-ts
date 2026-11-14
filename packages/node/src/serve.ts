@@ -59,8 +59,10 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   await once(server, "listening");
   const stop = async () => {
     server.close();
+    const deadline = sleep(1000, undefined, { ref: false });
+    void deadline.then(() => server.closeAllConnections());
     const closed = Array.from(answering, ([res, { end }]) => end && (end(), new Promise(resolve => res.once("close", resolve))));
-    await Promise.race([Promise.all(closed), sleep(1000, undefined, { ref: false })]);
+    await Promise.race([Promise.all(closed), deadline]);
     handler.close?.().catch((error: unknown) => console.error(error));
   };
   process.once("SIGTERM", stop);

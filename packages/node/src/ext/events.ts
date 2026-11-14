@@ -625,7 +625,7 @@ export function createEvents(): Events {
         }, HEARTBEAT);
         let first = true;
         try {
-          while (!done) {
+          do {
             if (first || behind()) {
               const reading = until ?? type.sequence;
               const result = since(type, held, ctx, cursor, { ...(first && { maxAgeMs }), opened, until: reading });
@@ -646,7 +646,7 @@ export function createEvents(): Events {
             // Terminated by the app, the stream ends once it has sent what was emitted before.
             if (done || until !== undefined && !behind()) break;
             if (!behind()) await new Promise<void>(resolve => wake = resolve);
-          }
+          } while (!done);
           if (ending) {
             if (first) throw refusal(ending);
             await notify("terminated", { error: ending });
