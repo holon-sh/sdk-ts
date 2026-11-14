@@ -25,11 +25,11 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
   });
   const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, reconnect = true, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
     const resolved = link.endpoint();
-    const offered = (await list(signal && { signal })).find(type => type.name === event)?.delivery;
+    const offered = options.delivery ? [options.delivery] : (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
-    const delivery = options.delivery ?? (["push", "poll"] as const).find(mode => offered.includes(mode));
+    const delivery = (["push", "poll"] as const).find(mode => offered.includes(mode));
     // The sketch's NoCompatibleDeliveryMode: none of the modes the server offers is one this client uses.
-    if (!delivery || !offered.includes(delivery)) throw Object.assign(new Error(`${name} does not deliver ${event} by ${delivery ?? "poll or push"}.`), { name: "NoCompatibleDeliveryMode" });
+    if (!delivery) throw Object.assign(new Error(`${name} does not deliver ${event} by poll or push.`), { name: "NoCompatibleDeliveryMode" });
     const cancelled = new AbortController();
     const ended = signal ? AbortSignal.any([signal, cancelled.signal]) : cancelled.signal;
     let cursor = options.cursor ?? null;

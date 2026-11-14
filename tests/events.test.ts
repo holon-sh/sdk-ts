@@ -149,10 +149,13 @@ test("the client lists every event type a page at a time, and is refused what th
   // A page holds a hundred types, so the last of these is on the second.
   const clocks = Array.from({ length: 100 }, (_, index) => `clock.${index}`);
   for (const name of clocks) events.event(name, { inputSchema: z.object({}), payloadSchema: z.object({}) });
+  events.event("alarm.rang", { inputSchema: z.object({}), payloadSchema: z.object({}), delivery: ["push"] });
   const { endpoint } = await serve(t, factory);
   const app = connect(t, endpoint);
-  assert.deepEqual((await app.list()).map(({ name }) => name), ["room.said", ...clocks]);
+  assert.deepEqual((await app.list()).map(({ name }) => name), ["room.said", ...clocks, "alarm.rang"]);
   await assert.rejects(app.subscribe("room.left", {}), /no event room.left/);
+  await assert.rejects(app.subscribe("room.left", {}, { delivery: "push" }), refusedWith(-32023, { kind: "event" }));
+  await assert.rejects(app.subscribe("alarm.rang", {}, { delivery: "poll" }), refusedWith(-32026, { feature: "deliveryMode", value: "poll" }));
   await assert.rejects(app.subscribe("room.said", { room: 1 }), /Invalid arguments/);
   // A contract's schema for the event's data is held against what arrives.
   const typed = connect(t, endpoint, { contract: { tools: [], events: [{ name: "room.said", payloadSchema: { type: "object", required: ["volume"] } }] } });
