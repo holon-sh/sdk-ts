@@ -26,7 +26,7 @@ export interface EndpointLink extends Shared {
   readonly hosted: false;
   connected<T>(options: CallOptions | undefined, run: (connection: Connection) => Promise<T>): Promise<T>;
   endpoint(): EndpointBinding;
-  connect(binding: EndpointBinding): Connection;
+  connect(binding: EndpointBinding, streamEnded?: StreamEnded): Connection;
   close(): Promise<void>;
 }
 export type Link = HostedLink | EndpointLink;
@@ -47,17 +47,33 @@ export function environment(name: string): Endpoint {
   throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
 }
 
-function connect(identity: Identity, resolved: EndpointBinding, prior?: PriorDiscovery, onclose?: (connection: Connection) => void): Connection {
+type Sent = Parameters<StreamableHTTPClientTransport["send"]>;
+type StreamEnded = (message: Sent[0]) => void;
+
+class Transport extends StreamableHTTPClientTransport {
+  readonly #streamEnded?: StreamEnded;
+  constructor(url: URL, options: ConstructorParameters<typeof StreamableHTTPClientTransport>[1], streamEnded?: StreamEnded) {
+    super(url, options);
+    this.#streamEnded = streamEnded;
+  }
+  override send(...[message, options]: Sent): Promise<void> {
+    const streamEnded = this.#streamEnded;
+    if (!streamEnded) return super.send(message, options);
+    return super.send(message, { ...options, onRequestStreamEnd: () => { options?.onRequestStreamEnd?.(); streamEnded(message); } });
+  }
+}
+
+function connect(identity: Identity, resolved: EndpointBinding, prior?: PriorDiscovery, onclose?: (connection: Connection) => void, streamEnded?: StreamEnded): Connection {
   // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
   // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
   const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
   const endpoint = new URL(resolved.endpoint);
-  const transport = acceptUploadRequests(new StreamableHTTPClientTransport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
+  const transport = acceptUploadRequests(new Transport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
     if (String(input) === endpoint.href) connection.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
     const response = await (resolved.fetch ?? fetch)(input, init);
     connection.answered ||= response.ok;
     return response;
-  }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }));
+  }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }, streamEnded));
   transport.onclose = () => onclose?.(connection);
   const ready = client.connect(transport, { prior }).catch(async (error: unknown) => {
     await transport.close();
@@ -110,7 +126,7 @@ export function createLink(identity: Identity, name: string, { binding, resolve 
     session: (options, run) => connected(options, connection => run(connection.client, connection)),
     connected,
     endpoint,
-    connect: resolved => connect(identity, resolved),
+    connect: (resolved, streamEnded) => connect(identity, resolved, undefined, undefined, streamEnded),
     close: async () => { await kept?.close(); },
   };
 }

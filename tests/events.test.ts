@@ -100,9 +100,9 @@ const refusedWith = (code: number, data?: unknown) => (error: any) => {
   return true;
 };
 
-test("a subscription hears what its arguments match, in order and with nothing missed, by push or poll, across streams the server ends and polls that fail", async t => {
+test("a subscription hears what its arguments match, in order and with nothing missed, by push or poll, across streams the server ends, connections that drop and polls that fail", { timeout: 20_000 }, async t => {
   const { factory, say } = rooms();
-  const { endpoint } = await serve(t, factory);
+  const { endpoint, http } = await serve(t, factory);
   let away = false;
   let failed = 0;
   const events = connect(t, endpoint, { fetch: (input, init) => away ? Promise.reject(new TypeError(`fetch failed ${++failed}`)) : fetch(input, init) });
@@ -115,8 +115,9 @@ test("a subscription hears what its arguments match, in order and with nothing m
   const burst = Array.from({ length: 100 }, (_, n) => `${n}`.padEnd(10_000));
   for (const text of burst) say("a", "cat", text);
   for (const subscription of [pushed, polled]) assert.deepEqual(await next(subscription, 101), ["one", ...burst]);
-  // Then the server is out of reach for a while.
+  // Then connections drop and the server is out of reach for a while.
   away = true;
+  http.closeAllConnections();
   say("a", "cat", "while away");
   await until(() => failed);
   away = false;
