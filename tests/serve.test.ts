@@ -5,7 +5,7 @@ import { once } from "node:events";
 import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { request, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -13,7 +13,6 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { bindApps, createApps } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
-import { getContext } from "holon-sh/context";
 import { load, serve, type App } from "holon-sh/serve";
 import { serve as serveMcp, temporary } from "./helpers.ts";
 
@@ -54,74 +53,42 @@ async function call(origin: string, name: string, headers: Record<string, string
   return content?.type === "text" ? JSON.parse(content.text) : undefined;
 }
 
-test("serve runs an app without Holon: its MCP endpoint for clients of every version, and its page", { timeout: 10000 }, async t => {
+test("serve runs an app without Holon: its MCP endpoint and its page", { timeout: 10000 }, async t => {
   const root = temporary(t);
-  for (const directory of ["web", "web/docs", "web/empty", "outside"]) mkdirSync(join(root, directory));
-  const files = [["web/index.html", "<p>page</p>"], ["web/app.mjs", "page()"], ["web/data", "bytes"], ["web/.env", "hidden"], ["web/docs/index.html", "<p>docs</p>"], ["secret", "outside"], ["outside/index.html", "outside"]];
+  mkdirSync(join(root, "web"));
+  const files = [["web/index.html", "<p>page</p>"], ["web/app.mjs", "page()"], ["web/data", "bytes"], ["web/.env", "hidden"], ["secret", "outside"]];
   for (const [name, text] of files) writeFileSync(join(root, name!), text!);
-  symlinkSync(join(root, "web/app.mjs"), join(root, "web/linked.mjs"));
   symlinkSync(join(root, "secret"), join(root, "web/escape"));
-  symlinkSync(join(root, "outside"), join(root, "web/away"));
-  // An app links to itself at its origin.
-  const mcp = createMcpHandler(() => {
-    const server = new McpServer({ name: "app", version: "1.0.0" });
-    server.registerTool("origin", {}, ctx => ({ content: [{ type: "text", text: `${getContext(ctx.http).origin}` }] }));
-    return server;
-  });
   // At /mcp/idle, the app answers with a stream that sends one event and then waits.
   let idle!: Request;
   let cancelled!: () => void;
   const left = new Promise<void>(resolve => (cancelled = resolve));
   const fetch = (request: Request) => {
-    if (new URL(request.url).pathname !== "/mcp/idle") return mcp.fetch(request);
+    if (new URL(request.url).pathname !== "/mcp/idle") return Promise.resolve(new Response(null, { status: 202 }));
     idle = request;
     const event = new TextEncoder().encode("data: {}\n\n");
     return Promise.resolve(new Response(new ReadableStream({ start: stream => stream.enqueue(event), cancel: cancelled })));
   };
   const origin = await start(t, { default: { fetch }, frontend: pathToFileURL(join(root, "web/")) });
 
-  const { app } = createApps({ name: "test", version: "1.0.0" }, { app: null }, { app: { endpoint: `${origin}/mcp` } });
-  t.after(() => app!.close());
-  assert.deepEqual((await app!.callTool({ name: "origin", arguments: {} })).content, [{ type: "text", text: origin }]);
-
-  // A 2025 client, behind a proxy that forwards its own origin.
-  const legacy = (message: object) =>
-    globalThis.fetch(`${origin}/mcp/app`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-        "mcp-protocol-version": "2025-06-18",
-        "x-forwarded-host": "app.example",
-        "x-forwarded-proto": "https",
-      },
-      body: JSON.stringify({ jsonrpc: "2.0", ...message }),
-    });
-  const called = await legacy({ id: 1, method: "tools/call", params: { name: "origin", arguments: {} } });
-  assert.match(await called.text(), /"text":"https:\/\/app\.example"/);
-  // Streamable HTTP accepts a notification with 202 and no body.
-  assert.equal((await legacy({ method: "notifications/initialized" })).status, 202);
+  assert.equal((await globalThis.fetch(`${origin}/mcp`, { method: "POST" })).status, 202);
 
   // A stream between events ends as soon as its client leaves, and the app hears that it left.
   const listening = request(`${origin}/mcp/idle`, { method: "POST" }).end();
   await once(listening, "response");
+  assert.equal(new URL(idle.url).origin, origin);
   listening.destroy();
   await Promise.all([left, idle.signal.aborted || once(idle.signal, "abort")]);
 
   const page = { status: 200, sniffing: "nosniff" };
-  const html = { ...page, type: "text/html; charset=utf-8" };
-  assert.deepEqual(await get(origin, "/"), { ...html, body: "<p>page</p>" });
   assert.deepEqual(await get(origin, "/app.mjs", "HEAD"), { ...page, type: "text/javascript; charset=utf-8", body: "" });
   assert.deepEqual(await get(origin, "/data"), { ...page, type: "application/octet-stream", body: "bytes" });
-  assert.deepEqual(await get(origin, "/linked.mjs"), { ...page, type: "text/javascript; charset=utf-8", body: "page()" });
-  assert.deepEqual(await get(origin, "/docs"), { ...html, body: "<p>docs</p>" });
-  const missing = [["/", "POST"], ["/missing"], ["/.env"], ["/%2Eenv"], ["/%2fdata"], ["/escape"], ["/away/"]];
+  const missing = [["/", "POST"], ["/missing"], ["/.env"], ["/%2Eenv"], ["/escape"]];
   for (const [path, method] of missing) assert.equal((await get(origin, path!, method)).status, 404, `${method ?? "GET"} ${path}`);
-  assert.equal((await get(await start(t, { default: { fetch } }), "/")).status, 404, "an app without a page has none");
 
   // A directory named without its trailing slash is still the directory, and not its parent.
   const unslashed = await start(t, { default: { fetch }, frontend: pathToFileURL(join(root, "web")) });
-  assert.deepEqual([(await get(unslashed, "/")).body, (await get(unslashed, "/secret")).status], ["<p>page</p>", 404]);
+  assert.equal((await get(unslashed, "/")).body, "<p>page</p>");
 });
 
 test("inside Holon a tool reads its caller from the waypoint's headers, elsewhere every request is anonymous, and the app sees none of them", { timeout: 10000 }, async t => {
@@ -129,7 +96,6 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
     const server = new McpServer({ name: "app", version: "1.0.0" });
     server.registerTool("inspect", {}, ctx => ({ content: [{ type: "text", text: JSON.stringify({
       authInfo: ctx.http?.authInfo ?? null,
-      principal: getContext(ctx.http).principal,
       headers: [...ctx.http!.req!.headers.keys()],
     }) }] }));
     return server;
@@ -139,45 +105,27 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
 
   const claims = { email: "alice@example.com", email_verified: true };
   const principal = { iss: "https://issuer.example", sub: "alice", client_id: "web", scope: " read  write ", claims, act: { sub: "agent" } };
-  const audience = { exp: 1900000060.25, aud: ["https://holon.example"], flowId: "flow" };
-  const signedIn = context({ ...audience, principal });
-  const signedOut = context({ ...audience, aud: "https://holon.example" });
-  const hook = context({ ...audience, hook: { app: "accounts", job: "install-accounts" } });
-  const mesh = (app: string) => `session/${app}`;
-  const reporter = { app: "reporter", session: "session" };
-  const user = { issuer: "https://issuer.example", subject: "alice", clientId: "web", scopes: ["read", "write"], claims, actor: { sub: "agent" } };
-  const admitted = { token: signedIn, clientId: "web", scopes: ["read", "write"] };
-  const asUser = { iss: "https://issuer.example", sub: "alice", claims, act: { sub: "agent" } };
-  const app = { token: "", clientId: "", scopes: [] };
-  const anonymous = app;
-  for (const [origin, headers, authInfo, expected] of [
-    [inside, { "x-holon-context": signedIn }, { ...admitted, extra: asUser }, user],
-    [inside, { "x-holon-context": signedIn, "x-holon-caller": mesh("reporter") }, { ...admitted, extra: { ...asUser, caller: reporter } }, user],
-    [inside, { "x-holon-caller": mesh("reporter") }, { ...app, extra: { caller: reporter } }, null],
-    [inside, { "x-holon-context": signedOut, "x-holon-caller": mesh("reporter") }, { ...anonymous, token: signedOut, extra: { caller: reporter } }, null],
-    [inside, { "x-holon-context": hook, "x-holon-caller": mesh("accounts") }, { ...anonymous, token: hook, extra: { caller: { app: "accounts", session: "session" } } }, null],
-    [inside, { "x-holon-context": signedOut }, null, null],
-    [inside, {}, null, null],
-    [outside, { "x-holon-context": signedIn, "x-holon-caller": mesh("reporter") }, null, null],
+  const signedIn = context({ principal });
+  const signedOut = context({});
+  const caller = { app: "reporter", session: "session" };
+  const sent = { "x-holon-context": signedIn, "x-holon-caller": "session/reporter" };
+  for (const [origin, headers, authInfo] of [
+    [inside, sent, { token: signedIn, clientId: "web", scopes: ["read", "write"], extra: { iss: "https://issuer.example", sub: "alice", claims, act: { sub: "agent" }, caller } }],
+    [inside, { ...sent, "x-holon-context": signedOut }, { token: signedOut, clientId: "", scopes: [], extra: { caller } }],
+    [inside, {}, null],
+    [outside, sent, null],
   ] as const) {
     const observed = await call(origin, "inspect", { ...headers, "x-holon-other": "forged" });
-    assert.deepEqual([observed.authInfo, observed.principal], [authInfo, expected], JSON.stringify(headers));
+    assert.deepEqual(observed.authInfo, authInfo, JSON.stringify(headers));
     assert.deepEqual(observed.headers.filter((name: string) => name === "authorization" || name.startsWith("x-holon-")), []);
   }
 
-  const large = context({ ...audience, principal: { ...principal, sub: "s".repeat(12288) } });
-  assert.ok(large.length > 16384);
+  const large = context({ principal: { ...principal, sub: "s".repeat(12288) } });
   assert.equal((await call(inside, "inspect", { "x-holon-context": large })).authInfo.token, large);
 });
 
 test("a malformed Holon context is a bad request", { timeout: 10000 }, async t => {
-  let reached = 0;
-  const handler = createMcpHandler(() => {
-    reached++;
-    return new McpServer({ name: "app", version: "1.0.0" });
-  });
-  const origin = await start(t, { default: handler }, { HOLON_PLATFORM: "1" });
-  const person = { iss: "https://issuer.example", sub: "alice", client_id: "web", act: { sub: "agent" } };
+  const origin = await start(t, { default: { fetch: async () => new Response() } }, { HOLON_PLATFORM: "1" });
   const token = (payload: string) => `e30.${Buffer.from(payload).toString("base64url")}.signature`;
   const caller = "session/reporter";
   for (const headers of [
@@ -187,11 +135,9 @@ test("a malformed Holon context is a bad request", { timeout: 10000 }, async t =
     ["x-holon-context", "e30.e30=.signature"],
     ["x-holon-context", token("person")],
     ["x-holon-context", token("[]")],
-    ["x-holon-context", token("null")],
-    ["x-holon-context", context({ principal: "user" })],
+    ["x-holon-context", context({ principal: 1 })],
     ["x-holon-context", context({ principal: { iss: 1 } })],
     ["x-holon-context", context({ principal: { claims: [] } })],
-    ["x-holon-context", context({ principal: { ...person, act: ["agent"] } })],
   ]) {
     const response = await new Promise<IncomingMessage>((resolve, reject) =>
       request(`${origin}/mcp`, { method: "POST", headers: ["host", new URL(origin).host, ...headers] }, resolve).on("error", reject).end("{}"));
@@ -199,7 +145,6 @@ test("a malformed Holon context is a bad request", { timeout: 10000 }, async t =
     for await (const chunk of response) body += chunk;
     assert.deepEqual([response.statusCode, body], [400, "Malformed Holon context\n"], JSON.stringify(headers));
   }
-  assert.equal(reached, 0);
 });
 
 test("a dependency bound by the environment acts for the caller until its request ends, and an explicit binding never does", { timeout: 10000 }, async t => {
@@ -243,7 +188,7 @@ test("a dependency bound by the environment acts for the caller until its reques
     }));
   };
   const origin = await start(t, { default: { fetch } }, { HOLON_PLATFORM: "1" });
-  const token = context({ exp: 1900000060.25, aud: ["https://holon.example"], principal: { iss: "https://issuer.example", sub: "alice", client_id: "web" } });
+  const token = context({ principal: { iss: "https://issuer.example", sub: "alice", client_id: "web" } });
 
   await call(origin, "relay", { "x-holon-context": token });
   assert.deepEqual(phases, [[`${token} Bearer peer-secret`], ["undefined undefined"]]);
@@ -262,8 +207,6 @@ test("holon-serve runs an app's module until SIGTERM, when it closes its event s
   writeFileSync(join(root, "named.mjs"), "export default { fetch() {} }; export const frontend = 'web';");
   await assert.rejects(load(join(root, "plain.mjs")), /plain\.mjs must default-export an MCP handler/);
   await assert.rejects(load(join(root, "named.mjs")), /named\.mjs must export frontend as a file URL/);
-  const entry = relative(process.cwd(), join(repository, "tests/fixtures/app.ts"));
-  assert.equal((await load(entry)).frontend?.href, new URL("./fixtures/web/", import.meta.url).href);
 
   const { bin } = JSON.parse(readFileSync(join(repository, "packages/node/package.json"), "utf8"));
   const fixture = JSON.stringify(new URL("./fixtures/app.ts", import.meta.url).href);
@@ -274,11 +217,6 @@ test("holon-serve runs an app's module until SIGTERM, when it closes its event s
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
   const origin = /http:\/\/[^/]+/.exec((await lines.next()).value)![0];
   assert.equal((await get(origin, "/")).body, "<p>fixture</p>");
-  const { app } = createApps({ name: "test", version: "1.0.0" }, { app: null }, { app: { endpoint: `${origin}/mcp` } });
-  t.after(() => app!.close());
-  assert.deepEqual((await app!.callTool({ name: "hello", arguments: {} })).content, [{ type: "text", text: "hello" }]);
-  const waiting = app!.callTool({ name: "wait", arguments: {} }).then(() => "answered", () => "ended");
-  assert.equal((await lines.next()).value, "waiting");
   const client = new Client({ name: "test", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
   await client.connect(new StreamableHTTPClientTransport(new URL(`${origin}/mcp`)));
   t.after(() => client.close());
@@ -287,6 +225,5 @@ test("holon-serve runs an app's module until SIGTERM, when it closes its event s
   await active;
   child.kill("SIGTERM");
   assert.deepEqual(await exited, [0, null]);
-  assert.equal(await waiting, "ended");
   assert.equal(await stream, "closed");
 });

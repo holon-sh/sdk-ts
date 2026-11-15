@@ -32,8 +32,7 @@ export async function load(entry: string): Promise<App> {
 
 /**
  * Runs an app at the paths Holon gives it: the MCP endpoint at `/mcp` and `/mcp/<app>`, and the page's files everywhere
- * else. Listens on `PORT` and `HOST`, or else on 127.0.0.1:3000, until SIGTERM, when it finishes what it is answering
- * and ends the process, whatever the app left running.
+ * else. Listens on `PORT` and `HOST`, or else on 127.0.0.1:3000, until SIGTERM.
  *
  * ```ts
  * await serve(await load("server.ts"));
