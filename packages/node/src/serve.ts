@@ -58,12 +58,15 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   server.listen(Number(PORT), HOST);
   await once(server, "listening");
   const stop = async () => {
-    server.close();
+    const closing = new Promise(resolve => server.close(resolve));
     const deadline = sleep(1000, undefined, { ref: false });
     void deadline.then(() => server.closeAllConnections());
     const closed = Array.from(answering, ([res, { end }]) => end && (end(), new Promise(resolve => res.once("close", resolve))));
     await Promise.race([Promise.all(closed), deadline]);
-    handler.close?.().catch((error: unknown) => console.error(error));
+    await handler.close?.().catch((error: unknown) => console.error(error));
+    await closing;
+    await Promise.all([process.stdout, process.stderr].map(out => new Promise(resolve => out.write("", resolve))));
+    process.exit();
   };
   process.once("SIGTERM", stop);
   server.once("close", () => process.off("SIGTERM", stop));
