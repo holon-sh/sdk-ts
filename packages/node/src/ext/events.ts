@@ -217,8 +217,7 @@ const INTERVAL = 1000;
 const HEARTBEAT = 30_000;
 // How long a poll subscription lasts after its last poll: the sketch's poll subscription TTL.
 const POLL_SUBSCRIPTION_TTL = 60_000;
-// How many subscriptions may be held at once, by every delivery mode, and by one caller. Callers without an identity
-// cannot be told apart, so they count together as one caller.
+// How many subscriptions may be held at once, by every delivery mode, and by one caller with an identity.
 const MAX_SUBSCRIPTIONS = 10_000;
 const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
 const PAGE_SIZE = 100;
@@ -334,11 +333,11 @@ export function createEvents(): Events {
   // app terminated it; `close` is how the holder says its hold is over.
   const open = async (type: Type, { id, delivery, arguments: args, context }: { id: string; delivery: DeliveryModeName; arguments: unknown; context: ServerContext }, end: (error: EventError) => void): Promise<Held> => {
     if (types.get(type.name) !== type) throw refusal(removed);
-    const who = caller(context) ?? "anonymous";
+    const who = caller(context);
     if (subscribed >= MAX_SUBSCRIPTIONS) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptions", max: MAX_SUBSCRIPTIONS } });
-    if ((callers.get(who) ?? 0) >= MAX_SUBSCRIPTIONS_PER_CALLER) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptionsPerCaller", max: MAX_SUBSCRIPTIONS_PER_CALLER } });
+    if (who !== null && (callers.get(who) ?? 0) >= MAX_SUBSCRIPTIONS_PER_CALLER) throw refusal({ code: RESOURCE_EXHAUSTED, message: "ResourceExhausted", data: { limit: "subscriptionsPerCaller", max: MAX_SUBSCRIPTIONS_PER_CALLER } });
     subscribed++;
-    count(callers, who, 1);
+    if (who !== null) count(callers, who, 1);
     const subscriber = named(args);
     const hold = (by: number) => {
       count(type.holds, subscriber, by);
@@ -359,7 +358,7 @@ export function createEvents(): Events {
       if (closed) return;
       closed = true;
       subscribed--;
-      count(callers, who, -1);
+      if (who !== null) count(callers, who, -1);
       hold(-1);
       current.held.delete(held);
       if (current.held.size) return;

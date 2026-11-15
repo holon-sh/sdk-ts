@@ -382,16 +382,23 @@ test("a subscription the caller may not have is refused, and one it no longer ma
   await assert.rejects(events.subscribe("room.said", { room: "a", listener: "eve" }), refusedWith(-32024));
 
   const cat = await events.subscribe("room.said", { room: "a", listener: "cat" });
-  // Every delivery mode counts against the thousand a caller may hold: these callers have no identity, so are one.
-  const { request } = await wire(t, endpoint);
-  for (let index = 0; index < 999; index++) await request("events/poll", { name: "room.said", arguments: { room: "a", listener: `filler ${index}` }, cursor: null });
-  await assert.rejects(events.subscribe("room.said", { room: "a", listener: "fay" }, { delivery: "poll" }), refusedWith(-32025, { limit: "subscriptionsPerCaller", max: 1000 }));
-
   revoked.add("cat");
   let noticed = false;
   const lost = assert.rejects(take(cat, 1), refusedWith(-32024)).finally(() => { noticed = true; });
   await until(() => { t.mock.timers.tick(30_000); return noticed; });
   await lost;
+});
+
+test("a signed-in caller holds a thousand subscriptions by every delivery mode, and callers without an identity are held only to the ten thousand in all", { timeout: 30_000 }, async t => {
+  const { factory } = rooms();
+  const filler = (index: number) => ({ name: "room.said", arguments: { room: "a", listener: `filler ${index}` }, cursor: null });
+  const { endpoint } = await serve(t, factory, signedIn);
+  await connect(t, endpoint).subscribe("room.said", { room: "a", listener: "cat" });
+  const { request } = await wire(t, endpoint);
+  for (let index = 0; index < 999; index++) await request("events/poll", filler(index));
+  await assert.rejects(request("events/poll", filler(999)), refusedWith(-32025, { limit: "subscriptionsPerCaller", max: 1000 }));
+  const anonymous = await wire(t, (await serve(t, factory)).endpoint);
+  for (let index = 0; index < 1001; index++) await anonymous.request("events/poll", filler(index));
 });
 
 test("a subscription left while it is being set up has what the setup made cleaned up, and a request waiting for it sets it up again, by push or poll", async t => {
