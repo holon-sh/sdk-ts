@@ -217,7 +217,6 @@ const INTERVAL = 1000;
 const HEARTBEAT = 30_000;
 // How long a poll subscription lasts after its last poll: the sketch's poll subscription TTL.
 const POLL_SUBSCRIPTION_TTL = 60_000;
-// How many subscriptions may be held at once, by every delivery mode, and by one caller with an identity.
 const MAX_SUBSCRIPTIONS = 10_000;
 const MAX_SUBSCRIPTIONS_PER_CALLER = 1000;
 const PAGE_SIZE = 100;
