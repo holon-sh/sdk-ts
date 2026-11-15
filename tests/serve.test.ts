@@ -256,7 +256,7 @@ test("a dependency bound by the environment acts for the caller until its reques
   assert.deepEqual(received(), [`${token} Bearer peer-secret`]);
 });
 
-test("holon-serve runs an app's module until SIGTERM, when it closes its event streams with their final frame, and load takes only a module serve can run", { timeout: 10000 }, async t => {
+test("holon-serve runs an app's module until SIGTERM, when it closes its event streams with their final frame and exits whatever the app left running, and load takes only a module serve can run", { timeout: 10000 }, async t => {
   const root = temporary(t);
   writeFileSync(join(root, "plain.mjs"), "export default {};");
   writeFileSync(join(root, "named.mjs"), "export default { fetch() {} }; export const frontend = 'web';");
@@ -266,7 +266,9 @@ test("holon-serve runs an app's module until SIGTERM, when it closes its event s
   assert.equal((await load(entry)).frontend?.href, new URL("./fixtures/web/", import.meta.url).href);
 
   const { bin } = JSON.parse(readFileSync(join(repository, "packages/node/package.json"), "utf8"));
-  const child = spawn(process.execPath, [join(repository, "packages/node", bin["holon-serve"]), entry], { env: { ...process.env, PORT: "0" } });
+  const fixture = JSON.stringify(new URL("./fixtures/app.ts", import.meta.url).href);
+  writeFileSync(join(root, "busy.mjs"), `export * from ${fixture}; export { default } from ${fixture}; setInterval(() => {}, 1000);`);
+  const child = spawn(process.execPath, [join(repository, "packages/node", bin["holon-serve"]), join(root, "busy.mjs")], { env: { ...process.env, PORT: "0" } });
   t.after(() => child.kill("SIGKILL"));
   const exited = once(child, "exit");
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();

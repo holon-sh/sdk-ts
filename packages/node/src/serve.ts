@@ -32,7 +32,8 @@ export async function load(entry: string): Promise<App> {
 
 /**
  * Runs an app at the paths Holon gives it: the MCP endpoint at `/mcp` and `/mcp/<app>`, and the page's files everywhere
- * else. Listens on `PORT` and `HOST`, or else on 127.0.0.1:3000, until SIGTERM.
+ * else. Listens on `PORT` and `HOST`, or else on 127.0.0.1:3000, until SIGTERM, when it finishes what it is answering
+ * and ends the process, whatever the app left running.
  *
  * ```ts
  * await serve(await load("server.ts"));
@@ -58,12 +59,15 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
   server.listen(Number(PORT), HOST);
   await once(server, "listening");
   const stop = async () => {
-    server.close();
+    const closing = new Promise(resolve => server.close(resolve));
     const deadline = sleep(1000, undefined, { ref: false });
     void deadline.then(() => server.closeAllConnections());
     const closed = Array.from(answering, ([res, { end }]) => end && (end(), new Promise(resolve => res.once("close", resolve))));
     await Promise.race([Promise.all(closed), deadline]);
-    handler.close?.().catch((error: unknown) => console.error(error));
+    await handler.close?.().catch((error: unknown) => console.error(error));
+    await closing;
+    await Promise.all([process.stdout, process.stderr].map(out => new Promise(resolve => out.write("", resolve))));
+    process.exit();
   };
   process.once("SIGTERM", stop);
   server.once("close", () => process.off("SIGTERM", stop));
