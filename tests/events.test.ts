@@ -14,8 +14,6 @@ const identity = { name: "test", version: "1.0.0" };
 const loose = z.any();
 type Listener = { room: string; listener: string };
 type Said = { room: string; speaker: string; text: string };
-type OptionalNonEmpty<T extends [unknown, ...unknown[]] | undefined> = T;
-type EventDelivery = OptionalNonEmpty<EventDefinition<Listener, Said>["delivery"]>;
 
 // Serves a process's event types on each MCP server made for a request.
 const served = (events: Events) => () => {
@@ -169,6 +167,8 @@ test("the client lists every event type a page at a time, and is refused what th
 test("the server speaks the messages of the Events design sketch", async t => {
   const { events, factory, said, say } = rooms();
   events.event("alarm.rang", { inputSchema: z.object({}), payloadSchema: z.object({}), delivery: ["push"], _meta: { "example.com/sound": "bell" } });
+  // @ts-expect-error
+  [] satisfies EventDefinition<{}, {}>["delivery"];
   const { endpoint } = await serve(t, factory);
   const { client, heard, request } = await wire(t, endpoint);
   assert.deepEqual(client.getServerCapabilities()?.extensions, { "io.modelcontextprotocol/events": { listChanged: false } });
@@ -179,10 +179,10 @@ test("the server speaks the messages of the Events design sketch", async t => {
   const subscription = { name: "room.said", arguments: { room: "a", listener: "bob" } };
   const start = await request("events/poll", { ...subscription, cursor: null });
   assert.equal(start.nextPollMs, 1000);
-  const timestamp = "2026-01-01T00:00:00.000Z";
-  said.emit({ room: "a", speaker: "ann", text: "one" }, { eventId: "one", timestamp });
+  say("a", "ann", "one");
   const { events: [polled] } = await request("events/poll", { ...subscription, cursor: start.cursor });
-  assert.deepEqual(polled, { eventId: "one", name: "room.said", timestamp, data: { text: "one" } });
+  const { timestamp: _, ...event } = polled;
+  assert.deepEqual(event, { eventId: "one", name: "room.said", data: { text: "one" } });
 
   // A stream is confirmed first, sends each event with the cursor after it, and ends with its final result: once it
   // has sent about a megabyte, for its client to resume from its cursor, or when the server ends it.

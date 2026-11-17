@@ -34,7 +34,8 @@ function settings({ client }: FileConnection): Json | undefined {
 const uploadRequests = new WeakSet<object>();
 
 export function isUploadRequest(error: unknown): error is { data: Json } {
-  return isObject(error) && isObject(error.data) && uploadRequests.has(error.data);
+  const data = (error as { data?: unknown } | null | undefined)?.data;
+  return isObject(data) && uploadRequests.has(data);
 }
 
 // The MCP client rejects a result type it does not know and drops the result, and has no hook for extension result
@@ -77,8 +78,7 @@ function replace(value: unknown, schemas: unknown[], root: unknown, path: string
   if (value instanceof Blob) {
     const schema = expand(schemas, root).find(schema => "x-mcp-file" in schema);
     if (!schema) throw new Error(`${label}: the Blob at ${path || "/"} is not a file argument of the tool; the tool was not called.`);
-    const name = baseName("name" in value ? value.name : undefined);
-    const input: FileInput = { id: crypto.randomUUID(), ...(name !== undefined && { name }), mimeType: value.type || "application/octet-stream", size: value.size };
+    const input = {} as FileInput;
     found.push({ blob: value, schema, input });
     return input;
   }
@@ -106,8 +106,10 @@ export async function prepare<C extends FileConnection>(args: Json | undefined, 
   const found: Found[] = [];
   const replaced = replace(args, [root], root, "", found, label) as Json;
   await Promise.all(found.map(async ({ blob, schema, input }) => {
-    const maxSize = present(schema["x-mcp-file"])?.maxSize;
-    if (blob.size > Number(maxSize)) throw new Error(`${label}: ${quoted(input.name)} is ${blob.size} bytes, over the tool's limit of ${maxSize}; the tool was not called.`);
+    const descriptor = present(schema["x-mcp-file"]) ?? {};
+    const name = baseName((blob as { name?: unknown }).name);
+    if (blob.size > (descriptor.maxSize as number)) throw new Error(`${label}: ${quoted(name)} is ${blob.size} bytes, over the tool's limit of ${descriptor.maxSize}; the tool was not called.`);
+    Object.assign(input, { id: crypto.randomUUID(), ...(name !== undefined && { name }), mimeType: blob.type || "application/octet-stream", size: blob.size });
     if (list(schema.required).includes("digest")) input.digest = { algorithm: "sha-256", value: await sha256(blob) };
     files.set(input.id, { blob, input });
   }));
@@ -224,7 +226,7 @@ const TYPE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+(?:[ \t]*
 // encoding names and the filename as the WHATWG multipart/form-data algorithm does.
 function multipart({ fields, fileField }: Form, { blob, input }: Attachment): { body: Blob; type: string } {
   const boundary = `----holon${Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
-  const filename = (input.name ?? "file").replaceAll('"', "%22").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+  const filename = (baseName(input.name) ?? "file").replaceAll('"', "%22").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
   const parts: Array<string | Blob> = fields.map(({ name, value }) => `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`);
   parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="${fileField}"; filename="${filename}"\r\nContent-Type: ${TYPE.test(input.mimeType) ? input.mimeType : "application/octet-stream"}\r\n\r\n`, blob, `\r\n--${boundary}--\r\n`);
   return { body: new Blob(parts), type: `multipart/form-data; boundary=${boundary}` };

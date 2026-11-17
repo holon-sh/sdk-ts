@@ -2,7 +2,7 @@
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 import { ProtocolError } from "@modelcontextprotocol/client";
 import { patient, sleep, unchecked, untilAborted, type EndpointLink } from "../link.js";
-import type { CallOptions, EventOccurrence, EventType } from "../protocol.js";
+import type { CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription } from "../protocol.js";
 import type { Contract, RuntimeClient } from "../runtime.js";
 
 // A stream that has said nothing for twice the longest heartbeat interval is dead: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#lifecycle
@@ -24,7 +24,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
       if (!(cursor = page.nextCursor)) return events;
     }
   });
-  const subscribe: RuntimeClient["ext"]["events"]["subscribe"] = async (event, args = {}, { signal, onGap, maxAgeMs, ...options } = {}) => {
+  const subscribe = async (event: string, args: unknown = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
     const resolved = link.endpoint();
     const offered = options.delivery ? [options.delivery] : (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
@@ -101,7 +101,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
           on("error", () => {});
           on<{ error: { code: number; message: string; data?: unknown } }>("terminated", ({ error }) => { failure = new ProtocolError(error.code, error.message, error.data); cancelled.abort(); });
           heard();
-          await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, unchecked<unknown>(), patient({ signal: AbortSignal.any([ended, quiet.signal]) }));
+          await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, unchecked<unknown>(), { signal: AbortSignal.any([ended, quiet.signal]), timeout: 2 ** 31 - 1 });
         } catch (error) {
           if (!ended.aborted && (!confirmed || refused(error))) throw quiet.signal.aborted && !refused(error) ? new Error(`Lost the connection to ${name} for ${event}.`) : error;
         } finally {
@@ -131,5 +131,5 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
       }),
     };
   };
-  return Object.freeze({ list, subscribe });
+  return Object.freeze({ list, subscribe: subscribe as RuntimeClient["ext"]["events"]["subscribe"] });
 }

@@ -96,10 +96,15 @@ export function createApps<B extends Binding = EndpointBinding>(identity: Identi
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
     const link = createLink(identity, name, bindings ? { binding: bindings[name] } : { resolve });
-    const shared = { ...tools(link, contract, expect), resources: resources(link, contract, expect) };
-    apps[name] = Object.freeze(link.hosted
-      ? shared
-      : { ...shared, listTools: (options?: CallOptions) => link.connected(options, ({ client }) => client.listTools(undefined, patient(options))), ext: Object.freeze({ events: events(link, contract, expect) }), close: link.close });
+    apps[name] = Object.freeze({
+      ...tools(link, contract, expect),
+      resources: resources(link, contract, expect),
+      ...(!link.hosted && {
+        listTools: (options?: CallOptions) => link.connected(options, ({ client }) => client.listTools(undefined, patient(options))),
+        ext: Object.freeze({ events: events(link, contract, expect) }),
+        close: link.close,
+      }),
+    });
   }
   return Object.freeze(apps) as Readonly<Record<string, Bound<B>>>;
 }
@@ -110,7 +115,7 @@ const reserved = new Set(["then", "toJSON", "toString", "valueOf", "toLocaleStri
 function tools(link: Link, contract: Contract | null, expect: Expect): Pick<RuntimeClient, "callTool" | "tools"> {
   const { name } = link;
   const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition, output: definition.outputSchema && expect(definition.outputSchema, `structured output from ${name}.${definition.name}`) }]));
-  const callTool: RuntimeClient["callTool"] = async (request: CallMetadata & { name: string; arguments?: Record<string, unknown> }, { elicit, ...options }: ToolCallOptions = {}) => {
+  const callTool = async (request: CallMetadata & { name: string; arguments?: Record<string, unknown> }, { elicit, ...options }: ToolCallOptions = {}): Promise<ToolResult<unknown>> => {
     const tool = definitions.get(request.name);
     if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
     // A contract's tool is the tool as its server listed it.
@@ -157,14 +162,15 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
     return { ...result, resultType: "complete" } as ToolResult<unknown>;
   };
   const tools: Record<string, RuntimeClient["tools"][string]> = Object.create(null);
-  for (const [tool, { output }] of definitions) if (!reserved.has(tool)) {
-    tools[tool] = async (input, options) => {
-      const result = await callTool({ name: tool, arguments: input }, options);
-      if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, tool, result);
+  for (const [toolName, { output }] of definitions) if (!reserved.has(toolName)) {
+    tools[toolName] = async (input, options) => {
+      const result = await callTool({ name: toolName, arguments: input }, options);
+      if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, toolName, result);
       return output ? result.structuredContent : result;
     };
   }
-  return { callTool, tools: Object.freeze(tools) };
+  // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
+  return { callTool: callTool as RuntimeClient["callTool"], tools: Object.freeze(tools) };
 }
 
 function resources(link: Link, contract: Contract | null, expect: Expect): SessionClient<RuntimeClient>["resources"] {
