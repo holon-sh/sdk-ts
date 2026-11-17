@@ -2,9 +2,8 @@
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 import { ProtocolError } from "@modelcontextprotocol/client";
 import { patient, sleep, unchecked, untilAborted, type EndpointLink } from "../link.js";
-import type { CallOptions, EventOccurrence, EventType, SubscribeOptions, Subscription } from "../protocol.js";
+import type { CallOptions, EventOccurrence, EventType } from "../protocol.js";
 import type { Contract, RuntimeClient } from "../runtime.js";
-import { isObject } from "../values.js";
 
 // A stream that has said nothing for twice the longest heartbeat interval is dead: https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md#lifecycle
 const QUIET = 60_000;
@@ -13,13 +12,7 @@ type Listed = { events?: EventType[]; nextCursor?: string };
 type Polled = { events?: Sent[]; cursor?: string | null; truncated?: boolean; hasMore?: boolean; nextPollMs?: number };
 // A server's refusal ends a subscription: a client error, or an answer that the event type is gone, that access was
 // lost, or that the request is no longer valid. Anything else is tried again from the cursor.
-const clientError = (value: unknown) => typeof value === "number" && value >= 400 && value < 500;
-function refused(error: unknown): boolean {
-  if (!isObject(error)) return false;
-  const { status, data, code } = error;
-  return clientError(status) || (isObject(data) && clientError(data.status))
-    || (typeof code === "number" && [-32602, -32023, -32024, -32026].includes(code));
-}
+const refused = (error: any): boolean => error?.status >= 400 && error.status < 500 || error?.data?.status >= 400 && error.data.status < 500 || [-32602, -32023, -32024, -32026].includes(error?.code);
 
 export function events(link: EndpointLink, contract: Contract | null, expect: (schema: object, label: string) => (value: unknown) => void): RuntimeClient["ext"]["events"] {
   const { name } = link;
@@ -31,7 +24,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
       if (!(cursor = page.nextCursor)) return events;
     }
   });
-  const subscribe: RuntimeClient["ext"]["events"]["subscribe"] = async (event, args = {}, { signal, onGap, maxAgeMs, ...options }: SubscribeOptions = {}): Promise<Subscription> => {
+  const subscribe: RuntimeClient["ext"]["events"]["subscribe"] = async (event, args = {}, { signal, onGap, maxAgeMs, ...options } = {}) => {
     const resolved = link.endpoint();
     const offered = options.delivery ? [options.delivery] : (await list(signal && { signal })).find(type => type.name === event)?.delivery;
     if (!offered) throw new Error(`${name} has no event ${event}.`);
@@ -52,22 +45,13 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
     };
     const expected = contract?.events?.find(type => type.name === event)?.payloadSchema;
     const check = expected && expect(expected, `data of ${name} ${event}`);
-    const deliver = (occurrences: Sent[]) => {
-      try {
-        for (const { cursor: _, _meta, ...occurrence } of occurrences) {
-          if (seen.has(occurrence.eventId)) continue;
-          check?.(occurrence.data);
-          seen.add(occurrence.eventId);
-          if (seen.size > 1024) seen.delete(seen.values().next().value!);
-          queue.push(occurrence);
-          wake();
-        }
-        return true;
-      } catch (error) {
-        failure = error;
-        cancelled.abort();
-        return false;
-      }
+    const deliver = ({ cursor: _, _meta, ...occurrence }: Sent) => {
+      if (seen.has(occurrence.eventId)) return;
+      seen.add(occurrence.eventId);
+      if (seen.size > 1024) seen.delete(seen.values().next().value!);
+      check?.(occurrence.data);
+      queue.push(occurrence);
+      wake();
     };
     const request = { name: event, arguments: args, ...(maxAgeMs !== undefined && { maxAgeMs }) };
     let confirmed = false;
@@ -78,7 +62,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
         let wait = 1000;
         try {
           const result = await link.connected({ signal: ended }, ({ client }) => client.request({ method: "events/poll", params: { ...request, cursor } }, unchecked<Polled>(), patient({ signal: ended })));
-          if (!deliver(result.events ?? [])) return;
+          try { for (const occurrence of result.events ?? []) deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
           reach(result.cursor, result.truncated);
           confirm();
           // A server that asks for a tight loop is not obeyed.
@@ -109,7 +93,8 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
           on<Pick<Polled, "cursor" | "truncated">>("active", ({ cursor: next, truncated }) => { reach(next, truncated); confirm(); });
           on<Sent>("event", occurrence => {
             wait = 0;
-            if (deliver([occurrence])) reach(occurrence.cursor);
+            try { deliver(occurrence); } catch (error) { failure = error; return cancelled.abort(); }
+            reach(occurrence.cursor);
           });
           on<Pick<Polled, "cursor">>("heartbeat", ({ cursor: next }) => reach(next));
           // The server recovers from an error by itself, and the stream stays open.
@@ -118,10 +103,7 @@ export function events(link: EndpointLink, contract: Contract | null, expect: (s
           heard();
           await connection.client.request({ method: "events/stream", params: { ...request, cursor } }, unchecked<unknown>(), patient({ signal: AbortSignal.any([ended, quiet.signal]) }));
         } catch (error) {
-          if (!ended.aborted) {
-            if (refused(error)) throw error;
-            if (!confirmed) throw quiet.signal.aborted ? new Error(`Lost the connection to ${name} for ${event}.`) : error;
-          }
+          if (!ended.aborted && (!confirmed || refused(error))) throw quiet.signal.aborted && !refused(error) ? new Error(`Lost the connection to ${name} for ${event}.`) : error;
         } finally {
           clearTimeout(timer);
           await connection.close();

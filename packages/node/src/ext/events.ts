@@ -1,11 +1,10 @@
 // The server side of MCP Events, as the Triggers & Events Working Group's design sketch defines it:
 // https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md
 import { ProtocolError, ProtocolErrorCode, SUBSCRIPTION_ID_META_KEY } from "@modelcontextprotocol/server";
-import type { JSONRPCErrorResponse, McpServer, Server, ServerContext, StandardSchemaV1, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
+import type { JSONRPCErrorResponse, McpServer, Server, ServerCapabilities, ServerContext, StandardSchemaV1, StandardSchemaWithJSON } from "@modelcontextprotocol/server";
 import { getContext } from "../context.js";
 import { holder } from "../holder.js";
 import type { EventOccurrence as Occurrence } from "../protocol.js";
-import { isObject } from "../values.js";
 
 /** How a subscription receives its events. */
 export type DeliveryModeName = "poll" | "push";
@@ -173,23 +172,20 @@ const NOT_FOUND = -32023;
 const FORBIDDEN = -32024;
 const RESOURCE_EXHAUSTED = -32025;
 const UNSUPPORTED = -32026;
-const params: StandardSchemaV1<unknown, Record<string, unknown>> = {
-  "~standard": { version: 1, vendor: "holon-sh", validate: value =>
-    value == null ? { value: {} } : isObject(value) ? { value } : { issues: [{ message: "Expected an object" }] } },
-};
+const params: StandardSchemaV1<unknown, Record<string, unknown>> = { "~standard": { version: 1, vendor: "holon-sh", validate: value => ({ value: (value ?? {}) as Record<string, unknown> }) } };
 
 const refusal = ({ code, message, data }: EventError) => new ProtocolError(code, message, data);
 const removed: EventError = { code: NOT_FOUND, message: "NotFound", data: { kind: "event" } };
 const forbidden: EventError = { code: FORBIDDEN, message: "Forbidden" };
 const abandoned = new ProtocolError(ProtocolErrorCode.InternalError, "The request that began the subscription ended before it was set up");
-const described = (error: unknown): EventError => {
-  const { code, message, data } = isObject(error) ? error : {};
-  return { code: typeof code === "number" && Number.isInteger(code) ? code : ProtocolErrorCode.InternalError,
-    message: typeof message === "string" && message || "InternalError", ...(data !== undefined && { data }) };
-};
+const described = (error: any): EventError => ({
+  code: Number.isInteger(error?.code) ? error.code : ProtocolErrorCode.InternalError,
+  message: error?.message || "InternalError",
+  ...(error?.data !== undefined && { data: error.data }),
+});
 // Arguments are the same subscription whatever order their keys came in.
 const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
-  : isObject(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]))
+  : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical((value as Record<string, unknown>)[key])]))
   : value;
 const caller = (context: ServerContext): string | null => {
   const { principal } = getContext(context.http);
@@ -209,7 +205,7 @@ const count = (counts: Map<string, number>, key: string, by: number) => {
   if (total) counts.set(key, total);
   else counts.delete(key);
 };
-const integer = (value: unknown, minimum: number): value is number | undefined => value === undefined || typeof value === "number" && Number.isInteger(value) && value >= minimum;
+const integer = (value: unknown, minimum: number): value is number | undefined => value === undefined || Number.isInteger(value) && (value as number) >= minimum;
 
 const OFFERED: [DeliveryModeName, ...DeliveryModeName[]] = ["poll", "push"];
 // What each type keeps of what it emits, for polls and reconnecting streams: the sketch's emit buffer.
@@ -285,10 +281,10 @@ export function createEvents(): Events {
       if (target !== undefined ? untargetable || target !== id : type.match && !type.match(occurrence.data, args, context)) return undefined;
       data = type.transform ? type.transform(occurrence.data, args, context) : occurrence.data;
       if (type.transform) JSON.stringify(data);
-    } catch (error) {
+    } catch (error: any) {
       const { eventId } = occurrence;
       console.error(`holon-sh/ext/events: event ${eventId} of ${type.name} was skipped for a subscription:`, error);
-      failed({ code: ProtocolErrorCode.InternalError, message: `Event ${eventId} could not be delivered and was skipped`, data: { eventId, reason: String(isObject(error) ? error.message ?? error : error) } });
+      failed({ code: ProtocolErrorCode.InternalError, message: `Event ${eventId} could not be delivered and was skipped`, data: { eventId, reason: String(error?.message ?? error) } });
       return undefined;
     }
     return { ...occurrence, data, cursor: position(sequence) };
@@ -300,7 +296,7 @@ export function createEvents(): Events {
   // the delivery mode, the request's own fields, the arguments, and then whether the caller may subscribe. A caller
   // refused loses what it holds of that subscription at once.
   const subscription = async ({ name, arguments: args = {}, cursor, maxAgeMs, maxEvents }: Record<string, unknown>, context: ServerContext, delivery: DeliveryModeName) => {
-    const type = typeof name === "string" ? types.get(name) : undefined;
+    const type = types.get(name as string);
     if (!type) throw refusal(removed);
     if (!type.delivery.includes(delivery)) throw refusal({ code: UNSUPPORTED, message: "Unsupported", data: { feature: "deliveryMode", value: delivery } });
     if (cursor != null && typeof cursor !== "string") throw new ProtocolError(ProtocolErrorCode.InvalidParams, "cursor must be a string or null");
@@ -320,9 +316,8 @@ export function createEvents(): Events {
     return { type, subscription, cursor: cursor ?? null, maxAgeMs, maxEvents };
   };
 
-  const endSubscription = (type: Type, id: string | undefined, error: EventError) => {
-    const ids = id === undefined ? [...type.subscriptions.keys()] : [id];
-    for (const key of ids) for (const held of [...type.subscriptions.get(key)?.held ?? []]) held.end(error);
+  const endSubscription = (type: Type, id: string, error: EventError) => {
+    for (const held of [...type.subscriptions.get(id)?.held ?? []]) held.end(error);
   };
 
   const setUp = (type: Type, subscription: Subscription<unknown>) => Promise.resolve().then(() => type.onSubscribe?.(subscription)).then(cleanup => {
@@ -469,12 +464,13 @@ export function createEvents(): Events {
           return position(type.sequence);
         },
         terminate(id, error = forbidden) {
-          endSubscription(type, id, error);
+          if (id !== undefined) return endSubscription(type, id, error);
+          for (const each of [...type.subscriptions.keys()]) endSubscription(type, each, error);
         },
         remove() {
           if (types.get(name) !== type) return;
           types.delete(name);
-          endSubscription(type, undefined, removed);
+          for (const each of [...type.subscriptions.keys()]) endSubscription(type, each, removed);
         },
         presence<V>(told: (args: A, value: V | undefined) => D): Presence<A, V> {
           const values = new Map<string, { args: A; value: V; linger: number; leaving?: ReturnType<typeof setTimeout> }>();
@@ -515,8 +511,7 @@ export function createEvents(): Events {
       // The sketch declares capabilities.events. The MCP SDK's client drops top-level capabilities it does not know,
       // so the extension is declared under capabilities.extensions too, where SDK clients read it.
       // Clients are never told the event types changed: over Holon's stateless HTTP, the notification reaches none.
-      const capabilities = { events: { listChanged: false }, extensions: { [EVENTS_EXTENSION]: { listChanged: false } } };
-      server.registerCapabilities(capabilities);
+      server.registerCapabilities({ events: { listChanged: false }, extensions: { [EVENTS_EXTENSION]: { listChanged: false } } } as ServerCapabilities);
       const json = (schema: StandardSchemaWithJSON) => schema["~standard"].jsonSchema.input({ target: "draft-2020-12" });
       server.setRequestHandler("events/list", { params }, request => {
         const all = [...types.values()];

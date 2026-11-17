@@ -10,7 +10,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AuthInfo } from "@modelcontextprotocol/client";
 import mime from "mime";
 import { holder, type Answering } from "./holder.js";
-import { isObject } from "./values.js";
 
 /** An app's module: the MCP handler it exports by default, and the directory of its page. */
 export interface App {
@@ -132,6 +131,7 @@ const contextForm = /^[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/;
 const callerForm = /^([^/]+)\/([^/]+)$/;
 
 type Fields = Record<string, unknown>;
+const isObject = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
 const isString = (value: unknown): value is string => typeof value === "string";
 const text = (value: unknown) => (isString(value) ? value : "");
 const principalTypes = { iss: isString, sub: isString, client_id: isString, scope: isString, claims: isObject, act: isObject };

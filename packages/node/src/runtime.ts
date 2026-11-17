@@ -6,7 +6,6 @@ import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.
 import { createLink, environment, patient, sleep, untilAborted, type Link } from "./link.js";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, SessionClient, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
-import { isObject } from "./values.js";
 
 export { ToolCallError } from "./protocol.js";
 export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SessionClient, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
@@ -138,7 +137,7 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
             next = { ...retry, requestState };
             continue;
           }
-          if (uploaded) throw new Error(`${label}: the outcome is unknown; the tool may have run (${isObject(error) ? error.message ?? error : error}).`, { cause: error });
+          if (uploaded) throw new Error(`${label}: the outcome is unknown; the tool may have run (${(error as { message?: unknown } | null | undefined)?.message ?? error}).`, { cause: error });
           throw error;
         }
         // A server may keep asking, so answering stops after ten rounds, the MCP clients' own limit, and the last question reaches the caller.

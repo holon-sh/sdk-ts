@@ -2,7 +2,6 @@
 // https://github.com/modelcontextprotocol/experimental-ext-file-uploads/blob/main/specification/draft/file-uploads.md
 import type { Client, JSONRPCMessage, MessageExtraInfo, Transport } from "@modelcontextprotocol/client";
 import { base64, fetchGlobal, sha256 } from "#platform";
-import { isObject } from "../values.js";
 import { EXTENSION, type Download } from "./files.js";
 
 type Json = Record<string, unknown>;
@@ -18,6 +17,7 @@ interface Attachment { blob: Blob; input: FileInput }
 type Files = Map<string, Attachment>;
 
 const list = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
 const isPlain = (value: unknown): value is Json => isObject(value) && [Object.prototype, null].includes(Object.getPrototypeOf(value));
 const present = (value: unknown): Json | undefined => isObject(value) ? Object.fromEntries(Object.entries(value).filter(([, member]) => member !== null)) : undefined;
 const quoted = (name: string | undefined) => name === undefined ? "a file" : JSON.stringify(name);
@@ -77,9 +77,8 @@ function replace(value: unknown, schemas: unknown[], root: unknown, path: string
   if (value instanceof Blob) {
     const schema = expand(schemas, root).find(schema => "x-mcp-file" in schema);
     if (!schema) throw new Error(`${label}: the Blob at ${path || "/"} is not a file argument of the tool; the tool was not called.`);
-    const input: FileInput = { id: crypto.randomUUID(), mimeType: value.type || "application/octet-stream", size: value.size };
-    const name = "name" in value ? baseName(value.name) : undefined;
-    if (name !== undefined) input.name = name;
+    const name = baseName("name" in value ? value.name : undefined);
+    const input: FileInput = { id: crypto.randomUUID(), ...(name !== undefined && { name }), mimeType: value.type || "application/octet-stream", size: value.size };
     found.push({ blob: value, schema, input });
     return input;
   }
@@ -112,7 +111,7 @@ export async function prepare<C extends FileConnection>(args: Json | undefined, 
     if (list(schema.required).includes("digest")) input.digest = { algorithm: "sha-256", value: await sha256(blob) };
     files.set(input.id, { blob, input });
   }));
-  let budget = typeof server.maxInlineBytes === "number" && Number.isSafeInteger(server.maxInlineBytes) ? server.maxInlineBytes : 0;
+  let budget = Number.isSafeInteger(server.maxInlineBytes) ? server.maxInlineBytes as number : 0;
   for (const { blob, input } of [...files.values()].sort((a, b) => a.blob.size - b.blob.size)) {
     if (blob.size === 0) continue;
     if (blob.size <= budget) {
@@ -216,8 +215,8 @@ function send(target: Target, init: RequestInit, { resolved, authorization }: Fi
 }
 
 const reason = (error: unknown) => {
-  const { message, cause } = isObject(error) ? error : {};
-  return String((isObject(cause) ? cause.message : undefined) ?? message ?? error);
+  const { message, cause } = (error ?? {}) as { message?: unknown; cause?: { message?: unknown } };
+  return String(cause?.message ?? message ?? error);
 };
 const TYPE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+(?:[ \t]*;[ \t]*[!#$%&'*+.^_`|~0-9A-Za-z-]+=(?:[!#$%&'*+.^_`|~0-9A-Za-z-]+|"(?:[\t\x20\x21\x23-\x5b\x5d-\x7e]|\\[\t\x20-\x7e])*"))*$/;
 
@@ -225,7 +224,7 @@ const TYPE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+\/[!#$%&'*+.^_`|~0-9A-Za-z-]+(?:[ \t]*
 // encoding names and the filename as the WHATWG multipart/form-data algorithm does.
 function multipart({ fields, fileField }: Form, { blob, input }: Attachment): { body: Blob; type: string } {
   const boundary = `----holon${Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("")}`;
-  const filename = (baseName(input.name) ?? "file").replaceAll('"', "%22").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
+  const filename = (input.name ?? "file").replaceAll('"', "%22").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
   const parts: Array<string | Blob> = fields.map(({ name, value }) => `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`);
   parts.push(`--${boundary}\r\nContent-Disposition: form-data; name="${fileField}"; filename="${filename}"\r\nContent-Type: ${TYPE.test(input.mimeType) ? input.mimeType : "application/octet-stream"}\r\n\r\n`, blob, `\r\n--${boundary}--\r\n`);
   return { body: new Blob(parts), type: `multipart/form-data; boundary=${boundary}` };
@@ -255,18 +254,14 @@ export async function upload(request: Json, files: Files, connection: FileConnec
   const fail = (reason: string) => new Error(`${label}: ${reason}; the tool did not run.`);
   const { requestState, uploads } = request;
   if (typeof requestState !== "string") throw fail("the server's upload request has no requestState");
-  const missing = () => fail("the server's upload request does not list each file sent without data exactly once");
-  const waiting = new Map([...files].filter(([, { input }]) => input.size > 0 && input.data === undefined));
-  if (!Array.isArray(uploads) || uploads.length !== waiting.size) throw missing();
-  const matched = uploads.map((raw: unknown) => {
-    const id = isObject(raw) ? raw.fileId : undefined;
-    const file = typeof id === "string" ? waiting.get(id) : undefined;
-    if (!file) throw missing();
-    waiting.delete(file.input.id);
-    return { file, raw };
-  });
-  const targets = matched.map(({ file, raw }) => {
-    try { return { file, target: check(raw, "upload", connection) }; } catch (error) { throw fail(`the upload target for ${quoted(file.input.name)} was rejected (${reason(error)})`); }
+  const waiting = new Set<unknown>([...files.values()].filter(({ input }) => input.size > 0 && input.data === undefined).map(({ input }) => input.id));
+  const ids = list(uploads).map(target => (target as { fileId?: unknown } | null | undefined)?.fileId);
+  if (!Array.isArray(uploads) || ids.length !== waiting.size || new Set(ids).size !== ids.length || !ids.every(id => waiting.has(id))) {
+    throw fail("the server's upload request does not list each file sent without data exactly once");
+  }
+  const targets = uploads.map((target: { fileId: string }) => {
+    const file = files.get(target.fileId)!;
+    try { return { file, target: check(target, "upload", connection) }; } catch (error) { throw fail(`the upload target for ${quoted(file.input.name)} was rejected (${(error as Error).message})`); }
   });
   const controller = new AbortController();
   const stop = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -275,7 +270,7 @@ export async function upload(request: Json, files: Files, connection: FileConnec
       await transfer(target, file, connection, stop);
     } catch (error) {
       controller.abort();
-      throw fail(signal?.aborted ? "the call was cancelled during the upload" : `uploading ${quoted(file.input.name)} failed (${reason(error)})`);
+      throw fail(signal?.aborted ? "the call was cancelled during the upload" : `uploading ${quoted(file.input.name)} failed (${(error as Error).message})`);
     }
   }));
   return requestState;
@@ -328,6 +323,6 @@ function download(raw: unknown, connection: FileConnection): Download | undefine
 export function downloads<R extends { resultType?: string; _meta?: object }>(result: R, connection: FileConnection): R & { downloads?: Download[] } {
   if (result.resultType === "input_required" || !isObject(result._meta) || !(EXTENSION in result._meta)) return result;
   const { [EXTENSION]: meta, ...rest } = result._meta;
-  const handles = isObject(meta) && settings(connection) ? list(meta.downloads).flatMap(target => download(target, connection) ?? []) : [];
+  const handles = settings(connection) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).flatMap(target => download(target, connection) ?? []) : [];
   return { ...result, _meta: rest, ...(handles.length > 0 && { downloads: handles }) };
 }
