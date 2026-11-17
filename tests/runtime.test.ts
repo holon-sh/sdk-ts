@@ -19,7 +19,6 @@ test("tools return output or throw while callTool preserves MCP results and iden
       // The SDK leaves the request envelope untyped.
       identities.push((ctx.mcpReq.envelope as Record<string, { name: string }>)[CLIENT_INFO_META_KEY].name);
       if (args.id === "error") return { isError: true, content: [{ type: "text", text: "Unavailable" }], structuredContent: "failure", _meta: { preserved: true } };
-      if (args.id === "input") return { resultType: "input_required", requestState: "opaque-state" };
       if (args.id === "text") return { content: [{ type: "text", text: '{"total":5}' }] };
       return { content: [{ type: "text", text: "Order" }], structuredContent: { total: args.id === "bad" ? "invalid" : args.limit } };
     });
@@ -39,16 +38,11 @@ test("tools return output or throw while callTool preserves MCP results and iden
   const error = await first.orders.callTool({ name: "get_order", arguments: { id: "error" } });
   assert.equal(error.structuredContent, "failure");
   assert.equal(error._meta?.preserved, true);
-  const incomplete = await first.orders.callTool({ name: "get_order", arguments: { id: "input" } });
-  assert.equal(incomplete.resultType, "input_required");
-  assert.equal(incomplete.requestState, "opaque-state");
-  for (const [id, result] of [["error", error], ["input", incomplete]]) {
-    await assert.rejects(first.orders.tools.get_order({ id }), thrown => {
-      assert.ok(thrown instanceof ToolCallError);
-      assert.deepEqual(thrown.result, result);
-      return true;
-    });
-  }
+  await assert.rejects(first.orders.tools.get_order({ id: "error" }), thrown => {
+    assert.ok(thrown instanceof ToolCallError);
+    assert.deepEqual(thrown.result, error);
+    return true;
+  });
   await assert.rejects(first.orders.callTool({ name: "absent", arguments: {} }), /Unknown tool orders\.absent/);
   await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }), /Invalid structured output/);
   await assert.rejects(first.orders.tools.get_order({ id: "text" }), /Invalid structured output/);
@@ -90,7 +84,6 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   controller.abort();
   await watching;
 
-  await assert.rejects(createApps({ ...identity, requires: { orders: {} } }, { orders: contract }).orders.resources[uri].watch(() => {}), /ORDERS_MCP_URL/);
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);
 });
 

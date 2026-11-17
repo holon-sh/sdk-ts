@@ -31,11 +31,6 @@ async function orders(t: TestContext) {
   return app;
 }
 
-test("a declined question reaches the tool", { timeout: 10000 }, async t => {
-  const app = await orders(t);
-  await assert.rejects(app.tools.ship({ id: "A-1" }, { elicit: () => ({ action: "decline" }) }), thrown => thrown instanceof ToolCallError && /Nothing shipped/.test(thrown.message));
-});
-
 test("a server that keeps asking stops after ten answers and the question reaches the caller", { timeout: 10000 }, async t => {
   const app = await orders(t);
   let answers = 0;
@@ -44,13 +39,14 @@ test("a server that keeps asking stops after ten answers and the question reache
   assert.equal(answers, 10);
 });
 
-test("without elicit the question reaches the caller, who continues through callTool", { timeout: 10000 }, async t => {
+test("callers can decline a question or answer it through callTool", { timeout: 10000 }, async t => {
   const app = await orders(t);
-  const thrown = await app.tools.ship({ id: "A-1" }).catch(error => error);
-  assert.ok(thrown instanceof ToolCallError && thrown.result.resultType === "input_required");
-  assert.ok(thrown.message.includes(question));
-  const { requestState } = thrown.result;
-  const continued = await app.callTool({ name: "ship", arguments: { id: "A-1" }, requestState, inputResponses: { size: { action: "accept", content: { size: "small" } } } });
+  const request = { name: "ship", arguments: { id: "A-1" } };
+  await assert.rejects(app.tools.ship(request.arguments, { elicit: () => ({ action: "decline" }) }), thrown => thrown instanceof ToolCallError && /Nothing shipped/.test(thrown.message));
+  await assert.rejects(app.tools.ship(request.arguments), thrown => thrown instanceof ToolCallError && thrown.result.resultType === "input_required" && thrown.message.includes(question));
+  const result = await app.callTool(request);
+  assert.equal(result.resultType, "input_required");
+  const continued = await app.callTool({ ...request, requestState: result.requestState, inputResponses: { size: { action: "accept", content: { size: "small" } } } });
   assert.deepEqual(continued.structuredContent, { shipped: "small" });
 });
 

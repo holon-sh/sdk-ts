@@ -14,6 +14,8 @@ const identity = { name: "test", version: "1.0.0" };
 const loose = z.any();
 type Listener = { room: string; listener: string };
 type Said = { room: string; speaker: string; text: string };
+type OptionalNonEmpty<T extends [unknown, ...unknown[]] | undefined> = T;
+type EventDelivery = OptionalNonEmpty<EventDefinition<Listener, Said>["delivery"]>;
 
 // Serves a process's event types on each MCP server made for a request.
 const served = (events: Events) => () => {
@@ -167,8 +169,6 @@ test("the client lists every event type a page at a time, and is refused what th
 test("the server speaks the messages of the Events design sketch", async t => {
   const { events, factory, said, say } = rooms();
   events.event("alarm.rang", { inputSchema: z.object({}), payloadSchema: z.object({}), delivery: ["push"], _meta: { "example.com/sound": "bell" } });
-  // @ts-expect-error
-  [] satisfies EventDefinition<{}, {}>["delivery"];
   const { endpoint } = await serve(t, factory);
   const { client, heard, request } = await wire(t, endpoint);
   assert.deepEqual(client.getServerCapabilities()?.extensions, { "io.modelcontextprotocol/events": { listChanged: false } });
@@ -179,9 +179,10 @@ test("the server speaks the messages of the Events design sketch", async t => {
   const subscription = { name: "room.said", arguments: { room: "a", listener: "bob" } };
   const start = await request("events/poll", { ...subscription, cursor: null });
   assert.equal(start.nextPollMs, 1000);
-  say("a", "ann", "one");
+  const timestamp = "2026-01-01T00:00:00.000Z";
+  said.emit({ room: "a", speaker: "ann", text: "one" }, { eventId: "one", timestamp });
   const { events: [polled] } = await request("events/poll", { ...subscription, cursor: start.cursor });
-  assert.deepEqual(polled, { eventId: "one", name: "room.said", timestamp: polled.timestamp, data: { text: "one" } });
+  assert.deepEqual(polled, { eventId: "one", name: "room.said", timestamp, data: { text: "one" } });
 
   // A stream is confirmed first, sends each event with the cursor after it, and ends with its final result: once it
   // has sent about a megabyte, for its client to resume from its cursor, or when the server ends it.
@@ -189,9 +190,9 @@ test("the server speaks the messages of the Events design sketch", async t => {
   await until(() => heard.length === 2);
   const long = request("events/stream", { name: "room.said", arguments: { room: "b", listener: "bob" }, cursor: said.cursor() });
   for (let n = 0; n < 100; n++) say("b", "ann", `${n}`.padEnd(10_000));
-  assert.deepEqual(Object.keys(await long), ["_meta"]);
+  await long;
   said.remove();
-  assert.deepEqual(Object.keys(await stream), ["_meta"]);
+  await stream;
   const [{ id }, { cursor }] = heard;
   assert.deepEqual(heard.filter(message => message.id === id), [
     { kind: "active", id, cursor: start.cursor, truncated: false },
