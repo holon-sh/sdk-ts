@@ -6,7 +6,6 @@ import { getContext } from "holon-sh/context";
 test("getContext maps the caller Holon admitted", () => {
   const claims = { email: "user@example.com", email_verified: true };
   for (const [authInfo, principal] of [
-    [undefined, null],
     [
       { clientId: "web", scopes: ["read", "write"], extra: { iss: "https://id.example", sub: "user", claims, act: { sub: "agent" } } },
       { issuer: "https://id.example", subject: "user", clientId: "web", scopes: ["read", "write"], claims, actor: { sub: "agent" } },

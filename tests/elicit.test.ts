@@ -40,17 +40,16 @@ test("a server that keeps asking stops after ten answers and the question reache
   const app = await orders(t);
   let answers = 0;
   const elicit: ElicitHandler = () => { answers += 1; return { action: "accept", content: { size: "again" } }; };
-  await assert.rejects(app.tools.ship({ id: "A-1" }, { elicit }), thrown => thrown instanceof ToolCallError && thrown.message.includes(question));
+  await assert.rejects(app.tools.ship({ id: "A-1" }, { elicit }), thrown => thrown instanceof ToolCallError && thrown.result.resultType === "input_required" && thrown.message.includes(question));
   assert.equal(answers, 10);
 });
 
-test("without elicit the question reaches the caller, who continues through callTool", { timeout: 10000 }, async t => {
+test("a caller can answer a question through callTool", { timeout: 10000 }, async t => {
   const app = await orders(t);
-  const thrown = await app.tools.ship({ id: "A-1" }).catch(error => error);
-  assert.ok(thrown instanceof ToolCallError && thrown.result.resultType === "input_required");
-  assert.ok(thrown.message.includes(question));
-  const { requestState } = thrown.result;
-  const continued = await app.callTool({ name: "ship", arguments: { id: "A-1" }, requestState, inputResponses: { size: { action: "accept", content: { size: "small" } } } });
+  const request = { name: "ship", arguments: { id: "A-1" } };
+  const result = await app.callTool(request);
+  assert.equal(result.resultType, "input_required");
+  const continued = await app.callTool({ ...request, requestState: result.requestState, inputResponses: { size: { action: "accept", content: { size: "small" } } } });
   assert.deepEqual(continued.structuredContent, { shipped: "small" });
 });
 

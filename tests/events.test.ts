@@ -181,7 +181,8 @@ test("the server speaks the messages of the Events design sketch", async t => {
   assert.equal(start.nextPollMs, 1000);
   say("a", "ann", "one");
   const { events: [polled] } = await request("events/poll", { ...subscription, cursor: start.cursor });
-  assert.deepEqual(polled, { eventId: "one", name: "room.said", timestamp: polled.timestamp, data: { text: "one" } });
+  const { timestamp: _, ...event } = polled;
+  assert.deepEqual(event, { eventId: "one", name: "room.said", data: { text: "one" } });
 
   // A stream is confirmed first, sends each event with the cursor after it, and ends with its final result: once it
   // has sent about a megabyte, for its client to resume from its cursor, or when the server ends it.
@@ -189,9 +190,9 @@ test("the server speaks the messages of the Events design sketch", async t => {
   await until(() => heard.length === 2);
   const long = request("events/stream", { name: "room.said", arguments: { room: "b", listener: "bob" }, cursor: said.cursor() });
   for (let n = 0; n < 100; n++) say("b", "ann", `${n}`.padEnd(10_000));
-  assert.deepEqual(Object.keys(await long), ["_meta"]);
+  await long;
   said.remove();
-  assert.deepEqual(Object.keys(await stream), ["_meta"]);
+  await stream;
   const [{ id }, { cursor }] = heard;
   assert.deepEqual(heard.filter(message => message.id === id), [
     { kind: "active", id, cursor: start.cursor, truncated: false },

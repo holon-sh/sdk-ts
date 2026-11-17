@@ -3,7 +3,7 @@ import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, 
 import { DefaultJsonSchemaValidator } from "@modelcontextprotocol/client/_shims";
 import { events } from "./ext/events.client.js";
 import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
-import { createLink, environment, patient, sleep, untilAborted, type EndpointLink, type HostedLink, type Link } from "./link.js";
+import { createLink, environment, patient, sleep, untilAborted, type Link } from "./link.js";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, SessionClient, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
@@ -96,10 +96,15 @@ export function createApps<B extends Binding = EndpointBinding>(identity: Identi
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
     const link = createLink(identity, name, bindings ? { binding: bindings[name] } : { resolve });
-    const shared = tools(link, contract, expect);
-    apps[name] = Object.freeze(link.hosted
-      ? { ...shared, resources: resources(link, contract, expect) }
-      : { ...shared, listTools: (options?: CallOptions) => link.connected(options, ({ client }) => client.listTools(undefined, patient(options))), resources: resources(link, contract, expect), ext: Object.freeze({ events: events(link, contract, expect) }), close: link.close });
+    apps[name] = Object.freeze({
+      ...tools(link, contract, expect),
+      resources: resources(link, contract, expect),
+      ...(!link.hosted && {
+        listTools: (options?: CallOptions) => link.connected(options, ({ client }) => client.listTools(undefined, patient(options))),
+        ext: Object.freeze({ events: events(link, contract, expect) }),
+        close: link.close,
+      }),
+    });
   }
   return Object.freeze(apps) as Readonly<Record<string, Bound<B>>>;
 }
@@ -157,19 +162,17 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
     return { ...result, resultType: "complete" } as ToolResult<unknown>;
   };
   const tools: Record<string, RuntimeClient["tools"][string]> = Object.create(null);
-  for (const tool of contract?.tools ?? []) if (!reserved.has(tool.name)) {
-    tools[tool.name] = async (input, options) => {
-      const result = await callTool({ name: tool.name, arguments: input }, options);
-      if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, tool.name, result);
-      return tool.outputSchema ? result.structuredContent : result;
+  for (const [toolName, { output }] of definitions) if (!reserved.has(toolName)) {
+    tools[toolName] = async (input, options) => {
+      const result = await callTool({ name: toolName, arguments: input }, options);
+      if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, toolName, result);
+      return output ? result.structuredContent : result;
     };
   }
   // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
   return { callTool: callTool as RuntimeClient["callTool"], tools: Object.freeze(tools) };
 }
 
-function resources(link: EndpointLink, contract: Contract | null, expect: Expect): RuntimeClient["resources"];
-function resources(link: HostedLink, contract: Contract | null, expect: Expect): SessionClient<RuntimeClient>["resources"];
 function resources(link: Link, contract: Contract | null, expect: Expect): SessionClient<RuntimeClient>["resources"] {
   const { name } = link;
   const resources: Record<string, SessionClient<RuntimeClient>["resources"][string]> = Object.create(null);
