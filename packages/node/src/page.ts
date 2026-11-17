@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
+import { type McpUiAppResourceConfig, RESOURCE_MIME_TYPE, registerAppResource } from "@modelcontextprotocol/ext-apps/server";
 import type { McpServer } from "@modelcontextprotocol/server";
 
-// MCP Apps names a view with a ui:// URI and serves it as this type. An app has one page, so the URI names no app and
-// survives renaming one.
-// https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx
+// An app has one page, so its ui:// URI names no app and survives renaming one.
 const uri = "ui://page";
-const mimeType = "text/html;profile=mcp-app";
+
+type ViewMeta = NonNullable<NonNullable<McpUiAppResourceConfig["_meta"]>["ui"]>;
 
 /** An app's page, as the view an MCP Apps host shows with a tool's result. */
 export interface Page {
@@ -25,12 +25,12 @@ export interface Page {
  * page.serve(server);
  * ```
  */
-export function createPage(file: URL, ui: Record<string, unknown> = {}): Page {
+export function createPage(file: URL, ui: ViewMeta = {}): Page {
   return {
     meta: { ui: { resourceUri: uri } },
     serve: server =>
-      void server.registerResource("Page", uri, { mimeType }, async () => ({
-        contents: [{ uri, mimeType, text: await readFile(file, "utf8"), _meta: { ui } }],
+      void registerAppResource(server, "Page", uri, {}, async () => ({
+        contents: [{ uri, mimeType: RESOURCE_MIME_TYPE, text: await readFile(file, "utf8"), _meta: { ui } }],
       })),
   };
 }
