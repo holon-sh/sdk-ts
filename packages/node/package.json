@@ -46,6 +46,10 @@
     "./page": {
       "types": "./dist/page.d.ts",
       "import": "./dist/page.js"
+    },
+    "./system": {
+      "types": "./dist/system.d.ts",
+      "import": "./dist/system.js"
     }
   },
   "typesVersions": {
@@ -56,7 +60,8 @@
       "protocol": ["./dist/protocol.d.ts"],
       "ext/files": ["./dist/ext/files.d.ts"],
       "serve": ["./dist/serve.d.ts"],
-      "page": ["./dist/page.d.ts"]
+      "page": ["./dist/page.d.ts"],
+      "system": ["./dist/system.d.ts"]
     }
   },
   "imports": {

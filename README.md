@@ -67,6 +67,16 @@ await apps.huggingface.tools.hub_search({ query: "llama" });
 // error TS2339: Property 'hub_search' does not exist on type '{ readonly hf_fs: (input: { operations: { args: string[]; cmd: "attach" | "cat" | "find" | "ls" | "search" | "stat"; }[]; }, options?: ToolCallOptions | undefined) => Promise<{ results: ({ ...; } | { ...; })[]; truncated?: boolean | undefined; truncation_reason?: "output_budget" | undefined; }>; readonly hf_whoami: ...'.
 ```
 
+## Reading your own calls
+
+Holon gives every app `control`, through which it reads the MCP calls made to it in its own deployment. There is nothing to declare:
+
+```ts
+import { control } from "holon-sh/system";
+
+const { traces } = await control.tools.get_traces({ since: "24h", status: "error" });
+```
+
 ## Events
 
 A server tells its clients what happens with [MCP Events](https://github.com/modelcontextprotocol/experimental-ext-triggers-events/blob/main/docs/design-sketch-proposal.md), a draft extension of the MCP Triggers & Events Working Group. The draft may change, and this follows it, so it lives under `ext`: `holon-sh/ext/events` on a server and `ext.events` on a client. Expect what is there to change.

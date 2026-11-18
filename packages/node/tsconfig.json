@@ -7,7 +7,8 @@
     "declarationMap": true,
     "sourceMap": true,
     "isolatedDeclarations": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "resolveJsonModule": true
   },
   "include": ["src"]
 }
