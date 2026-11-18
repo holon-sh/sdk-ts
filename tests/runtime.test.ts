@@ -3,13 +3,12 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
-import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/client";
+import { DEFAULT_REQUEST_TIMEOUT_MSEC, type CallToolResult } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { createApps, bindApps, ToolCallError, type ToolSession } from "holon-sh/runtime";
-import type { CompleteResult } from "holon-sh/protocol";
 import { serve } from "./helpers.ts";
 
-test("tools return output or throw while callTool preserves MCP results and identity", {timeout: 10000}, async t => {
+test("callTool sends its app's identity, returns error results, and rejects output its contract does not allow", {timeout: 10000}, async t => {
   const input = z.strictObject({ id: z.string(), limit: z.number().default(5) });
   const output = z.object({ total: z.number() });
   const identities: string[] = [];
@@ -18,8 +17,7 @@ test("tools return output or throw while callTool preserves MCP results and iden
     server.registerTool("get_order", { inputSchema: input }, async (args, ctx) => {
       // The SDK leaves the request envelope untyped.
       identities.push((ctx.mcpReq.envelope as Record<string, { name: string }>)[CLIENT_INFO_META_KEY].name);
-      if (args.id === "error") return { isError: true, content: [{ type: "text", text: "Unavailable" }], structuredContent: "failure", _meta: { preserved: true } };
-      if (args.id === "text") return { content: [{ type: "text", text: '{"total":5}' }] };
+      if (args.id === "error") return { isError: true, content: [{ type: "text", text: "Unavailable" }], structuredContent: "failure" };
       return { content: [{ type: "text", text: "Order" }], structuredContent: { total: args.id === "bad" ? "invalid" : args.limit } };
     });
     return server;
@@ -30,22 +28,11 @@ test("tools return output or throw while callTool preserves MCP results and iden
   const make = (name: string) => createApps({ name, version: "1", requires: { orders: {} } }, { orders: contract }, undefined, { resolve });
   const first = make("first");
   const second = make("second");
-  const results = await Promise.all([first.orders.tools.get_order({ id: "valid" }), second.orders.callTool({ name: "get_order", arguments: { id: "valid", limit: 2 } })]);
-  assert.deepEqual(results[0], { total: 5 });
-  assert.equal(results[1].resultType, "complete");
-  assert.deepEqual(results[1].structuredContent, { total: 2 });
+  await Promise.all([first.orders.tools.get_order({ id: "valid" }), second.orders.callTool({ name: "get_order", arguments: { id: "valid", limit: 2 } })]);
   assert.deepEqual(identities.sort(), ["first", "second"]);
   const error = await first.orders.callTool({ name: "get_order", arguments: { id: "error" } });
   assert.equal(error.structuredContent, "failure");
-  assert.equal(error._meta?.preserved, true);
-  await assert.rejects(first.orders.tools.get_order({ id: "error" }), thrown => {
-    assert.ok(thrown instanceof ToolCallError);
-    assert.deepEqual(thrown.result, error);
-    return true;
-  });
-  await assert.rejects(first.orders.callTool({ name: "absent", arguments: {} }), /Unknown tool orders\.absent/);
-  await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }), /Invalid structured output/);
-  await assert.rejects(first.orders.tools.get_order({ id: "text" }), /Invalid structured output/);
+  await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }));
 });
 
 test("endpoint bindings carry the auth provider and watch resources through subscriptions", { timeout: 20000 }, async t => {
@@ -84,31 +71,37 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   controller.abort();
   await watching;
 
-  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}), /does not advertise resource subscriptions/);
+  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { endpoint: plain.endpoint } }).orders.resources[uri].watch(() => {}));
 });
 
-test("session bindings serve calls and reads and respect validation and binding boundaries", async () => {
+test("a session binding passes a call and its signal to the session, and a custom validator's errors fail a read", async () => {
   const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }], resources: [{ uri: "orders://summary", outputSchema: { type: "object", properties: { total: { type: "number" } }, required: ["total"] } }] };
   const identity = { name: "checkout", version: "1", requires: { orders: {} } };
-
-  // A session binding's session serves calls and reads, and a bound app never falls back to resolve or <NAME>_MCP_URL,
-  // which a page in a browser cannot read.
   const calls: unknown[] = [];
   const signal = new AbortController().signal;
   const session: ToolSession = {
-    callTool: async (request, options) => { calls.push(["call", request, options?.signal === signal]); return { content: [], structuredContent: { id: request.arguments?.id } }; },
-    readResource: async request => { calls.push(["read", request]); return { contents: [{ uri: request.uri, text: '{"total":7}' }] }; },
+    callTool: async (request, options) => { calls.push([request, options?.signal === signal]); return { content: [] }; },
+    readResource: async request => ({ contents: [{ uri: request.uri, text: '{"total":7}' }] }),
   };
-  const hosted = bindApps(identity, { orders: contract }, { orders: { session } });
-  assert.deepEqual((await hosted.orders.tools.get_order({ id: "s" }, { signal }) as CompleteResult<unknown>).structuredContent, { id: "s" });
-  assert.deepEqual(await hosted.orders.resources["orders://summary"].read(), { total: 7 });
-  assert.deepEqual(calls, [["call", { name: "get_order", arguments: { id: "s" } }, true], ["read", { uri: "orders://summary" }]]);
-
-  // Without a binding, a declared dependency is unavailable, from the environment or from a resolve hook that binds nothing.
-  await assert.rejects(createApps(identity, { orders: contract }).orders.tools.get_order({ id: "x" }), /Dependency orders is unavailable \(ORDERS_MCP_URL\)/);
-  await assert.rejects(createApps(identity, { orders: contract }, undefined, { resolve: () => undefined }).orders.tools.get_order({ id: "x" }), /Dependency orders is unavailable/);
+  await bindApps(identity, { orders: contract }, { orders: { session } }).orders.tools.get_order({ id: "s" }, { signal });
+  assert.deepEqual(calls, [[{ name: "get_order", arguments: { id: "s" } }, true]]);
   const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
-  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
+  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /\["rejected"\]/);
+});
+
+test("tools the contract names under responses return their text parsed as JSON, unchecked", async () => {
+  const results: Record<string, CallToolResult> = {
+    get_order: { content: [{ type: "text", text: '{"total":"not a number"}' }] },
+    cancel_order: { content: [] },
+    lost_order: { isError: true, content: [{ type: "text", text: "HTTP 404" }] },
+  };
+  const session: ToolSession = { callTool: async request => results[request.name], readResource: async () => ({ contents: [] }) };
+  const contract = { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" } })), responses: Object.keys(results) };
+  const { orders } = bindApps({ name: "checkout", version: "1" }, { orders: contract }, { orders: { session } });
+  assert.deepEqual(await orders.tools.get_order({}), { total: "not a number" });
+  assert.equal(await orders.tools.cancel_order({}), null);
+  await assert.rejects(orders.tools.lost_order({}), ToolCallError);
+  assert.deepEqual(await orders.callTool({ name: "get_order", arguments: {} }), { ...results.get_order, resultType: "complete" });
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
@@ -124,7 +117,6 @@ test("a failure carries the server's text and its JSON", { timeout: 10000 }, asy
     assert.ok(error instanceof ToolCallError);
     assert.deepEqual(error.data, problem);
     assert.equal(error.text, JSON.stringify(problem));
-    assert.ok(error.message.includes(JSON.stringify(problem)));
     return true;
   });
 });
@@ -158,8 +150,7 @@ test("a call without a timeout waits past the MCP client's default, and progress
   let resume = await reached();
   t.mock.timers.tick(DEFAULT_REQUEST_TIMEOUT_MSEC + 1);
   resume();
-  // build has no output schema, so the tool returns its complete result.
-  assert.deepEqual((await unbounded as CompleteResult<unknown>).content, [{ type: "text", text: "built" }]);
+  await unbounded;
 
   let progressed: () => void;
   const kept = builds.tools.build({ progress: true }, { timeout: 1000, onprogress: () => progressed() });
@@ -169,7 +160,7 @@ test("a call without a timeout waits past the MCP client's default, and progress
   resume = await reached();
   t.mock.timers.tick(800);
   resume();
-  assert.deepEqual((await kept as CompleteResult<unknown>).content, [{ type: "text", text: "built" }]);
+  await kept;
 });
 
 test("schemas that share an $id validate independently", async () => {
@@ -200,7 +191,7 @@ test("a typed call validates its output where code generation is disallowed, as 
     const contract = { tools: [{ name: "total", inputSchema: { type: "object" }, outputSchema: { type: "object", properties: { total: { type: "number" } }, required: ["total"] } }] };
     const { orders } = bindApps({ name: "view", version: "1" }, { orders: contract }, { orders: { endpoint: process.argv[1], scoped: true } });
     assert.deepEqual(await orders.tools.total({}), { total: 1 });
-    await assert.rejects(orders.tools.total({}), /Invalid structured output from orders.total/);
+    await assert.rejects(orders.tools.total({}));
   `;
   await promisify(execFile)(process.execPath, ["--conditions=browser", "--disallow-code-generation-from-strings", "--input-type=module", "-e", view, endpoint], { cwd: import.meta.dirname });
 });

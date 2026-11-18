@@ -86,7 +86,7 @@ export interface Subscription<Data = unknown> extends AsyncIterable<EventOccurre
 }
 
 /** Client operations shared by generated app clients. Transport, validation, and protocol errors reject the returned promises. A Blob at a file argument (x-mcp-file) is sent with the files extension: inline when the server takes it, else uploaded to the target the server names. A failure before the call completes says whether the tool did not run or the outcome is unknown. */
-export interface ToolClient<I, O, R, E extends Record<string, { arguments: unknown; data: unknown }> = Record<string, { arguments: Record<string, unknown>; data: unknown }>> {
+export interface ToolClient<I, O, R, E extends Record<string, { arguments: unknown; data: unknown }> = Record<string, { arguments: Record<string, unknown>; data: unknown }>, P = {}> {
   /** Close the client's connection to its endpoint. */
   readonly close: () => Promise<void>;
   /** Fetch the live tool catalog. */
@@ -110,8 +110,8 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
     readonly read: (options?: CallOptions) => Promise<R[U]>;
     readonly watch: (onChange: (value: R[U]) => void | Promise<void>, options?: { signal?: AbortSignal }) => Promise<void>;
   } };
-  /** Convenience methods returning structured output, or the complete MCP result, with its content blocks typed, for a tool without an output schema. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool. */
-  readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
+  /** Convenience methods returning structured output, the parsed text of a tool whose contract names its response (P), or the complete MCP result, with its content blocks typed, for a tool with neither. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool. */
+  readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : K extends keyof P ? P[K] : CompleteResult<unknown>> };
   /** Return the full MCP result, preserving error results and questions left unanswered. Successful output is contract-validated; the server validates arguments. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
 }
