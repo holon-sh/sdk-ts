@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
-import { DEFAULT_REQUEST_TIMEOUT_MSEC } from "@modelcontextprotocol/client";
+import { DEFAULT_REQUEST_TIMEOUT_MSEC, type CallToolResult } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { createApps, bindApps, ToolCallError, type ToolSession } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
@@ -109,6 +109,21 @@ test("session bindings serve calls and reads and respect validation and binding 
   await assert.rejects(createApps(identity, { orders: contract }, undefined, { resolve: () => undefined }).orders.tools.get_order({ id: "x" }), /Dependency orders is unavailable/);
   const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /Invalid contents from orders orders:\/\/summary: \["rejected"\]/);
+});
+
+test("tools the contract names under responses return their text parsed as JSON, unchecked", async () => {
+  const results: Record<string, CallToolResult> = {
+    get_order: { content: [{ type: "text", text: '{"total":"not a number"}' }] },
+    cancel_order: { content: [] },
+    lost_order: { isError: true, content: [{ type: "text", text: "HTTP 404" }] },
+  };
+  const session: ToolSession = { callTool: async request => results[request.name], readResource: async () => ({ contents: [] }) };
+  const contract = { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" } })), responses: Object.keys(results) };
+  const { orders } = bindApps({ name: "checkout", version: "1" }, { orders: contract }, { orders: { session } });
+  assert.deepEqual(await orders.tools.get_order({}), { total: "not a number" });
+  assert.equal(await orders.tools.cancel_order({}), null);
+  await assert.rejects(orders.tools.lost_order({}), ToolCallError);
+  assert.deepEqual(await orders.callTool({ name: "get_order", arguments: {} }), { ...results.get_order, resultType: "complete" });
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
