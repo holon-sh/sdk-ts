@@ -35,3 +35,12 @@ for (const block of unknown.content) if (block.type === "resource") {
   const body: string = "blob" in block.resource ? block.resource.blob : block.resource.text;
 }
 getContext().principal?.claims.email satisfies string | undefined;
+
+const { control, createControl } = await import("holon-sh/system");
+const page = await control.tools.get_traces({ since: "24h", status: "error" });
+page.traces[0].status satisfies "ok" | "error";
+await createControl(oauth).tools.get_traces({});
+// @ts-expect-error
+await control.tools.get_traces({ status: "failed" });
+// @ts-expect-error
+await control.tools.get_trace({});

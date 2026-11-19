@@ -72,7 +72,8 @@
   },
   "files": [
     "dist",
-    "src"
+    "src",
+    "system"
   ],
   "scripts": {
     "build": "node scripts/build.ts && tsc",
