@@ -10,6 +10,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { AuthInfo } from "@modelcontextprotocol/client";
 import mime from "mime";
 import { holder, type Answering } from "./holder.js";
+import { setupTelemetry } from "./telemetry.node.js";
+import { appName, context, finish, incoming, isTraced, messageOf, ResponseWatcher, startServer, trace } from "./telemetry.js";
 
 /** An app's module: the MCP handler it exports by default, and the directory of its page. */
 export interface App {
@@ -44,6 +46,8 @@ export async function load(entry: string): Promise<App> {
  */
 export async function serve({ default: handler, frontend }: App): Promise<Server> {
   const { PORT = "3000", HOST = "127.0.0.1", HOLON_PLATFORM } = process.env;
+  // After the app's module has loaded, so an OpenTelemetry SDK it registered itself stays.
+  const telemetry = await setupTelemetry();
   // A directory's URL ends in `/`. Without it, a name would resolve beside the directory instead of in it.
   const directory = frontend && new URL(frontend.href.replace(/\/?$/, "/"));
   const answering = new Map<ServerResponse, Answering>();
@@ -65,6 +69,7 @@ export async function serve({ default: handler, frontend }: App): Promise<Server
     await Promise.race([Promise.all(closed), deadline]);
     await handler.close?.().catch((error: unknown) => console.error(error));
     await closing;
+    await telemetry.shutdown();
     await Promise.all([process.stdout, process.stderr].map(out => new Promise(resolve => out.write("", resolve))));
     process.exit();
   };
@@ -98,24 +103,40 @@ async function respond(handler: App["default"], platform: boolean, directory: UR
     const headers = new Headers();
     for (const [name, values = []] of Object.entries(req.headersDistinct))
       if (!name.startsWith("x-holon-") && name !== "authorization") for (const value of values) headers.append(name, value);
-    const body = req.method === "GET" || req.method === "HEAD" ? undefined : req;
-    const response = await holder.run(request, () =>
-      handler.fetch(new Request(url, { method: req.method, headers, body, duplex: "half", signal: gone.signal }), { authInfo }),
-    );
+    // The handler reads the message serve parsed, so the request continues the trace its caller sent.
+    const { body, parsedBody } = req.method === "GET" || req.method === "HEAD" ? {} : await readMessage(req);
+    const message = messageOf(parsedBody);
+    const span = message && isTraced(message) ? startServer(message, incoming(req.headers, message.meta), appName()) : undefined;
+    const active = span ? trace.setSpan(context.active(), span) : context.active();
+    const within = <T>(run: () => T) => holder.run(request, () => context.with(active, run));
+    let response: Response;
+    try {
+      response = await within(() =>
+        handler.fetch(new Request(url, { method: req.method, headers, body, duplex: "half", signal: gone.signal }), { authInfo, ...(parsedBody !== undefined && { parsedBody }) }),
+      );
+    } catch (error) {
+      if (span) finish(span, undefined, "transport");
+      throw error;
+    }
     res.setHeaders(response.headers).writeHead(response.status);
-    if (!response.body) return void res.end();
+    const watcher = span && new ResponseWatcher(response.headers.get("content-type"), message?.id);
+    if (!response.body) {
+      if (span) finish(span, undefined, response.ok ? undefined : `http_${String(response.status)[0]}xx`);
+      return void res.end();
+    }
     const reader = response.body.getReader();
     const reentered = new ReadableStream<Uint8Array>({
       async pull(controller) {
-        const { done, value } = await holder.run(request, () => reader.read());
+        const { done, value } = await within(() => reader.read());
         if (done) controller.close();
-        else controller.enqueue(value);
+        else watcher?.push(value), controller.enqueue(value);
       },
       cancel: reason => reader.cancel(reason),
     });
     // When the client leaves, pipeline cancels the body, so a stream between events ends then and not at its next
     // write. Either side failing ends the response, which is all there is to do.
     await pipeline(Readable.fromWeb(reentered), res).catch(() => {});
+    if (span && watcher) finish(span, watcher.result());
     return;
   }
   if (!directory || (req.method !== "GET" && req.method !== "HEAD")) return void res.writeHead(404).end();
@@ -125,6 +146,35 @@ async function respond(handler: App["default"], platform: boolean, directory: UR
   const type = mime.getType(file.name) ?? "application/octet-stream";
   const contentType = type.startsWith("text/") ? `${type}; charset=utf-8` : type;
   res.writeHead(200, { "content-type": contentType, "x-content-type-options": "nosniff" }).end(file.contents);
+}
+
+// createMcpHandler's default limit on a request body. A bigger body reaches the handler unparsed, with no span, for the
+// handler to refuse or, with a higher limit, to serve.
+const MAX_PARSED = 4 * 1024 * 1024;
+
+/** Read a request's body, parsed when it is JSON within the limit; otherwise the body goes on as it came. */
+async function readMessage(req: IncomingMessage): Promise<{ body?: Buffer | ReadableStream<Uint8Array>; parsedBody?: unknown }> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  const iterator = req[Symbol.asyncIterator]();
+  for (let next = await iterator.next(); !next.done; next = await iterator.next()) {
+    const chunk = next.value as Buffer;
+    chunks.push(chunk);
+    size += chunk.length;
+    if (size > MAX_PARSED) {
+      async function* rest() {
+        yield* chunks;
+        for (let more = await iterator.next(); !more.done; more = await iterator.next()) yield more.value as Buffer;
+      }
+      return { body: Readable.toWeb(Readable.from(rest())) as ReadableStream<Uint8Array> };
+    }
+  }
+  const bytes = Buffer.concat(chunks);
+  try {
+    return { body: bytes, parsedBody: bytes.length ? JSON.parse(utf8.decode(bytes)) : undefined };
+  } catch {
+    return { body: bytes };
+  }
 }
 
 const contextForm = /^[A-Za-z0-9_-]+\.([A-Za-z0-9_-]+)\.[A-Za-z0-9_-]+$/;
