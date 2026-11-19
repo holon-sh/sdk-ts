@@ -21,5 +21,6 @@ test("the environment and explicitly bound clients read and validate traces", as
   t.after(() => { process.env = saved; });
   const page = await control.tools.get_traces({ status: "error" });
   assert.equal(page.traces[0].status, "error");
+  delete process.env.CONTROL_MCP_URL;
   await assert.rejects(bound.tools.get_traces({}), /Invalid structured output from control\.get_traces/);
 });
