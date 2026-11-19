@@ -149,18 +149,6 @@ server.registerTool("share", { description: "Links to the page" }, ctx => {
 
 `principal` is the user Holon admitted, or null. `origin` is the one Holon or a proxy forwards, or else the one the request reached.
 
-## Telemetry
-
-An app served by `holon-serve` or `serve` joins Holon's traces with no code of its own:
-
-- Each MCP request gets a `SERVER` span named `<method> <tool>`. It continues the caller's trace from the `traceparent` header, or from `params._meta` when there's no header.
-- Each call to a dependency gets a `CLIENT` span. Its trace context goes to the dependency in both the HTTP headers and `params._meta`, replacing any `traceparent`, `tracestate` or `baggage` you passed in `_meta`. Your other `_meta` keys are kept. Where there's no context to send, as in a browser page that registers no propagator, the trace keys you pass in `_meta` go through unchanged, so a page can start its own trace.
-- Spans carry `mcp.method.name`, `gen_ai.tool.name`, `holon.app`, `holon.callee` and `error.type` (`tool_error`, or a JSON-RPC code), never arguments or results.
-
-Inside Holon with telemetry enabled, the pod's `OTEL_EXPORTER_OTLP_ENDPOINT` makes `serve` export spans over OTLP. Without an endpoint, or with `OTEL_SDK_DISABLED=true`, nothing is exported, but each request's trace context still reaches the dependencies it calls.
-
-To use your own OpenTelemetry SDK, register it when your module loads. `serve` runs after the module is imported and keeps a tracer provider, context manager or propagator that is already registered. The span code depends only on `@opentelemetry/api`, so a page that bundles `holon-sh/runtime` also gets propagation once the page registers a propagator itself.
-
 ## A page in MCP Apps hosts
 
 `holon-sh/page` offers an app's page, built as one HTML file, as the view an MCP Apps host shows with a tool's result:
