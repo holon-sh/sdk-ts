@@ -5,7 +5,7 @@ import { context, propagation, SpanKind, SpanStatusCode, trace, type Attributes,
 // @opentelemetry/api is used here, so a browser bundle stays free of the SDK; without a registered propagator, nothing is
 // read or written.
 
-/** The params._meta keys that carry trace context. A caller's own values for them are replaced. */
+/** The params._meta keys that carry trace context. A caller's own values for them are replaced when there is a context to send. */
 export const TRACE_KEYS = ["traceparent", "tracestate", "baggage"] as const;
 
 const tracer = () => trace.getTracer("holon-sh");
@@ -57,12 +57,19 @@ export function incoming(headers: Record<string, string | string[] | undefined>,
   return propagation.extract(context.active(), flat.traceparent !== undefined ? flat : (meta ?? {}), metaGetter);
 }
 
-/** params with _meta's trace context replaced by the active context's; other _meta keys stay. */
+/**
+ * params with _meta's trace context replaced by the active context's; other _meta keys stay. Without a context to send,
+ * as in a page that registered no propagator, the caller's own trace keys stay, so a page can still set traceparent.
+ */
 export function withTraceMeta(params: unknown, active: Context = context.active()): Fields {
   const base = isObject(params) ? params : {};
   const meta: Fields = isObject(base._meta) ? { ...base._meta } : {};
-  for (const key of TRACE_KEYS) delete meta[key];
-  propagation.inject(active, meta);
+  const injected: Fields = {};
+  propagation.inject(active, injected);
+  if (injected.traceparent !== undefined) {
+    for (const key of TRACE_KEYS) delete meta[key];
+    Object.assign(meta, injected);
+  }
   return { ...base, _meta: meta };
 }
 

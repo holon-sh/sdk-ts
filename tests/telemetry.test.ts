@@ -167,6 +167,21 @@ test("a dependency call outside any request starts its own trace at its client s
   assert.equal(metas[0]?.traceparent, `00-${client.spanContext().traceId}-${client.spanContext().spanId}-0${TraceFlags.SAMPLED}`);
 });
 
+test("a page with no propagator keeps the traceparent it puts in _meta, so its own trace reaches the dependency", { timeout: 10000 }, async t => {
+  const metas: Array<Record<string, unknown> | undefined> = [];
+  const peer = await serveMcp(t, () => {
+    const server = new McpServer({ name: "peer", version: "1.0.0" });
+    server.registerTool("echo", {}, async ctx => { metas.push(ctx.mcpReq._meta); return { content: [] }; });
+    return server;
+  });
+  environment(t, { PEER_MCP_URL: peer.endpoint });
+  propagation.disable();
+  t.after(() => propagation.setGlobalPropagator(new W3CTraceContextPropagator()));
+  await createApps({ name: "x", version: "1", requires: { peer: {} } }, {}).peer!.callTool({ name: "echo", arguments: {}, _meta: { traceparent: parent(META_TRACE), kept: 1 } });
+  assert.equal(metas[0]?.traceparent, parent(META_TRACE));
+  assert.equal(metas[0]?.kept, 1);
+});
+
 test("connection handshakes get no span, even against a 2025-era server that initializes on every call", { timeout: 10000 }, async t => {
   const peer = await serveLegacy(t, () => {
     const server = new McpServer({ name: "peer", version: "1.0.0" });
