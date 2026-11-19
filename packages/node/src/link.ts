@@ -2,7 +2,8 @@ import { Client, SdkHttpError, StreamableHTTPClientTransport } from "@modelconte
 import type { CacheableRequestOptions, PriorDiscovery, StandardSchemaV1 } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
-import { acceptUploadRequests } from "./ext/files.client.js";
+import { acceptUploadRequests, isUploadRequest } from "./ext/files.client.js";
+import { appName, context, finish, injectHeaders, isTraced, messageOf, startClient, trace, withTraceMeta } from "./telemetry.js";
 import type { CallOptions } from "./protocol.js";
 import type { Binding, EndpointBinding, Identity, ToolSession } from "./runtime.js";
 
@@ -63,17 +64,76 @@ class Transport extends StreamableHTTPClientTransport {
   }
 }
 
-function connect(identity: Identity, resolved: EndpointBinding, prior?: PriorDiscovery, onclose?: (connection: Connection) => void, streamEnded?: StreamEnded): Connection {
+/**
+ * Traces the requests a transport sends: a CLIENT span per request, with the span's trace context in params._meta and,
+ * through the transport's fetch, which runs in the span's context, in the HTTP headers. A span ends with its response,
+ * its cancellation, or the transport closing. Responses pass through the onmessage already installed, such as
+ * acceptUploadRequests', whose upload requests the span records as the results they arrived as.
+ */
+function traced<T extends StreamableHTTPClientTransport>(transport: T, callee: string, caller: string | undefined): T {
+  const pending = new Map<string | number, (response?: unknown, failure?: string) => void>();
+  const settle = (id: unknown, response?: unknown, failure?: string) => {
+    const end = (typeof id === "string" || typeof id === "number") && pending.get(id);
+    if (end) pending.delete(id as string | number), end(response, failure);
+  };
+  const send = transport.send.bind(transport);
+  transport.send = (message, options) => {
+    const request = messageOf(message);
+    // An older server learns of a cancellation from this notification; a 2026-era one from requestSignal, below.
+    if (request?.method === "notifications/cancelled") settle((message as { params?: { requestId?: unknown } }).params?.requestId, undefined, "cancelled");
+    if (!request || request.id === undefined || !isTraced(request)) return send(message, options);
+    const { id } = request;
+    settle(id);
+    const span = startClient(request, { name: callee, kind: "app" }, caller);
+    const ended = new AbortController();
+    pending.set(id, (response, failure) => { ended.abort(); finish(span, response, failure); });
+    options?.requestSignal?.addEventListener("abort", () => settle(id, undefined, "cancelled"), { once: true, signal: ended.signal });
+    const active = trace.setSpan(context.active(), span);
+    const sent = { ...message, params: withTraceMeta((message as { params?: unknown }).params, active) } as typeof message;
+    return context.with(active, () => send(sent, options)).catch((error: unknown) => {
+      if (!ended.signal.aborted) settle(id, undefined, "transport");
+      throw error;
+    });
+  };
+  const previous = Object.getOwnPropertyDescriptor(transport, "onmessage");
+  type Receive = NonNullable<StreamableHTTPClientTransport["onmessage"]>;
+  let handler: Receive | undefined = previous?.get ? undefined : previous?.value;
+  const observe = (value: Receive): Receive => message => {
+    if ("id" in message && !("method" in message)) settle(message.id, "error" in message && isUploadRequest(message.error) ? { result: message.error.data } : message);
+    value(message);
+  };
+  Object.defineProperty(transport, "onmessage", {
+    configurable: true,
+    get: () => (previous?.get ? previous.get.call(transport) : handler),
+    set: (value: Receive | undefined) => {
+      const wrapped = value && observe(value);
+      if (previous?.set) previous.set.call(transport, wrapped);
+      else handler = wrapped;
+    },
+  });
+  // A request still unanswered when the transport closes never will be.
+  const close = transport.close.bind(transport);
+  transport.close = async () => {
+    for (const id of [...pending.keys()]) settle(id, undefined, "transport");
+    await close();
+  };
+  return transport;
+}
+
+function connect(identity: Identity, callee: string, resolved: EndpointBinding, prior?: PriorDiscovery, onclose?: (connection: Connection) => void, streamEnded?: StreamEnded): Connection {
   // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
   // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
   const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
   const endpoint = new URL(resolved.endpoint);
-  const transport = acceptUploadRequests(new Transport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
+  const transport = traced(acceptUploadRequests(new Transport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
     if (String(input) === endpoint.href) connection.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
+    const headers = new Headers(init?.headers);
+    injectHeaders(headers);
+    init = { ...init, headers };
     const response = await (resolved.fetch ?? fetch)(input, init);
     connection.answered ||= response.ok;
     return response;
-  }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }, streamEnded));
+  }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }, streamEnded)), callee, appName(identity.name));
   transport.onclose = () => onclose?.(connection);
   const ready = client.connect(transport, { prior }).catch(async (error: unknown) => {
     await transport.close();
@@ -105,7 +165,7 @@ export function createLink(identity: Identity, name: string, { binding, resolve 
     const key = resolved[DISCOVERY];
     const cached = discovered.get(name);
     const prior = key !== undefined && cached?.key === key && Date.now() < cached.expires ? cached.prior : undefined;
-    const active = scoped ? connect(identity, resolved, prior) : (kept ??= connect(identity, resolved, undefined, closed => { if (kept === closed) kept = undefined; }));
+    const active = scoped ? connect(identity, name, resolved, prior) : (kept ??= connect(identity, name, resolved, undefined, closed => { if (kept === closed) kept = undefined; }));
     try {
       await untilAborted(active.ready, options?.signal);
       if (key !== undefined && !prior) {
@@ -126,7 +186,7 @@ export function createLink(identity: Identity, name: string, { binding, resolve 
     session: (options, run) => connected(options, connection => run(connection.client, connection)),
     connected,
     endpoint,
-    connect: (resolved, streamEnded) => connect(identity, resolved, undefined, undefined, streamEnded),
+    connect: (resolved, streamEnded) => connect(identity, name, resolved, undefined, undefined, streamEnded),
     close: async () => { await kept?.close(); },
   };
 }
