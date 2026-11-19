@@ -8,7 +8,12 @@ import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider, type Readabl
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { createApps } from "holon-sh/runtime";
-import { serve } from "holon-sh/serve";
+import { serve, type App } from "holon-sh/serve";
+import { EXTENSION } from "holon-sh/ext/files";
+import { createServer } from "node:http";
+import { once } from "node:events";
+import { toNodeHandler } from "@modelcontextprotocol/node";
+import { fromJsonSchema } from "@modelcontextprotocol/server";
 import { serve as serveMcp, serveLegacy } from "./helpers.ts";
 
 // The app's own OpenTelemetry SDK, registered before serve, which must keep it: every span lands in this exporter.
@@ -27,10 +32,10 @@ function environment(t: TestContext, variables: Record<string, string>) {
   t.after(() => { process.env = saved; });
 }
 
-async function start(t: TestContext, server: () => McpServer) {
+async function start(t: TestContext, server: (() => McpServer) | App["default"]) {
   // An endpoint makes serve try to register its own provider, which it must not do over the one above.
   environment(t, { PORT: "0", OTEL_SERVICE_NAME: "relay-app", OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:9" });
-  const http = await serve({ default: createMcpHandler(server) });
+  const http = await serve({ default: typeof server === "function" ? createMcpHandler(server) : server });
   t.after(() => { http.closeAllConnections(); http.close(); });
   return `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`;
 }
@@ -192,4 +197,72 @@ test("connection handshakes get no span, even against a 2025-era server that ini
   exporter.reset();
   for (let call = 0; call < 3; call++) await createApps({ name: "x", version: "1", requires: { peer: {} } }, {}).peer!.callTool({ name: "echo", arguments: {} });
   assert.deepEqual(exporter.getFinishedSpans().map(({ name }) => name), ["tools/call echo", "tools/call echo", "tools/call echo"]);
+});
+
+const toolCall = (name: string, padding = "") => JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { padding } } });
+const post = (endpoint: string, body: string) => fetch(endpoint, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" }, body });
+
+test("an HTTP failure without a JSON-RPC response, or a response stream that fails, is an error on the server span", { timeout: 10000 }, async t => {
+  let reply = () => new Response("Service unavailable", { status: 503 });
+  const endpoint = await start(t, { fetch: async () => reply() });
+  exporter.reset();
+  assert.equal((await post(endpoint, toolCall("down"))).status, 503);
+  reply = () => new Response(new ReadableStream({ pull: controller => controller.error(new Error("broken")) }), { headers: { "content-type": "text/event-stream" } });
+  await post(endpoint, toolCall("broken")).then(response => response.text()).catch(() => {});
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const spans = exporter.getFinishedSpans();
+  assert.equal(spans.find(named("tools/call down", SpanKind.SERVER))?.attributes["error.type"], "http_5xx");
+  assert.equal(spans.find(named("tools/call broken", SpanKind.SERVER))?.attributes["error.type"], "transport");
+});
+
+test("the handler's own request body limit still applies to a body serve read", { timeout: 10000 }, async t => {
+  const endpoint = await start(t, createMcpHandler(() => new McpServer({ name: "app", version: "1.0.0" }), { maxRequestBodySize: 256 }));
+  assert.equal((await post(endpoint, toolCall("noop", "x".repeat(1024)))).status, 413);
+});
+
+test("a call cancelled after its response stream opened, on a kept connection, ends its span", { timeout: 10000 }, async t => {
+  const peer = await serveMcp(t, () => {
+    const server = new McpServer({ name: "peer", version: "1.0.0" });
+    server.registerTool("wait", {}, async ctx => {
+      await ctx.mcpReq.notify({ method: "notifications/progress", params: { progressToken: ctx.mcpReq._meta?.progressToken!, progress: 1 } });
+      await new Promise(resolve => ctx.mcpReq.signal.addEventListener("abort", resolve));
+      return { content: [] };
+    });
+    return server;
+  });
+  const { peer: client } = createApps({ name: "x", version: "1" }, { peer: null }, { peer: { endpoint: peer.endpoint } });
+  t.after(() => client!.close());
+  exporter.reset();
+  const controller = new AbortController();
+  // Progress arrives on the call's open event stream, so the transport's send has already resolved.
+  await assert.rejects(client!.callTool({ name: "wait", arguments: {} }, { signal: controller.signal, onprogress: () => controller.abort() }));
+  const span = exporter.getFinishedSpans().find(named("tools/call wait", SpanKind.CLIENT));
+  assert.equal(span?.attributes["error.type"], "cancelled");
+});
+
+test("a call whose files go out of band records the upload request as a result, not an error", { timeout: 10000 }, async t => {
+  const fileSchema = { type: "object", properties: { file: { type: "object", "x-mcp-file": { maxSize: 64 }, properties: { id: { type: "string" }, mimeType: { type: "string" }, size: { type: "integer" } }, required: ["id", "mimeType", "size"] } } };
+  const handler = createMcpHandler(() => {
+    const server = new McpServer({ name: "files", version: "1" }, { capabilities: { extensions: { [EXTENSION]: { upload: {} } } } });
+    server.registerTool("save", { inputSchema: fromJsonSchema(fileSchema) }, async (args, ctx) => ctx.mcpReq.requestState()
+      ? { content: [] }
+      : ({ resultType: "upload_required", content: [], requestState: "state", uploads: [{ fileId: (args as { file: { id: string } }).file.id, path: "/uploads/a", credentials: "omit" }] }) as never);
+    return server;
+  }, { legacy: "reject" });
+  const dispatch = toNodeHandler(handler);
+  const http = createServer((req, res) => {
+    if (req.url !== "/mcp") return void req.resume().on("end", () => res.writeHead(200).end());
+    void dispatch(req, res).catch(() => res.destroy());
+  });
+  t.after(async () => { await handler.close(); http.closeAllConnections(); http.close(); });
+  http.listen(0, "127.0.0.1");
+  await once(http, "listening");
+  const endpoint = `http://127.0.0.1:${(http.address() as AddressInfo).port}/mcp`;
+  const { files } = createApps({ name: "x", version: "1" }, { files: { tools: [{ name: "save", inputSchema: fileSchema }] } }, { files: { endpoint } });
+  t.after(() => files!.close());
+  exporter.reset();
+  await files!.callTool({ name: "save", arguments: { file: new Blob(["hello"]) } });
+  const spans = exporter.getFinishedSpans().filter(named("tools/call save", SpanKind.CLIENT));
+  assert.equal(spans.length, 2);
+  for (const span of spans) assert.equal(span.attributes["error.type"], undefined);
 });

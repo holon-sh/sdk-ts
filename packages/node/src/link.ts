@@ -2,9 +2,8 @@ import { Client, SdkHttpError, StreamableHTTPClientTransport } from "@modelconte
 import type { CacheableRequestOptions, PriorDiscovery, StandardSchemaV1 } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
-import { acceptUploadRequests } from "./ext/files.client.js";
+import { acceptUploadRequests, isUploadRequest } from "./ext/files.client.js";
 import { appName, context, finish, injectHeaders, isTraced, messageOf, startClient, trace, withTraceMeta } from "./telemetry.js";
-import type { Span } from "@opentelemetry/api";
 import type { CallOptions } from "./protocol.js";
 import type { Binding, EndpointBinding, Identity, ToolSession } from "./runtime.js";
 
@@ -66,23 +65,33 @@ class Transport extends StreamableHTTPClientTransport {
 }
 
 /**
- * Traces the requests a transport sends: a CLIENT span per request, ended by its response, with the span's trace context
- * in params._meta and, through the transport's fetch, which runs in the span's context, in the HTTP headers. Responses
- * pass through the onmessage already installed, such as acceptUploadRequests'.
+ * Traces the requests a transport sends: a CLIENT span per request, with the span's trace context in params._meta and,
+ * through the transport's fetch, which runs in the span's context, in the HTTP headers. A span ends with its response,
+ * its cancellation, or the transport closing. Responses pass through the onmessage already installed, such as
+ * acceptUploadRequests', whose upload requests the span records as the results they arrived as.
  */
 function traced<T extends StreamableHTTPClientTransport>(transport: T, callee: string, caller: string | undefined): T {
-  const pending = new Map<string | number, Span>();
+  const pending = new Map<string | number, (response?: unknown, failure?: string) => void>();
+  const settle = (id: unknown, response?: unknown, failure?: string) => {
+    const end = (typeof id === "string" || typeof id === "number") && pending.get(id);
+    if (end) pending.delete(id as string | number), end(response, failure);
+  };
   const send = transport.send.bind(transport);
   transport.send = (message, options) => {
     const request = messageOf(message);
+    // An older server learns of a cancellation from this notification; a 2026-era one from requestSignal, below.
+    if (request?.method === "notifications/cancelled") settle((message as { params?: { requestId?: unknown } }).params?.requestId, undefined, "cancelled");
     if (!request || request.id === undefined || !isTraced(request)) return send(message, options);
+    const { id } = request;
+    settle(id);
     const span = startClient(request, { name: callee, kind: "app" }, caller);
+    const ended = new AbortController();
+    pending.set(id, (response, failure) => { ended.abort(); finish(span, response, failure); });
+    options?.requestSignal?.addEventListener("abort", () => settle(id, undefined, "cancelled"), { once: true, signal: ended.signal });
     const active = trace.setSpan(context.active(), span);
-    pending.get(request.id)?.end();
-    pending.set(request.id, span);
     const sent = { ...message, params: withTraceMeta((message as { params?: unknown }).params, active) } as typeof message;
     return context.with(active, () => send(sent, options)).catch((error: unknown) => {
-      if (pending.get(request.id!) === span) pending.delete(request.id!), finish(span, undefined, "transport");
+      if (!ended.signal.aborted) settle(id, undefined, "transport");
       throw error;
     });
   };
@@ -90,9 +99,7 @@ function traced<T extends StreamableHTTPClientTransport>(transport: T, callee: s
   type Receive = NonNullable<StreamableHTTPClientTransport["onmessage"]>;
   let handler: Receive | undefined = previous?.get ? undefined : previous?.value;
   const observe = (value: Receive): Receive => message => {
-    const id = "id" in message && !("method" in message) ? message.id : undefined;
-    const span = id === undefined || id === null ? undefined : pending.get(id);
-    if (span) pending.delete(id!), finish(span, message);
+    if ("id" in message && !("method" in message)) settle(message.id, "error" in message && isUploadRequest(message.error) ? { result: message.error.data } : message);
     value(message);
   };
   Object.defineProperty(transport, "onmessage", {
@@ -107,8 +114,7 @@ function traced<T extends StreamableHTTPClientTransport>(transport: T, callee: s
   // A request still unanswered when the transport closes never will be.
   const close = transport.close.bind(transport);
   transport.close = async () => {
-    for (const span of pending.values()) finish(span, undefined, "transport");
-    pending.clear();
+    for (const id of [...pending.keys()]) settle(id, undefined, "transport");
     await close();
   };
   return transport;
