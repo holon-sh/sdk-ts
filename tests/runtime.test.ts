@@ -98,7 +98,6 @@ test("tools the contract names under responses return their text parsed as JSON,
   const session: ToolSession = { callTool: async request => results[request.name], readResource: async () => ({ contents: [] }) };
   const contract = { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" } })), responses: Object.keys(results) };
   const bind = (responseSchemas?: Contract["responseSchemas"]) => bindApps({ name: "checkout", version: "1" }, { orders: { ...contract, responseSchemas } }, { orders: { session } }).orders;
-  // A response's schema carries its own $defs.
   const order = (type: string) => ({ type: "object", properties: { total: { $ref: "#/$defs/total" } }, $defs: { total: { type } } });
   for (const allowing of [undefined, { get_order: order("string") }]) assert.deepEqual(await bind(allowing).tools.get_order({}), { total: "not a number" });
   const orders = bind({ get_order: order("number"), cancel_order: order("number") });

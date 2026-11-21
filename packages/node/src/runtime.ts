@@ -37,7 +37,6 @@ export interface Contract {
   events?: Array<{ name: string; inputSchema?: Record<string, unknown>; payloadSchema?: Record<string, unknown> }>;
   /** Tools whose result text is JSON that their API's document describes. Their typed calls return it parsed, or null when there is no text. */
   responses?: string[];
-  /** Schemas of those tools' parsed text by tool name, each with its own $defs; a tool without one returns its text unchecked. */
   responseSchemas?: Record<string, Record<string, unknown>>;
 }
 /** Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources. */
