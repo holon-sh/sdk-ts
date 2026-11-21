@@ -110,9 +110,9 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
     readonly read: (options?: CallOptions) => Promise<R[U]>;
     readonly watch: (onChange: (value: R[U]) => void | Promise<void>, options?: { signal?: AbortSignal }) => Promise<void>;
   } };
-  /** Convenience methods returning structured output, the parsed text of a tool whose contract names its response (P), checked against the response's schema when the contract has one, or the complete MCP result, with its content blocks typed, for a tool with neither. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool. */
+  /** Convenience methods returning structured output, the parsed text of a tool whose contract names its response (P), checked against the response's schema when the contract has one (callTool returns it unchecked), or the complete MCP result, with its content blocks typed, for a tool with neither. Error results throw ToolCallError, as do questions left unanswered. Reserved object method names remain callable through callTool. */
   readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : K extends keyof P ? P[K] : CompleteResult<unknown>> };
-  /** Return the full MCP result, preserving error results and questions left unanswered. Successful structured output is contract-validated, and result text is not, so a tool whose server answers other than its API's document describes stays callable here; the server validates arguments. */
+  /** Return the full MCP result, preserving error results and questions left unanswered. Successful structured output is contract-validated, and result text is not; the server validates arguments. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
 }
 

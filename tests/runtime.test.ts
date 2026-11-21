@@ -96,12 +96,12 @@ test("tools the contract names under responses return their text parsed as JSON,
     lost_order: { isError: true, content: [{ type: "text", text: "HTTP 404" }] },
   };
   const session: ToolSession = { callTool: async request => results[request.name], readResource: async () => ({ contents: [] }) };
-  const contract: Contract = { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" } })), responses: Object.keys(results) };
-  const bind = (contract: Contract) => bindApps({ name: "checkout", version: "1" }, { orders: contract }, { orders: { session } }).orders;
+  const contract = { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" } })), responses: Object.keys(results) };
+  const bind = (responseSchemas?: Contract["responseSchemas"]) => bindApps({ name: "checkout", version: "1" }, { orders: { ...contract, responseSchemas } }, { orders: { session } }).orders;
   // A response's schema carries its own $defs.
-  const order = (total: string) => ({ type: "object", properties: { total: { $ref: "#/$defs/total" } }, $defs: { total: { type: total } } });
-  for (const allowing of [contract, { ...contract, responseSchemas: { get_order: order("string") } }]) assert.deepEqual(await bind(allowing).tools.get_order({}), { total: "not a number" });
-  const orders = bind({ ...contract, responseSchemas: { get_order: order("number"), cancel_order: order("number") } });
+  const order = (type: string) => ({ type: "object", properties: { total: { $ref: "#/$defs/total" } }, $defs: { total: { type } } });
+  for (const allowing of [undefined, { get_order: order("string") }]) assert.deepEqual(await bind(allowing).tools.get_order({}), { total: "not a number" });
+  const orders = bind({ get_order: order("number"), cancel_order: order("number") });
   await assert.rejects(orders.tools.get_order({}), /Invalid response from orders\.get_order: /);
   assert.equal(await orders.tools.cancel_order({}), null);
   await assert.rejects(orders.tools.lost_order({}), ToolCallError);
