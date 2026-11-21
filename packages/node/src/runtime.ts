@@ -56,10 +56,7 @@ export interface CreateOptions {
 type Check = ReturnType<NonNullable<CreateOptions["validator"]>>;
 type Expect = (schema: object, label: string) => (value: unknown) => void;
 
-// One engine per schema so contracts that reuse an $id stay apart. @cfworker/json-schema needs no eval; Ajv compiles code,
-// which an MCP Apps host's CSP for a view forbids: https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx#host-behavior
-// Contracts are module constants, so each schema compiles once however often createApps runs.
-const checks = new WeakMap<object, Check>();
+// @cfworker/json-schema needs no eval; Ajv compiles code, which an MCP Apps host's CSP for a view forbids: https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx#host-behavior
 const drafts = new Map<string, SchemaDraft>([
   ["json-schema.org/draft/2020-12/schema", "2020-12"],
   ["json-schema.org/draft/2019-09/schema", "2019-09"],
@@ -68,8 +65,6 @@ const drafts = new Map<string, SchemaDraft>([
 ]);
 
 function defaultValidator(schema: object): Check {
-  const cached = checks.get(schema);
-  if (cached) return cached;
   const $schema = "$schema" in schema ? schema.$schema : undefined;
   const draft = typeof $schema === "string" ? drafts.get($schema.replace(/^https?:\/\/|#$/g, "")) : "2020-12";
   if (!draft) throw new Error(`Unsupported JSON Schema dialect: ${$schema}`);
@@ -79,7 +74,6 @@ function defaultValidator(schema: object): Check {
     check.errors = errors;
     return valid;
   };
-  checks.set(schema, check);
   return check;
 }
 
