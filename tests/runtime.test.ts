@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { McpServer, CLIENT_INFO_META_KEY } from "@modelcontextprotocol/server";
 import { DEFAULT_REQUEST_TIMEOUT_MSEC, type CallToolResult } from "@modelcontextprotocol/client";
 import { z } from "zod";
-import { createApps, bindApps, ToolCallError, type Contract, type ToolSession } from "holon-sh/runtime";
+import { createApps, bindApps, ToolCallError, type ToolSession } from "holon-sh/runtime";
 import { serve } from "./helpers.ts";
 
 test("callTool sends its app's identity, returns error results, and rejects output its contract does not allow", {timeout: 10000}, async t => {
@@ -89,22 +89,22 @@ test("a session binding passes a call and its signal to the session, and a custo
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /\["rejected"\]/);
 });
 
-test("tools the contract names under responses return their text parsed as JSON, checked against the contract's schema for it", async () => {
+test("tools with a response schema return their text parsed as JSON and checked against it, and a contract naming responses without one is refused", async () => {
   const results: Record<string, CallToolResult> = {
     get_order: { content: [{ type: "text", text: '{"total":"not a number"}' }] },
     cancel_order: { content: [] },
     lost_order: { isError: true, content: [{ type: "text", text: "HTTP 404" }] },
   };
   const session: ToolSession = { callTool: async request => results[request.name], readResource: async () => ({ contents: [] }) };
-  const contract = { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" } })), responses: Object.keys(results) };
-  const bind = (responseSchemas?: Contract["responseSchemas"]) => bindApps({ name: "checkout", version: "1" }, { orders: { ...contract, responseSchemas } }, { orders: { session } }).orders;
-  const order = (type: string) => ({ type: "object", properties: { total: { $ref: "#/$defs/total" } }, $defs: { total: { type } } });
-  for (const allowing of [undefined, { get_order: order("string") }]) assert.deepEqual(await bind(allowing).tools.get_order({}), { total: "not a number" });
-  const orders = bind({ get_order: order("number"), cancel_order: order("number") });
+  const responseSchema = (total: string) => ({ type: "object", properties: { total: { $ref: "#/$defs/total" } }, $defs: { total: { type: total } } });
+  const bind = (total?: string) => bindApps({ name: "checkout", version: "1" }, { orders: { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" }, ...(total && { responseSchema: responseSchema(total) }) })), responses: Object.keys(results) } }, { orders: { session } }).orders;
+  assert.deepEqual(await bind("string").tools.get_order({}), { total: "not a number" });
+  const orders = bind("number");
   await assert.rejects(orders.tools.get_order({}), /Invalid response from orders\.get_order: /);
-  assert.equal(await orders.tools.cancel_order({}), null);
+  await assert.rejects(orders.tools.cancel_order({}), /Invalid response from orders\.cancel_order: /);
   await assert.rejects(orders.tools.lost_order({}), ToolCallError);
   assert.deepEqual(await orders.callTool({ name: "get_order", arguments: {} }), { ...results.get_order, resultType: "complete" });
+  assert.throws(() => bind(), /^Error: orders: .*holon types generate/);
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
