@@ -96,10 +96,10 @@ test("tools with a response schema return their text parsed as JSON and checked 
     lost_order: { isError: true, content: [{ type: "text", text: "HTTP 404" }] },
   };
   const session: ToolSession = { callTool: async request => results[request.name], readResource: async () => ({ contents: [] }) };
-  const responseSchema = (total: string) => ({ type: "object", properties: { total: { $ref: "#/$defs/total" } }, $defs: { total: { type: total } } });
-  const bind = (total?: string) => bindApps({ name: "checkout", version: "1" }, { orders: { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" }, ...(total && { responseSchema: responseSchema(total) }) })), responses: Object.keys(results) } }, { orders: { session } }).orders;
-  assert.deepEqual(await bind("string").tools.get_order({}), { total: "not a number" });
-  const orders = bind("number");
+  const total = (type: string) => ({ type: "object", properties: { total: { $ref: "#/$defs/total" } }, $defs: { total: { type } } });
+  const bind = (responseSchema?: Record<string, unknown>) => bindApps({ name: "checkout", version: "1" }, { orders: { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" }, responseSchema })), responses: Object.keys(results) } }, { orders: { session } }).orders;
+  assert.deepEqual(await bind(total("string")).tools.get_order({}), { total: "not a number" });
+  const orders = bind(total("number"));
   await assert.rejects(orders.tools.get_order({}), /Invalid response from orders\.get_order: /);
   await assert.rejects(orders.tools.cancel_order({}), /Invalid response from orders\.cancel_order: /);
   await assert.rejects(orders.tools.lost_order({}), ToolCallError);
