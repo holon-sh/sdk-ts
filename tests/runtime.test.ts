@@ -89,19 +89,22 @@ test("a session binding passes a call and its signal to the session, and a custo
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /\["rejected"\]/);
 });
 
-test("tools the contract names under responses return their text parsed as JSON, unchecked", async () => {
+test("tools with a response schema return their text parsed as JSON and checked against it, and a contract naming responses without one is refused", async () => {
   const results: Record<string, CallToolResult> = {
     get_order: { content: [{ type: "text", text: '{"total":"not a number"}' }] },
     cancel_order: { content: [] },
     lost_order: { isError: true, content: [{ type: "text", text: "HTTP 404" }] },
   };
   const session: ToolSession = { callTool: async request => results[request.name], readResource: async () => ({ contents: [] }) };
-  const contract = { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" } })), responses: Object.keys(results) };
-  const { orders } = bindApps({ name: "checkout", version: "1" }, { orders: contract }, { orders: { session } });
-  assert.deepEqual(await orders.tools.get_order({}), { total: "not a number" });
-  assert.equal(await orders.tools.cancel_order({}), null);
+  const total = (type: string) => ({ type: "object", properties: { total: { $ref: "#/$defs/total" } }, $defs: { total: { type } } });
+  const bind = (responseSchema?: Record<string, unknown>) => bindApps({ name: "checkout", version: "1" }, { orders: { tools: Object.keys(results).map(name => ({ name, inputSchema: { type: "object" }, responseSchema })), responses: Object.keys(results) } }, { orders: { session } }).orders;
+  assert.deepEqual(await bind(total("string")).tools.get_order({}), { total: "not a number" });
+  const orders = bind(total("number"));
+  await assert.rejects(orders.tools.get_order({}), /Invalid response from orders\.get_order: /);
+  await assert.rejects(orders.tools.cancel_order({}), /Invalid response from orders\.cancel_order: /);
   await assert.rejects(orders.tools.lost_order({}), ToolCallError);
   assert.deepEqual(await orders.callTool({ name: "get_order", arguments: {} }), { ...results.get_order, resultType: "complete" });
+  assert.throws(() => bind(), /^Error: orders: .*holon types generate/);
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {
