@@ -35,8 +35,10 @@ export interface Contract {
   tools: Array<{ name: string; inputSchema: Record<string, unknown>; outputSchema?: Record<string, unknown> }>;
   resources?: Array<{ uri: string; outputSchema: Record<string, unknown> }>;
   events?: Array<{ name: string; inputSchema?: Record<string, unknown>; payloadSchema?: Record<string, unknown> }>;
-  /** Tools whose result text is JSON that their API's document describes. Their typed calls return it parsed, or null when there is no text, without checking it. */
+  /** Tools whose result text is JSON that their API's document describes. Their typed calls return it parsed, or null when there is no text. */
   responses?: string[];
+  /** Schemas of those tools' parsed text by tool name, each with its own $defs. A typed call checks the text against its tool's schema, and returns it unchecked when there is none. */
+  responseSchemas?: Record<string, Record<string, unknown>>;
 }
 /** Untyped client returned by the low-level runtime. Generated clients specialize its inputs, outputs, and resources. */
 export type RuntimeClient = ToolClient<Record<string, Record<string, unknown>>, Record<string, unknown>, Record<string, unknown>>;
@@ -164,13 +166,20 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
     return { ...result, resultType: "complete" } as ToolResult<unknown>;
   };
   const parsed = new Set(contract?.responses);
+  const responseSchemas = new Map(Object.entries(contract?.responseSchemas ?? {}));
   const tools: Record<string, RuntimeClient["tools"][string]> = Object.create(null);
   for (const [toolName, { output }] of definitions) if (!reserved.has(toolName)) {
+    const responseSchema = responseSchemas.get(toolName);
+    const response = responseSchema && expect(responseSchema, `response from ${name}.${toolName}`);
     tools[toolName] = async (input, options) => {
       const result = await callTool({ name: toolName, arguments: input }, options);
       if (result.resultType === "input_required" || result.isError) throw new ToolCallError(name, toolName, result);
       if (!parsed.has(toolName)) return output ? result.structuredContent : result;
-      return JSON.parse(result.content.find(content => content.type === "text")?.text ?? "null");
+      const text = result.content.find(content => content.type === "text")?.text;
+      if (text === undefined) return null;
+      const value: unknown = JSON.parse(text);
+      response?.(value);
+      return value;
     };
   }
   // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
