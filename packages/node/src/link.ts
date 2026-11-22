@@ -1,5 +1,6 @@
+import { Validator, type SchemaDraft } from "@cfworker/json-schema";
 import { Client, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, PriorDiscovery, StandardSchemaV1 } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, PriorDiscovery, StandardSchemaV1, jsonSchemaValidator } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests, isUploadRequest } from "./ext/files.client.js";
@@ -120,10 +121,31 @@ function traced<T extends StreamableHTTPClientTransport>(transport: T, callee: s
   return transport;
 }
 
+// @cfworker/json-schema needs no eval; Ajv compiles code, which an MCP Apps host's CSP for a view forbids: https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx#host-behavior
+const drafts = new Map<string, SchemaDraft>([
+  ["json-schema.org/draft/2020-12/schema", "2020-12"],
+  ["json-schema.org/draft/2019-09/schema", "2019-09"],
+  ["json-schema.org/draft-07/schema", "7"],
+  ["json-schema.org/draft-06/schema", "7"],
+]);
+
+export const schemas: jsonSchemaValidator = {
+  getValidator<T>(schema: object) {
+    const $schema = "$schema" in schema ? schema.$schema : undefined;
+    const draft = typeof $schema === "string" ? drafts.get($schema.replace(/^https?:\/\/|#$/g, "")) : "2020-12";
+    if (!draft) throw new Error(`Unsupported JSON Schema dialect: ${$schema}`);
+    const validator = new Validator(schema, draft);
+    return value => {
+      const { valid, errors } = validator.validate(value);
+      return valid ? { valid, data: value as T, errorMessage: undefined } : { valid, data: undefined, errorMessage: errors.map(({ instanceLocation, error }) => `${instanceLocation}: ${error}`).join("; ") };
+    };
+  },
+};
+
 function connect(identity: Identity, callee: string, resolved: EndpointBinding, prior?: PriorDiscovery, onclose?: (connection: Connection) => void, streamEnded?: StreamEnded): Connection {
   // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
   // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
-  const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" } });
+  const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" }, jsonSchemaValidator: schemas });
   const endpoint = new URL(resolved.endpoint);
   const transport = traced(acceptUploadRequests(new Transport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
     if (String(input) === endpoint.href) connection.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
