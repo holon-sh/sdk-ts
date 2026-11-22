@@ -1,9 +1,8 @@
-import { Validator, type SchemaDraft } from "@cfworker/json-schema";
 import { isInputRequiredResult } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { events } from "./ext/events.client.js";
 import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
-import { createLink, environment, patient, sleep, untilAborted, type Link } from "./link.js";
+import { createLink, environment, patient, schemas, sleep, untilAborted, type Link } from "./link.js";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, SessionClient, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
@@ -56,22 +55,11 @@ export interface CreateOptions {
 type Check = ReturnType<NonNullable<CreateOptions["validator"]>>;
 type Expect = (schema: object, label: string) => (value: unknown) => void;
 
-// @cfworker/json-schema needs no eval; Ajv compiles code, which an MCP Apps host's CSP for a view forbids: https://github.com/modelcontextprotocol/ext-apps/blob/main/specification/2026-01-26/apps.mdx#host-behavior
-const drafts = new Map<string, SchemaDraft>([
-  ["json-schema.org/draft/2020-12/schema", "2020-12"],
-  ["json-schema.org/draft/2019-09/schema", "2019-09"],
-  ["json-schema.org/draft-07/schema", "7"],
-  ["json-schema.org/draft-06/schema", "7"],
-]);
-
 function defaultValidator(schema: object): Check {
-  const $schema = "$schema" in schema ? schema.$schema : undefined;
-  const draft = typeof $schema === "string" ? drafts.get($schema.replace(/^https?:\/\/|#$/g, "")) : "2020-12";
-  if (!draft) throw new Error(`Unsupported JSON Schema dialect: ${$schema}`);
-  const validator = new Validator(schema, draft);
+  const compiled = schemas.getValidator(schema);
   const check: Check = value => {
-    const { valid, errors } = validator.validate(value);
-    check.errors = errors;
+    const { valid, errorMessage } = compiled(value);
+    check.errors = errorMessage;
     return valid;
   };
   return check;
