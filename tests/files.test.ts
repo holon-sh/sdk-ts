@@ -70,7 +70,7 @@ const textOf = (result: CompleteResult<unknown>) => (result.content[0] as { text
 const uploadRequired = (uploads: object[], requestState = "state") => ({ resultType: "upload_required", content: [], uploads, requestState }) as unknown as Reply;
 const sha256 = (value: string) => createHash("sha256").update(value).digest("base64url");
 
-test("small files travel inline with their digest when the schema requires it, and files the server cannot take never leave", { timeout: 10000 }, async t => {
+test("small files travel inline with their digest when the schema requires it, to an environment-bound server too, and files the server cannot take never leave", { timeout: 10000 }, async t => {
   const server = await files(t, { settings: { maxInlineBytes: 8 }, tool: ({ args }) => text(args) });
   const app = server.app();
   const result = await app.save({ checked: new File(["hello"], "dir\\a.txt", { type: "text/plain" }), more: ["note", new Blob([])] });
@@ -81,6 +81,12 @@ test("small files travel inline with their digest when the schema requires it, a
   await assert.rejects(app.save({ file: new Blob([new Uint8Array(65)]) }), /over the tool's limit of 64; the tool was not called/);
   await assert.rejects(app.save({ more: [{ nested: new Blob(["x"]) }] }), /Blob at \/more\/0\/nested is not a file argument/);
   assert.equal(server.calls.length, 1);
+  const saved = process.env;
+  process.env = { ...saved, FILES_MCP_URL: `${server.origin}/mcp` };
+  t.after(() => { process.env = saved; });
+  const peer = createApps({ name: "app", version: "1", requires: { files: {} } }, { files: { tools: [{ name: "save", inputSchema: schema }] } }).files;
+  const sent = await peer.tools.save({ checked: new File(["hi"], "b.txt") }) as CompleteResult<unknown>;
+  assert.equal(JSON.parse(textOf(sent)).checked.data, Buffer.from("hi").toString("base64"));
 });
 
 test("out-of-band files go to a url target without credentials and a path target with the MCP credential, then the call is retried", { timeout: 10000 }, async t => {

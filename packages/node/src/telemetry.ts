@@ -17,8 +17,6 @@ const callerErrors = new Set([-32700, -32600, -32601, -32602, -32002, -32023, -3
 type Fields = Record<string, unknown>;
 const isObject = (value: unknown): value is Fields => typeof value === "object" && value !== null && !Array.isArray(value);
 
-// Connection handshakes get no span. Against a 2025-era server a <NAME>_MCP_URL dependency, which connects per call,
-// initializes on every call, so their spans would double a trace's size and say nothing about the call.
 const handshakes = new Set(["initialize", "notifications/initialized", "server/discover"]);
 
 /** Whether a message is worth a span: anything but a connection handshake. */

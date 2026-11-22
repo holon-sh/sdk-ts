@@ -4,7 +4,7 @@ import { createServer, request } from "node:http";
 import { McpServer, CLIENT_CAPABILITIES_META_KEY } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { createApps } from "holon-sh/runtime";
-import { listen, serve, serveLegacy } from "./helpers.ts";
+import { listen, serve } from "./helpers.ts";
 
 function orders() {
   const server = new McpServer({ name: "orders", version: "1" });
@@ -21,19 +21,20 @@ function environment(t: TestContext, variables: Record<string, string>) {
   t.after(() => { process.env = saved; });
 }
 
-async function record(t: TestContext, target: () => string) {
+async function refusingDiscovery(t: TestContext, target: string) {
   const sent: string[] = [];
   const endpoint = await listen(t, createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = Buffer.concat(chunks);
-    const method = body.length ? JSON.parse(String(body)).method : req.method;
-    if (["server/discover", "initialize", "tools/call", "DELETE"].includes(method)) sent.push(method);
-    const forwarded = request(target(), { method: req.method, headers: req.headers }, reply => reply.pipe(res.writeHead(reply.statusCode!, reply.headers)));
+    const { id, method } = body.length ? JSON.parse(String(body)) : { id: undefined, method: req.method };
+    sent.push(`${method} ${req.headers["mcp-protocol-version"]}`);
+    if (method === "server/discover") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id, error: { code: 1001, message: "Connect your account to continue." } }));
+    const forwarded = request(target, { method: req.method, headers: req.headers }, reply => reply.pipe(res.writeHead(reply.statusCode!, reply.headers)));
     res.on("close", () => forwarded.destroy());
     forwarded.end(body);
   }));
-  return { endpoint, sent: () => sent.splice(0) };
+  return { endpoint, sent };
 }
 
 test("a resolved binding keeps one session and reconnects after close, clients declare on every request that they can be asked and take files, and the environment fallback is read on every call with the environment's bearer token", { timeout: 10000 }, async t => {
@@ -74,24 +75,12 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
 });
 
-test("environment-bound calls end 2025-era sessions and reuse the legacy verdict until it expires or the server upgrades", { timeout: 10000 }, async t => {
-  const legacy = await serveLegacy(t, orders);
-  const modern = await serve(t, orders);
-  let upgraded = false;
-  const { endpoint, sent } = await record(t, () => upgraded ? modern.endpoint : legacy.endpoint);
+test("environment-bound calls speak 2026-07-28 without discovering the server, so a server that refuses discovery still answers them", { timeout: 10000 }, async t => {
+  const { endpoint, sent } = await refusingDiscovery(t, (await serve(t, orders)).endpoint);
   environment(t, { ORDERS_MCP_URL: endpoint });
-  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
-  const { orders: app } = createApps(identity, { orders: contract });
-  const call = () => app.callTool({ name: "get_order", arguments: { id: "a" } });
-  await call();
-  await call();
-  assert.deepEqual(sent(), ["server/discover", "initialize", "tools/call", "DELETE", "initialize", "tools/call", "DELETE"]);
-  t.mock.timers.tick(10 * 60 * 1000);
-  await call();
-  assert.deepEqual(sent(), ["server/discover", "initialize", "tools/call", "DELETE"]);
-  upgraded = true;
-  await call();
-  assert.deepEqual(sent(), ["initialize", "server/discover", "tools/call"]);
+  const result = await createApps(identity, { orders: contract }).orders.callTool({ name: "get_order", arguments: { id: "a" } });
+  assert.deepEqual(result.structuredContent, { id: "a" });
+  assert.deepEqual(sent, ["tools/call 2026-07-28"]);
 });
 
 test("an environment-bound call follows no redirect, not even within its origin", { timeout: 10000 }, async t => {
