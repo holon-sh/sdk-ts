@@ -1,6 +1,6 @@
 import { Validator, type SchemaDraft } from "@cfworker/json-schema";
-import { Client, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, PriorDiscovery, StandardSchemaV1, jsonSchemaValidator } from "@modelcontextprotocol/client";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, PriorDiscovery, ServerCapabilities, StandardSchemaV1, jsonSchemaValidator } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests, isUploadRequest } from "./ext/files.client.js";
@@ -13,7 +13,7 @@ interface Connection {
   resolved: EndpointBinding;
   authorization?: string;
   ready: Promise<void>;
-  answered: boolean;
+  capabilities(): Promise<ServerCapabilities | undefined>;
   close(): Promise<void>;
 }
 
@@ -27,25 +27,23 @@ export interface HostedLink extends Shared { readonly hosted: true }
 export interface EndpointLink extends Shared {
   readonly hosted: false;
   connected<T>(options: CallOptions | undefined, run: (connection: Connection) => Promise<T>): Promise<T>;
-  endpoint(): EndpointBinding;
-  connect(binding: EndpointBinding, streamEnded?: StreamEnded): Connection;
+  endpoint(): Endpoint;
+  connect(binding: Endpoint, streamEnded?: StreamEnded): Connection;
   close(): Promise<void>;
 }
 export type Link = HostedLink | EndpointLink;
 
-// Environment-bound calls reuse the last server/discover result for the same endpoint and token instead of discovering
-// the server on every call. A dependency keeps only its latest result, so a changed endpoint or token replaces it.
-const DISCOVERY: unique symbol = Symbol("discovery");
-const discovered = new Map<string, { key: string; prior: PriorDiscovery; expires: number }>();
-const LEGACY_VERDICT_MS = 10 * 60 * 1000;
+const PRIOR: unique symbol = Symbol("prior");
+// https://modelcontextprotocol.io/specification/2026-07-28/server/discover
+const peer: PriorDiscovery = { kind: "modern", discover: { resultType: "complete", supportedVersions: ["2026-07-28"], capabilities: { tools: {} } } };
 
-type Endpoint = EndpointBinding & { [DISCOVERY]?: string };
+type Endpoint = EndpointBinding & { [PRIOR]?: PriorDiscovery };
 
 export function environment(name: string): Endpoint {
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
   const endpoint = process.env[`${prefix}URL`];
   const token = process.env[`${prefix}TOKEN`];
-  if (endpoint) return { endpoint, scoped: true, fetch: fetchPeer, [DISCOVERY]: `${endpoint} ${token ?? ""}`, ...(token && { authProvider: { token: async () => token } }) };
+  if (endpoint) return { endpoint, scoped: true, fetch: fetchPeer, [PRIOR]: peer, ...(token && { authProvider: { token: async () => token } }) };
   throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
 }
 
@@ -142,7 +140,7 @@ export const schemas: jsonSchemaValidator = {
   },
 };
 
-function connect(identity: Identity, callee: string, resolved: EndpointBinding, prior?: PriorDiscovery, onclose?: (connection: Connection) => void, streamEnded?: StreamEnded): Connection {
+function connect(identity: Identity, callee: string, resolved: Endpoint, onclose?: (connection: Connection) => void, streamEnded?: StreamEnded): Connection {
   // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
   // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
   const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" }, jsonSchemaValidator: schemas });
@@ -152,16 +150,15 @@ function connect(identity: Identity, callee: string, resolved: EndpointBinding, 
     const headers = new Headers(init?.headers);
     injectHeaders(headers);
     init = { ...init, headers };
-    const response = await (resolved.fetch ?? fetch)(input, init);
-    connection.answered ||= response.ok;
-    return response;
+    return (resolved.fetch ?? fetch)(input, init);
   }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }, streamEnded)), callee, appName(identity.name));
   transport.onclose = () => onclose?.(connection);
-  const ready = client.connect(transport, { prior }).catch(async (error: unknown) => {
+  const ready = client.connect(transport, { prior: resolved[PRIOR] }).catch(async (error: unknown) => {
     await transport.close();
     throw error;
   });
-  const connection: Connection = { client, resolved, ready, answered: false, close: async () => {
+  const capabilities = resolved[PRIOR] ? async () => (await client.discover()).capabilities : async () => client.getServerCapabilities();
+  const connection: Connection = { client, resolved, ready, capabilities, close: async () => {
     await transport.terminateSession().catch(() => {});
     await transport.close();
     await ready.catch(() => {});
@@ -184,22 +181,10 @@ export function createLink(identity: Identity, name: string, { binding, resolve 
     options?.signal?.throwIfAborted();
     const resolved = endpoint();
     const scoped = resolved.scoped === true;
-    const key = resolved[DISCOVERY];
-    const cached = discovered.get(name);
-    const prior = key !== undefined && cached?.key === key && Date.now() < cached.expires ? cached.prior : undefined;
-    const active = scoped ? connect(identity, name, resolved, prior) : (kept ??= connect(identity, name, resolved, undefined, closed => { if (kept === closed) kept = undefined; }));
+    const active = scoped ? connect(identity, name, resolved) : (kept ??= connect(identity, name, resolved, closed => { if (kept === closed) kept = undefined; }));
     try {
       await untilAborted(active.ready, options?.signal);
-      if (key !== undefined && !prior) {
-        const discover = active.client.getDiscoverResult();
-        discovered.set(name, { key, prior: discover ? { kind: "modern", discover } : { kind: "legacy" }, expires: discover ? Infinity : Date.now() + LEGACY_VERDICT_MS });
-      }
       return await run(active);
-    } catch (error) {
-      // A server that no longer speaks the discovered protocol rejects the first request without running it.
-      if (!prior || active.answered || !(SdkHttpError.isInstance(error) && error.status === 400)) throw error;
-      discovered.delete(name);
-      return connected(options, run);
     } finally { if (scoped) await active.close(); }
   };
   return {
@@ -208,7 +193,7 @@ export function createLink(identity: Identity, name: string, { binding, resolve 
     session: (options, run) => connected(options, connection => run(connection.client, connection)),
     connected,
     endpoint,
-    connect: (resolved, streamEnded) => connect(identity, name, resolved, undefined, undefined, streamEnded),
+    connect: (resolved, streamEnded) => connect(identity, name, resolved, undefined, streamEnded),
     close: async () => { await kept?.close(); },
   };
 }

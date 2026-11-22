@@ -193,9 +193,9 @@ test("connection handshakes get no span, even against a 2025-era server that ini
     server.registerTool("echo", {}, async () => ({ content: [] }));
     return server;
   });
-  environment(t, { PEER_MCP_URL: peer.endpoint });
+  const { peer: client } = createApps({ name: "x", version: "1" }, { peer: null }, { peer: { endpoint: peer.endpoint, scoped: true } });
   exporter.reset();
-  for (let call = 0; call < 3; call++) await createApps({ name: "x", version: "1", requires: { peer: {} } }, {}).peer!.callTool({ name: "echo", arguments: {} });
+  for (let call = 0; call < 3; call++) await client!.callTool({ name: "echo", arguments: {} });
   assert.deepEqual(exporter.getFinishedSpans().map(({ name }) => name), ["tools/call echo", "tools/call echo", "tools/call echo"]);
 });
 

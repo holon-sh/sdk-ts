@@ -35,7 +35,7 @@ test("callTool sends its app's identity, returns error results, and rejects outp
   await assert.rejects(first.orders.callTool({ name: "get_order", arguments: { id: "bad" } }));
 });
 
-test("endpoint bindings carry the auth provider and watch resources through subscriptions", { timeout: 20000 }, async t => {
+test("endpoint bindings carry the auth provider, and an environment-bound client watches resources through subscriptions", { timeout: 20000 }, async t => {
   const summary = z.object({ total: z.number() });
   const uri = "orders://summary";
   let total = 1;
@@ -60,8 +60,12 @@ test("endpoint bindings carry the auth provider and watch resources through subs
   const arrivals: Array<() => void> = [];
   const next = () => new Promise<void>(resolve => arrivals.push(resolve));
   const controller = new AbortController();
+  const saved = process.env;
+  process.env = { ...saved, ORDERS_MCP_URL: endpoint };
+  t.after(() => { process.env = saved; });
+  const peer = createApps({ ...identity, requires: { orders: {} } }, { orders: contract });
   const first = next();
-  const watching = bound.orders.resources[uri].watch(value => { seen.push(value); arrivals.shift()?.(); }, { signal: controller.signal });
+  const watching = peer.orders.resources[uri].watch(value => { seen.push(value); arrivals.shift()?.(); }, { signal: controller.signal });
   await first;
   const second = next();
   total = 2;

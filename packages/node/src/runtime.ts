@@ -186,7 +186,7 @@ function resources(link: Link, contract: Contract | null, expect: Expect): Sessi
         try {
           await untilAborted(current.ready, signal);
           const { client } = current;
-          if (!client.getServerCapabilities()?.resources?.subscribe) throw new Error(`${name} does not advertise resource subscriptions.`);
+          if (!(await current.capabilities())?.resources?.subscribe) throw new Error(`${name} does not advertise resource subscriptions.`);
           let reads = Promise.resolve();
           const refresh = () => (reads = reads.then(async () => onChange(parse(await client.readResource({ uri: resource.uri }, patient({ signal, cacheMode: "bypass" })))))
             .catch(error => { failure ??= error; return current.close(); }));

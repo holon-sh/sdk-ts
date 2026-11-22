@@ -1,13 +1,13 @@
 // Client side of the MCP files extension (draft):
 // https://github.com/modelcontextprotocol/experimental-ext-file-uploads/blob/main/specification/draft/file-uploads.md
-import type { Client, JSONRPCMessage, MessageExtraInfo, Transport } from "@modelcontextprotocol/client";
+import type { JSONRPCMessage, MessageExtraInfo, ServerCapabilities, Transport } from "@modelcontextprotocol/client";
 import { base64, fetchGlobal, sha256 } from "#platform";
 import { EXTENSION, type Download } from "./files.js";
 
 type Json = Record<string, unknown>;
 
 interface FileConnection {
-  client: Pick<Client, "getServerCapabilities">;
+  capabilities(): Promise<ServerCapabilities | undefined>;
   resolved: { endpoint: URL | string; fileOrigins?: string[]; installationUID?: string };
   authorization?: string;
 }
@@ -26,8 +26,8 @@ function refuse(reason: string): never {
   throw new Error(reason);
 }
 
-function settings({ client }: FileConnection): Json | undefined {
-  const advertised = client.getServerCapabilities()?.extensions?.[EXTENSION];
+async function settings(connection: FileConnection): Promise<Json | undefined> {
+  const advertised = (await connection.capabilities())?.extensions?.[EXTENSION];
   return isObject(advertised) && advertised.revision == null ? advertised : undefined;
 }
 
@@ -100,7 +100,7 @@ export async function prepare<C extends FileConnection>(args: Json | undefined, 
   const files: Files = new Map();
   if (!contains(args)) return { arguments: args, files };
   if (!connection) throw new Error(`${label}: file arguments need an endpoint binding; the tool was not called.`);
-  const server = settings(connection);
+  const server = await settings(connection);
   if (!server) throw new Error(`${label}: the server does not accept files; the tool was not called.`);
   const root = await schema(connection);
   const found: Found[] = [];
@@ -322,9 +322,9 @@ function download(raw: unknown, connection: FileConnection): Download | undefine
   return Object.freeze({ ...(name !== undefined && { name }), mimeType, size, ...(value !== undefined && { digest: { algorithm: "sha-256" as const, value } }), ...(expiresAt !== undefined && { expiresAt }), blob });
 }
 
-export function downloads<R extends { resultType?: string; _meta?: object }>(result: R, connection: FileConnection): R & { downloads?: Download[] } {
+export async function downloads<R extends { resultType?: string; _meta?: object }>(result: R, connection: FileConnection): Promise<R & { downloads?: Download[] }> {
   if (result.resultType === "input_required" || !isObject(result._meta) || !(EXTENSION in result._meta)) return result;
   const { [EXTENSION]: meta, ...rest } = result._meta;
-  const handles = settings(connection) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).flatMap(target => download(target, connection) ?? []) : [];
+  const handles = await settings(connection) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).flatMap(target => download(target, connection) ?? []) : [];
   return { ...result, _meta: rest, ...(handles.length > 0 && { downloads: handles }) };
 }
