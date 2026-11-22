@@ -33,17 +33,17 @@ export interface EndpointLink extends Shared {
 }
 export type Link = HostedLink | EndpointLink;
 
-const PEER: unique symbol = Symbol("peer");
+const PRIOR: unique symbol = Symbol("prior");
 // https://modelcontextprotocol.io/specification/2026-07-28/server/discover
 const peer: PriorDiscovery = { kind: "modern", discover: { resultType: "complete", supportedVersions: ["2026-07-28"], capabilities: { tools: {} } } };
 
-type Endpoint = EndpointBinding & { [PEER]?: true };
+type Endpoint = EndpointBinding & { [PRIOR]?: PriorDiscovery };
 
 export function environment(name: string): Endpoint {
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
   const endpoint = process.env[`${prefix}URL`];
   const token = process.env[`${prefix}TOKEN`];
-  if (endpoint) return { endpoint, scoped: true, fetch: fetchPeer, [PEER]: true, ...(token && { authProvider: { token: async () => token } }) };
+  if (endpoint) return { endpoint, scoped: true, fetch: fetchPeer, [PRIOR]: peer, ...(token && { authProvider: { token: async () => token } }) };
   throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
 }
 
@@ -153,11 +153,11 @@ function connect(identity: Identity, callee: string, resolved: Endpoint, onclose
     return (resolved.fetch ?? fetch)(input, init);
   }, requestInit: { credentials: "include", redirect: "error", headers: resolved.installationUID ? { "X-Holon-Installation-UID": resolved.installationUID } : {} } }, streamEnded)), callee, appName(identity.name));
   transport.onclose = () => onclose?.(connection);
-  const ready = client.connect(transport, { prior: resolved[PEER] && peer }).catch(async (error: unknown) => {
+  const ready = client.connect(transport, { prior: resolved[PRIOR] }).catch(async (error: unknown) => {
     await transport.close();
     throw error;
   });
-  const capabilities = resolved[PEER] ? async () => (await client.discover()).capabilities : async () => client.getServerCapabilities();
+  const capabilities = resolved[PRIOR] ? async () => (await client.discover()).capabilities : async () => client.getServerCapabilities();
   const connection: Connection = { client, resolved, ready, capabilities, close: async () => {
     await transport.terminateSession().catch(() => {});
     await transport.close();

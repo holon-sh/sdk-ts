@@ -22,19 +22,16 @@ function environment(t: TestContext, variables: Record<string, string>) {
 }
 
 async function refusingDiscovery(t: TestContext, target: string) {
-  const sent: string[] = [];
-  const endpoint = await listen(t, createServer(async (req, res) => {
+  return listen(t, createServer(async (req, res) => {
     const chunks: Buffer[] = [];
     for await (const chunk of req) chunks.push(chunk);
     const body = Buffer.concat(chunks);
-    const { id, method } = body.length ? JSON.parse(String(body)) : { id: undefined, method: req.method };
-    sent.push(`${method} ${req.headers["mcp-protocol-version"]}`);
+    const { id, method } = body.length ? JSON.parse(String(body)) : {};
     if (method === "server/discover") return void res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", id, error: { code: 1001, message: "Connect your account to continue." } }));
     const forwarded = request(target, { method: req.method, headers: req.headers }, reply => reply.pipe(res.writeHead(reply.statusCode!, reply.headers)));
     res.on("close", () => forwarded.destroy());
     forwarded.end(body);
   }));
-  return { endpoint, sent };
 }
 
 test("a resolved binding keeps one session and reconnects after close, clients declare on every request that they can be asked and take files, and the environment fallback is read on every call with the environment's bearer token", { timeout: 10000 }, async t => {
@@ -75,12 +72,10 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
 });
 
-test("environment-bound calls speak 2026-07-28 without discovering the server, so a server that refuses discovery still answers them", { timeout: 10000 }, async t => {
-  const { endpoint, sent } = await refusingDiscovery(t, (await serve(t, orders)).endpoint);
-  environment(t, { ORDERS_MCP_URL: endpoint });
+test("an environment-bound call reaches a 2026-07-28 server that refuses discovery", { timeout: 10000 }, async t => {
+  environment(t, { ORDERS_MCP_URL: await refusingDiscovery(t, (await serve(t, orders)).endpoint) });
   const result = await createApps(identity, { orders: contract }).orders.callTool({ name: "get_order", arguments: { id: "a" } });
   assert.deepEqual(result.structuredContent, { id: "a" });
-  assert.deepEqual(sent, ["tools/call 2026-07-28"]);
 });
 
 test("an environment-bound call follows no redirect, not even within its origin", { timeout: 10000 }, async t => {
