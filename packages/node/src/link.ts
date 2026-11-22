@@ -1,6 +1,6 @@
 import { Validator, type SchemaDraft } from "@cfworker/json-schema";
 import { Client, SdkHttpError, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, JsonSchemaValidator, PriorDiscovery, StandardSchemaV1, jsonSchemaValidator } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, PriorDiscovery, StandardSchemaV1, jsonSchemaValidator } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
 import { acceptUploadRequests, isUploadRequest } from "./ext/files.client.js";
@@ -130,7 +130,7 @@ const drafts = new Map<string, SchemaDraft>([
 ]);
 
 export const schemas: jsonSchemaValidator = {
-  getValidator<T>(schema: object): JsonSchemaValidator<T> {
+  getValidator<T>(schema: object) {
     const $schema = "$schema" in schema ? schema.$schema : undefined;
     const draft = typeof $schema === "string" ? drafts.get($schema.replace(/^https?:\/\/|#$/g, "")) : "2020-12";
     if (!draft) throw new Error(`Unsupported JSON Schema dialect: ${$schema}`);
