@@ -42,11 +42,7 @@ function origin({ url, headers }: Request) {
 }
 
 /**
- * Call other apps as subject while work runs, for work no request of theirs waits on: on a timer, at startup, or after a
- * request was answered, when calls otherwise carry no user. Holon admits them only while the person lets this app act for
- * them, with their current access. The apps called see them as principal, and this app as principal.actor. Inside a
- * request, work acts for subject instead of the request's user, so name only a person whose principal.subject this app
- * read itself. Dependencies bound explicitly never carry the person.
+ * Call other apps as subject while work runs.
  *
  * @param subject The person's principal.subject.
  */
