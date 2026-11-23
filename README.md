@@ -151,9 +151,9 @@ server.registerTool("share", { description: "Links to the page" }, ctx => {
 
 ## Acting for a person outside a request
 
-A call an app makes on a timer, at startup, or after a request was answered carries no user. `actFor` makes the calls
-inside it as a person who let this app act for them (`create_delegation`), so a per-user app such as Gmail reaches their
-account:
+A call an app makes on a timer, at startup, or after a request was answered carries no user. With `actFor`, calls to
+environment-bound dependencies run as a person who let this app act for them (`create_delegation`), so a per-user app
+such as Gmail reaches their account:
 
 ```ts
 import { actFor } from "holon-sh/context";
