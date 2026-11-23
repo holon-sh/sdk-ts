@@ -151,15 +151,15 @@ server.registerTool("share", { description: "Links to the page" }, ctx => {
 
 ## Acting for a person outside a request
 
-A call an app makes on a timer, at startup, or after a request was answered carries no user. With `actFor`, calls to
+A call an app makes on a timer, at startup, or after a request was answered carries no user. With `actAs`, calls to
 dependencies Holon binds run as a person who let this app act for them on its page in Holon
 (`/connections?resource=<this app's MCP address>&action=delegate`), so a per-user app such as Gmail reaches their account:
 
 ```ts
-import { actFor } from "holon-sh/context";
+import { actAs } from "holon-sh/context";
 
 setInterval(() => {
-  actFor(ownerSubject, () => apps.gmail!.callTool({ name: "list_labels", arguments: {} })).catch(console.error);
+  actAs(ownerSubject, () => apps.gmail!.callTool({ name: "list_labels", arguments: {} })).catch(console.error);
 }, 300_000);
 ```
 

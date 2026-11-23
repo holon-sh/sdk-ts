@@ -11,7 +11,7 @@ import { pathToFileURL } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { actFor } from "holon-sh/context";
+import { actAs } from "holon-sh/context";
 import { bindApps, createApps } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
 import { load, serve, type App } from "holon-sh/serve";
@@ -154,18 +154,18 @@ test("an environment-bound dependency acts for a delegated person or the caller 
     const server = new McpServer({ name: "peer", version: "1.0.0" });
     server.registerTool("ping", {}, () => ({ content: [] }));
     return server;
-  }, req => sent.push(`${req.headers["x-holon-act-for"]} ${req.headers["x-holon-context"]} ${req.headers.authorization}`));
+  }, req => sent.push(`${req.headers["x-holon-act-as"]} ${req.headers["x-holon-context"]} ${req.headers.authorization}`));
   const received = () => [...new Set(sent.splice(0))];
   environment(t, { PEER_MCP_URL: peer.endpoint, PEER_MCP_TOKEN: "peer-secret" });
   const identity = { name: "app", version: "1.0.0", requires: { peer: {} } };
   const peers = createApps(identity, {});
   const ping = (apps = peers) => apps.peer!.callTool({ name: "ping", arguments: {} });
 
-  await actFor("ann", ping);
+  await actAs("ann", ping);
   assert.deepEqual(received(), ["ann undefined Bearer peer-secret"]);
   await ping();
   assert.deepEqual(received(), ["undefined undefined Bearer peer-secret"]);
-  assert.throws(() => actFor("", ping), TypeError);
+  assert.throws(() => actAs("", ping), TypeError);
 
   let release!: () => void;
   const released = new Promise<void>(resolve => (release = resolve));
@@ -174,11 +174,11 @@ test("an environment-bound dependency acts for a delegated person or the caller 
   const mcp = createMcpHandler(() => {
     const server = new McpServer({ name: "app", version: "1.0.0" });
     server.registerTool("relay", {}, async () => {
-      await actFor("bob", ping);
+      await actAs("bob", ping);
       phases.push(received());
       await ping();
       phases.push(received());
-      await actFor("bob", () => ping(bindApps(identity, {}, { peer: { endpoint: peer.endpoint, scoped: true } })));
+      await actAs("bob", () => ping(bindApps(identity, {}, { peer: { endpoint: peer.endpoint, scoped: true } })));
       phases.push(received());
       late = released.then(() => ping());
       return { content: [] };

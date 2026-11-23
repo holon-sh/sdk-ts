@@ -50,7 +50,7 @@ function origin({ url, headers }: Request) {
  *
  * @param subject The person's principal.subject.
  */
-export function actFor<T>(subject: string, work: () => T): T {
-  if (!subject) throw new TypeError("actFor needs the subject of a person");
+export function actAs<T>(subject: string, work: () => T): T {
+  if (!subject) throw new TypeError("actAs needs the subject of a person");
   return acting.run(subject, work);
 }

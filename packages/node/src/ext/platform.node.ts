@@ -32,7 +32,7 @@ export async function fetchPeer(input: string | URL | Request, init: RequestInit
   const value = subject || (request && !request.ended && request.token);
   if (value) {
     const headers = new Headers(init.headers);
-    headers.set(subject ? "x-holon-act-for" : "x-holon-context", value);
+    headers.set(subject ? "x-holon-act-as" : "x-holon-context", value);
     init = { ...init, headers };
   }
   return fetch(input as string | URL, { ...init, dispatcher: agent } as Parameters<typeof undici.fetch>[1]) as unknown as Promise<Response>;
