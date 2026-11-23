@@ -148,7 +148,7 @@ test("a malformed Holon context is a bad request", { timeout: 10000 }, async t =
   }
 });
 
-test("an environment-bound dependency acts for a delegated person or the caller until its request ends", { timeout: 10000 }, async t => {
+test("an environment-bound dependency acts for a delegated person or the caller until its request ends, and an explicit binding never does", { timeout: 10000 }, async t => {
   const sent: string[] = [];
   const peer = await serveMcp(t, () => {
     const server = new McpServer({ name: "peer", version: "1.0.0" });
@@ -178,7 +178,7 @@ test("an environment-bound dependency acts for a delegated person or the caller 
       phases.push(received());
       await ping();
       phases.push(received());
-      await ping(bindApps(identity, {}, { peer: { endpoint: peer.endpoint, scoped: true } }));
+      await actFor("bob", () => ping(bindApps(identity, {}, { peer: { endpoint: peer.endpoint, scoped: true } })));
       phases.push(received());
       late = released.then(() => ping());
       return { content: [] };

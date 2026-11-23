@@ -152,17 +152,19 @@ server.registerTool("share", { description: "Links to the page" }, ctx => {
 ## Acting for a person outside a request
 
 A call an app makes on a timer, at startup, or after a request was answered carries no user. With `actFor`, calls to
-environment-bound dependencies run as a person who let this app act for them (`create_delegation`), so a per-user app
-such as Gmail reaches their account:
+dependencies Holon binds run as a person who let this app act for them on its page in Holon
+(`/connections?resource=<this app's MCP address>&action=delegate`), so a per-user app such as Gmail reaches their account:
 
 ```ts
 import { actFor } from "holon-sh/context";
 
-setInterval(() => actFor(ownerSubject, () => apps.gmail!.callTool({ name: "list_labels", arguments: {} })), 300_000);
+setInterval(() => {
+  actFor(ownerSubject, () => apps.gmail!.callTool({ name: "list_labels", arguments: {} })).catch(console.error);
+}, 300_000);
 ```
 
 The apps called see the person as `principal` and this app as `principal.actor`. Holon refuses the calls once the person
-revokes the delegation or loses access.
+stops it or loses access. Name only a person whose `principal.subject` this app read itself.
 
 ## A page in MCP Apps hosts
 
