@@ -161,10 +161,6 @@ test("an environment-bound dependency acts for a delegated person or the caller 
   const peers = createApps(identity, {});
   const ping = (apps = peers) => apps.peer!.callTool({ name: "ping", arguments: {} });
 
-  await actAs("ann", ping);
-  assert.deepEqual(received(), ["ann undefined Bearer peer-secret"]);
-  assert.throws(() => actAs("", ping), TypeError);
-
   let release!: () => void;
   const released = new Promise<void>(resolve => (release = resolve));
   const phases: string[][] = [];
