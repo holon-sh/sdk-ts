@@ -152,8 +152,8 @@ server.registerTool("share", { description: "Links to the page" }, ctx => {
 ## Acting for a person outside a request
 
 A call an app makes on a timer, at startup, or after a request was answered carries no user. With `actAs`, calls to
-dependencies Holon binds run as a person who let this app act for them on their account page in Holon, so a per-user app
-such as Gmail reaches their account:
+dependencies Holon binds run as a person who let this app act for them on its page in Holon
+(`/connections?resource=<this app's MCP address>&action=delegate`), so a per-user app such as Gmail reaches their account:
 
 ```ts
 import { actAs } from "holon-sh/context";
