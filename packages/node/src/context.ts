@@ -1,4 +1,5 @@
 import type { AuthInfo } from "@modelcontextprotocol/client";
+import { acting } from "./holder.js";
 
 /** Standard OpenID Connect address claims. */
 export interface AddressClaims {
@@ -38,4 +39,14 @@ export function getContext(context: { authInfo?: Pick<AuthInfo, "clientId" | "sc
 function origin({ url, headers }: Request) {
   const { protocol, host } = new URL(url);
   return `${headers.get("x-forwarded-proto") ?? protocol.slice(0, -1)}://${headers.get("x-forwarded-host") ?? host}`;
+}
+
+/**
+ * Call other apps as subject while work runs.
+ *
+ * @param subject The person's principal.subject.
+ */
+export function actAs<T>(subject: string, work: () => T): T {
+  if (!subject) throw new TypeError("actAs needs the subject of a person");
+  return acting.run(subject, work);
 }
