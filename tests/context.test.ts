@@ -18,7 +18,7 @@ test("getContext maps the caller Holon admitted", () => {
     [{ clientId: "", scopes: [], extra: { hook: { event: "installed" } } }, null],
   ] satisfies Array<[unknown, unknown]>) assert.deepEqual(getContext({ authInfo }).principal, principal);
   assert.deepEqual(getContext(), { principal: null, caller: null, origin: null });
-  const caller = { app: "reporter", session: "session" };
+  const caller = { app: "reporter", session: "production" };
   assert.deepEqual(getContext({ authInfo: { clientId: "", scopes: [], extra: { caller } } }).caller, caller);
 });
 

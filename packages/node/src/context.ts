@@ -16,7 +16,11 @@ export interface IdentityClaims {
 /** The user a request acts for, as Holon admitted it. */
 export interface Principal { issuer: string; subject: string; clientId: string; scopes: string[]; claims: IdentityClaims; actor?: Record<string, unknown> }
 /** The app that made a request, within its session. */
-export interface Caller { app: string; session: string }
+export interface Caller {
+  app: string;
+  /** The name of the Session both apps run in, such as "production". A Session keeps its name when it is recreated, as on a cluster migration. */
+  session: string;
+}
 /** The caller of the current MCP request, and the origin it reached the app at. principal is null for anonymous requests, caller for requests no app made, and origin without HTTP. */
 export interface RequestContext { principal: Principal | null; caller: Caller | null; origin: string | null }
 

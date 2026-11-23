@@ -107,8 +107,8 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
   const principal = { iss: "https://issuer.example", sub: "alice", client_id: "web", scope: " read  write ", claims, act: { sub: "agent" } };
   const signedIn = context({ principal });
   const signedOut = context({});
-  const caller = { app: "reporter", session: "session" };
-  const sent = { "x-holon-context": signedIn, "x-holon-caller": "session/reporter" };
+  const caller = { app: "reporter", session: "production" };
+  const sent = { "x-holon-context": signedIn, "x-holon-caller": "production/reporter" };
   for (const [origin, headers, authInfo] of [
     [inside, sent, { token: signedIn, clientId: "web", scopes: ["read", "write"], extra: { iss: "https://issuer.example", sub: "alice", claims, act: { sub: "agent" }, caller } }],
     [inside, { ...sent, "x-holon-context": signedOut }, { token: signedOut, clientId: "", scopes: [], extra: { caller } }],
@@ -127,7 +127,7 @@ test("inside Holon a tool reads its caller from the waypoint's headers, elsewher
 test("a malformed Holon context is a bad request", { timeout: 10000 }, async t => {
   const origin = await start(t, { default: { fetch: async () => new Response() } }, { HOLON_PLATFORM: "1" });
   const token = (payload: string) => `e30.${Buffer.from(payload).toString("base64url")}.signature`;
-  const caller = "session/reporter";
+  const caller = "production/reporter";
   for (const headers of [
     ["x-holon-context", context({}), "x-holon-context", context({})],
     ["x-holon-caller", caller, "x-holon-caller", caller],
