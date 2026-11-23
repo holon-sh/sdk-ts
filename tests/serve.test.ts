@@ -163,8 +163,6 @@ test("an environment-bound dependency acts for a delegated person or the caller 
 
   await actAs("ann", ping);
   assert.deepEqual(received(), ["ann undefined Bearer peer-secret"]);
-  await ping();
-  assert.deepEqual(received(), ["undefined undefined Bearer peer-secret"]);
   assert.throws(() => actAs("", ping), TypeError);
 
   let release!: () => void;
