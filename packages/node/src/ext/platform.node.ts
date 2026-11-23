@@ -29,10 +29,10 @@ export async function fetchPeer(input: string | URL | Request, init: RequestInit
   const { fetch, agent } = await (plain ??= import("undici").then(({ Agent, fetch }) => ({ fetch, agent: new Agent() })));
   const subject = acting.getStore();
   const request = holder.getStore();
-  const [name, value] = subject ? ["x-holon-act-for", subject] : ["x-holon-context", request && !request.ended ? request.token : ""];
+  const value = subject || (request && !request.ended && request.token);
   if (value) {
     const headers = new Headers(init.headers);
-    headers.set(name, value);
+    headers.set(subject ? "x-holon-act-for" : "x-holon-context", value);
     init = { ...init, headers };
   }
   return fetch(input as string | URL, { ...init, dispatcher: agent } as Parameters<typeof undici.fetch>[1]) as unknown as Promise<Response>;

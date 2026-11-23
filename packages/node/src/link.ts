@@ -146,8 +146,8 @@ function connect(identity: Identity, callee: string, resolved: Endpoint, onclose
   const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" }, jsonSchemaValidator: schemas });
   const endpoint = new URL(resolved.endpoint);
   const transport = traced(acceptUploadRequests(new Transport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
-    if (String(input) === endpoint.href) connection.authorization = new Headers(init?.headers).get("authorization") ?? undefined;
     const headers = new Headers(init?.headers);
+    if (String(input) === endpoint.href) connection.authorization = headers.get("authorization") ?? undefined;
     injectHeaders(headers);
     init = { ...init, headers };
     return (resolved.fetch ?? fetch)(input, init);
