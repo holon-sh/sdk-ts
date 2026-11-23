@@ -10,3 +10,6 @@ export interface Answering {
 
 /** The MCP request serve is answering: its context, which a peer call carries until the request ends. */
 export const holder: AsyncLocalStorage<Answering> = new AsyncLocalStorage();
+
+/** The person actFor makes calls for, which a peer call names in place of any request's context. */
+export const acting: AsyncLocalStorage<string> = new AsyncLocalStorage();

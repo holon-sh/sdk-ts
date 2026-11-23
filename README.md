@@ -149,6 +149,21 @@ server.registerTool("share", { description: "Links to the page" }, ctx => {
 
 `principal` is the user Holon admitted, or null. `origin` is the one Holon or a proxy forwards, or else the one the request reached.
 
+## Acting for a person outside a request
+
+A call an app makes on a timer, at startup, or after a request was answered carries no user. `actFor` makes the calls
+inside it as a person who let this app act for them (`create_delegation`), so a per-user app such as Gmail reaches their
+account:
+
+```ts
+import { actFor } from "holon-sh/context";
+
+setInterval(() => actFor(ownerSubject, () => apps.gmail!.callTool({ name: "list_labels", arguments: {} })), 300_000);
+```
+
+The apps called see the person as `principal` and this app as `principal.actor`. Holon refuses the calls once the person
+revokes the delegation or loses access.
+
 ## A page in MCP Apps hosts
 
 `holon-sh/page` offers an app's page, built as one HTML file, as the view an MCP Apps host shows with a tool's result:

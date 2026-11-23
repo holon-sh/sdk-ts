@@ -11,6 +11,7 @@ import { pathToFileURL } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { actFor } from "holon-sh/context";
 import { bindApps, createApps } from "holon-sh/runtime";
 import type { CompleteResult } from "holon-sh/protocol";
 import { load, serve, type App } from "holon-sh/serve";
@@ -199,6 +200,42 @@ test("a dependency bound by the environment acts for the caller until its reques
   const streamed = await globalThis.fetch(`${origin}/mcp/stream`, { method: "POST", headers: { "x-holon-context": token } });
   assert.equal(await streamed.text(), "firstsecond");
   assert.deepEqual(received(), [`${token} Bearer peer-secret`]);
+});
+
+test("a call made acting for a person names them in place of any context", { timeout: 10000 }, async t => {
+  const sent: string[] = [];
+  const peer = await serveMcp(t, () => {
+    const server = new McpServer({ name: "peer", version: "1.0.0" });
+    server.registerTool("ping", {}, () => ({ content: [] }));
+    return server;
+  }, req => sent.push(`${req.headers["x-holon-act-for"]} ${req.headers["x-holon-context"]} ${req.headers.authorization}`));
+  const received = () => [...new Set(sent.splice(0))];
+  environment(t, { PEER_MCP_URL: peer.endpoint, PEER_MCP_TOKEN: "peer-secret" });
+  const identity = { name: "app", version: "1.0.0", requires: { peer: {} } };
+  const ping = () => createApps(identity, {}).peer!.callTool({ name: "ping", arguments: {} });
+
+  await actFor("ann", ping);
+  assert.deepEqual(received(), ["ann undefined Bearer peer-secret"]);
+  await ping();
+  assert.deepEqual(received(), ["undefined undefined Bearer peer-secret"]);
+
+  const phases: string[][] = [];
+  const mcp = createMcpHandler(() => {
+    const server = new McpServer({ name: "app", version: "1.0.0" });
+    server.registerTool("relay", {}, async () => {
+      await actFor("bob", ping);
+      phases.push(received());
+      await ping();
+      phases.push(received());
+      return { content: [] };
+    });
+    return server;
+  });
+  const origin = await start(t, { default: { fetch: (request, options) => mcp.fetch(request, options) } }, { HOLON_PLATFORM: "1" });
+  const token = context({ principal: { iss: "https://issuer.example", sub: "alice", client_id: "web" } });
+  await call(origin, "relay", { "x-holon-context": token });
+  assert.deepEqual(phases, [["bob undefined Bearer peer-secret"], [`undefined ${token} Bearer peer-secret`]]);
+  assert.throws(() => actFor("", ping), TypeError);
 });
 
 test("holon-serve runs an app's module until SIGTERM, when it closes its event streams with their final frame and exits whatever the app left running, and load takes only a module serve can run", { timeout: 10000 }, async t => {

@@ -1,4 +1,5 @@
 import type { AuthInfo } from "@modelcontextprotocol/client";
+import { acting } from "./holder.js";
 
 /** Standard OpenID Connect address claims. */
 export interface AddressClaims {
@@ -38,4 +39,18 @@ export function getContext(context: { authInfo?: Pick<AuthInfo, "clientId" | "sc
 function origin({ url, headers }: Request) {
   const { protocol, host } = new URL(url);
   return `${headers.get("x-forwarded-proto") ?? protocol.slice(0, -1)}://${headers.get("x-forwarded-host") ?? host}`;
+}
+
+/**
+ * Call other apps as subject while work runs, for work no request of theirs waits on: on a timer, at startup, or after a
+ * request was answered, when calls otherwise carry no user. Holon admits them only from a production app the person let
+ * act for them, with create_delegation, and only while that delegation stands, with their current access. The apps called
+ * see them as principal, and this app as principal.actor. Inside a request, work acts for subject instead of the
+ * request's user.
+ *
+ * @param subject The person's principal.subject.
+ */
+export function actFor<T>(subject: string, work: () => T): T {
+  if (!subject) throw new TypeError("actFor needs the subject of a person");
+  return acting.run(subject, work);
 }
