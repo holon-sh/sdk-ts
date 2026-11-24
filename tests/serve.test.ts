@@ -154,7 +154,7 @@ test("an environment-bound dependency acts for a delegated person or the caller 
     const server = new McpServer({ name: "peer", version: "1.0.0" });
     server.registerTool("ping", {}, () => ({ content: [] }));
     return server;
-  }, req => sent.push(`${req.headers["x-holon-act-as"]} ${req.headers["x-holon-context"]} ${req.headers.authorization}`));
+  }, req => sent.push(`${req.headers["x-holon-subject"]} ${req.headers["x-holon-context"]} ${req.headers.authorization}`));
   const received = () => [...new Set(sent.splice(0))];
   environment(t, { PEER_MCP_URL: peer.endpoint, PEER_MCP_TOKEN: "peer-secret" });
   const identity = { name: "app", version: "1.0.0", requires: { peer: {} } };

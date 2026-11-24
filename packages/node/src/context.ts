@@ -44,6 +44,8 @@ function origin({ url, headers }: Request) {
 /**
  * Call other apps as subject while work runs.
  *
+ * https://www.rfc-editor.org/rfc/rfc8693.html#section-2.1
+ *
  * @param subject The person's principal.subject.
  */
 export function actAs<T>(subject: string, work: () => T): T {
