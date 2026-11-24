@@ -27,12 +27,13 @@ let plain: Promise<{ fetch: typeof undici.fetch; agent: undici.Agent }> | undefi
 
 export async function fetchPeer(input: string | URL | Request, init: RequestInit = {}): Promise<Response> {
   const { fetch, agent } = await (plain ??= import("undici").then(({ Agent, fetch }) => ({ fetch, agent: new Agent() })));
-  const subject = acting.getStore();
+  const { subject, actor } = acting.getStore() ?? {};
   const request = holder.getStore();
   const value = subject || (request && !request.ended && request.token);
   if (value) {
     const headers = new Headers(init.headers);
     headers.set(subject ? "x-holon-subject" : "x-holon-context", value);
+    if (actor !== undefined) headers.set("x-holon-actor", actor);
     init = { ...init, headers };
   }
   return fetch(input as string | URL, { ...init, dispatcher: agent } as Parameters<typeof undici.fetch>[1]) as unknown as Promise<Response>;
