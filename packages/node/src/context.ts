@@ -45,10 +45,13 @@ function origin({ url, headers }: Request) {
  * Call other apps as subject while work runs.
  *
  * https://www.rfc-editor.org/rfc/rfc8693.html#section-2.1
+ * https://www.rfc-editor.org/rfc/rfc8693.html#section-4.1
+ * https://www.rfc-editor.org/rfc/rfc8693.html#section-4.4
  *
  * @param subject The person's principal.subject.
+ * @param options.actor The app acting for subject, when it is not this app.
  */
-export function actAs<T>(subject: string, work: () => T): T {
+export function actAs<T>(subject: string, work: () => T, options?: { actor?: string }): T {
   if (!subject) throw new TypeError("actAs needs the subject of a person");
-  return acting.run(subject, work);
+  return acting.run({ subject, actor: options?.actor }, work);
 }
