@@ -1,14 +1,17 @@
 import { test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { createServer, request } from "node:http";
-import { McpServer, CLIENT_CAPABILITIES_META_KEY } from "@modelcontextprotocol/server";
+import { McpServer, CLIENT_CAPABILITIES_META_KEY, createMcpHandler } from "@modelcontextprotocol/server";
+import { toNodeHandler } from "@modelcontextprotocol/node";
 import { z } from "zod";
 import { createApps } from "holon-sh/runtime";
+import { actAs } from "holon-sh/context";
+import { EXTENSION } from "holon-sh/ext/files";
 import { listen, serve } from "./helpers.ts";
 
-function orders() {
-  const server = new McpServer({ name: "orders", version: "1" });
-  server.registerTool("get_order", { inputSchema: z.strictObject({ id: z.string() }) }, async ({ id }) => ({ content: [], structuredContent: { id } }));
+function orders(_meta?: Record<string, unknown>) {
+  const server = new McpServer({ name: "orders", version: "1" }, { capabilities: { extensions: _meta && { [EXTENSION]: {} } } });
+  server.registerTool("get_order", { inputSchema: z.strictObject({ id: z.string() }) }, async ({ id }) => ({ content: [], structuredContent: { id }, _meta }));
   return server;
 }
 
@@ -37,7 +40,7 @@ async function refusingDiscovery(t: TestContext, target: string) {
 test("a resolved binding keeps one session and reconnects after close, clients declare on every request that they can be asked and take files, and the environment fallback is read on every call with the environment's bearer token", { timeout: 10000 }, async t => {
   environment(t, { PAYMENTS_MCP_URL: "" });
   const authorization = new Set();
-  const { endpoint } = await serve(t, orders, req => authorization.add(req.headers.authorization));
+  const { endpoint } = await serve(t, () => orders(), req => authorization.add(req.headers.authorization));
   // Each new connection starts by discovering the server.
   let connections = 0;
   const capabilities: unknown[] = [];
@@ -73,10 +76,31 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   assert.deepEqual(tools.map(tool => tool.name), ["get_order"]);
 });
 
-test("an environment-bound call reaches a 2026-07-28 server that refuses discovery", { timeout: 10000 }, async t => {
-  environment(t, { ORDERS_MCP_URL: await refusingDiscovery(t, (await serve(t, orders)).endpoint) });
+const labelled = { [EXTENSION]: { downloads: [{ mimeType: "text/plain", size: 1, path: "/label.txt", credentials: "omit" }] } };
+
+test("an environment-bound call reaches a 2026-07-28 server that refuses discovery with a file in its result", { timeout: 10000 }, async t => {
+  environment(t, { ORDERS_MCP_URL: await refusingDiscovery(t, (await serve(t, () => orders(labelled))).endpoint) });
   const result = await createApps(identity, { orders: contract }).orders.callTool({ name: "get_order", arguments: { id: "a" } });
   assert.deepEqual(result.structuredContent, { id: "a" });
+});
+
+// https://github.com/modelcontextprotocol/experimental-ext-file-uploads/blob/main/specification/draft/file-uploads.md#credentials
+test("an environment-bound call acts for its subject, and a file whose target omits credentials is fetched without one", { timeout: 10000 }, async t => {
+  const handler = createMcpHandler(() => orders(labelled), { legacy: "reject" });
+  const dispatch = toNodeHandler(handler);
+  const subjects: Record<string, unknown> = {};
+  environment(t, { ORDERS_MCP_URL: await listen(t, createServer((req, res) => {
+    subjects[req.url!] = req.headers["x-holon-subject"];
+    if (req.url === "/mcp/label.txt") return void res.end("l");
+    void dispatch(req, res);
+  }), () => handler.close()) });
+  const { orders: app } = createApps(identity, { orders: contract });
+  const label = await actAs("bob", async () => {
+    const result = await app.callTool({ name: "get_order", arguments: { id: "a" } });
+    return result.resultType === "complete" ? result.downloads?.[0]?.blob() : undefined;
+  });
+  assert.equal(await label?.text(), "l");
+  assert.deepEqual(subjects, { "/mcp": "bob", "/mcp/label.txt": undefined });
 });
 
 test("an environment-bound call follows no redirect, not even within its origin", { timeout: 10000 }, async t => {

@@ -8,7 +8,7 @@ type Json = Record<string, unknown>;
 
 interface FileConnection {
   capabilities(): Promise<ServerCapabilities | undefined>;
-  resolved: { endpoint: URL | string; fileOrigins?: string[]; installationUID?: string };
+  resolved: { endpoint: URL | string; fetch?: typeof fetch; fileOrigins?: string[]; installationUID?: string };
   authorization?: string;
 }
 
@@ -190,7 +190,7 @@ function send(target: Target, init: RequestInit, { resolved, authorization }: Fi
   const headers = new Headers(target.headers);
   if (target.include && authorization) headers.set("authorization", authorization);
   if (target.path && resolved.installationUID) headers.set("x-holon-installation-uid", resolved.installationUID);
-  return (target.path || target.allowlisted ? fetch : fetchGlobal)(target.url, { ...init, headers, credentials: "omit", redirect: "error" });
+  return (target.path ? resolved.fetch ?? fetch : target.allowlisted ? fetch : fetchGlobal)(target.url, { ...init, headers, credentials: "omit", redirect: "error" });
 }
 
 const reason = (error: unknown) => {
@@ -302,6 +302,6 @@ function download(raw: unknown, connection: FileConnection): Download | undefine
 export async function downloads<R extends { resultType?: string; _meta?: object }>(result: R, connection: FileConnection): Promise<R & { downloads?: Download[] }> {
   if (result.resultType === "input_required" || !isObject(result._meta) || !(EXTENSION in result._meta)) return result;
   const { [EXTENSION]: meta, ...rest } = result._meta;
-  const handles = await settings(connection) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).flatMap(target => download(target, connection) ?? []) : [];
+  const handles = await settings(connection).catch(() => undefined) ? list((meta as { downloads?: unknown } | null | undefined)?.downloads).flatMap(target => download(target, connection) ?? []) : [];
   return { ...result, _meta: rest, ...(handles.length > 0 && { downloads: handles }) };
 }
