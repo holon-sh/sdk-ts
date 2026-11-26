@@ -1,6 +1,6 @@
 import { Validator, type SchemaDraft } from "@cfworker/json-schema";
-import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, JSONRPCMessage, MessageExtraInfo, PriorDiscovery, ServerCapabilities, StandardSchemaV1, Transport as McpTransport, jsonSchemaValidator } from "@modelcontextprotocol/client";
+import { CLIENT_CAPABILITIES_META_KEY, Client, mergeCapabilities, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, ClientCapabilities, JSONRPCMessage, MessageExtraInfo, PriorDiscovery, ServerCapabilities, StandardSchemaV1, Transport as McpTransport, jsonSchemaValidator } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
 import { appName, context, finish, injectHeaders, isTraced, messageOf, startClient, trace, withTraceMeta } from "./telemetry.js";
@@ -38,6 +38,11 @@ const peer: PriorDiscovery = { kind: "modern", discover: { resultType: "complete
 
 type Endpoint = EndpointBinding & { [PRIOR]?: PriorDiscovery };
 
+const clientCapabilities: ClientCapabilities = { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } };
+
+// https://github.com/modelcontextprotocol/typescript-sdk/blob/5ee54ee30ddc00a914a3d981880f87fdce0e6246/packages/core-internal/src/shared/protocol.ts#L763
+export const declaring = (extension: string): Record<string, ClientCapabilities> => ({ [CLIENT_CAPABILITIES_META_KEY]: mergeCapabilities(clientCapabilities, { extensions: { [extension]: {} } }) });
+
 export function environment(name: string): Endpoint {
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
   const endpoint = process.env[`${prefix}URL`];
@@ -47,7 +52,8 @@ export function environment(name: string): Endpoint {
 }
 
 // https://github.com/modelcontextprotocol/experimental-ext-file-uploads/blob/main/specification/draft/file-uploads.md
-const extensionResultTypes = new Set<unknown>(["upload_required"]);
+// https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#polymorphic-results
+const extensionResultTypes = new Set<unknown>(["upload_required", "task"]);
 const extensionResults = new WeakSet<object>();
 
 export type ExtensionResult = { resultType: string } & Record<string, unknown>;
@@ -169,7 +175,7 @@ export const schemas: jsonSchemaValidator = {
 function connect(identity: Identity, callee: string, resolved: Endpoint, onclose?: (connection: Connection) => void, streamEnded?: StreamEnded): Connection {
   // Every client can be asked: a call answers with elicit, or the question reaches its caller. Servers must not assume a client answers: https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr#server-requirements-basic-workflow
   // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
-  const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" }, jsonSchemaValidator: schemas });
+  const client = new Client({ name: identity.name, version: identity.version }, { capabilities: clientCapabilities, versionNegotiation: { mode: "auto" }, jsonSchemaValidator: schemas });
   const endpoint = new URL(resolved.endpoint);
   const transport = traced(acceptExtensionResults(new Transport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
     const headers = new Headers(init?.headers);
