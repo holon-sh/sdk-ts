@@ -94,7 +94,6 @@ function packer(t: TestContext) {
     }
     return handler.fetch(request);
   };
-  t.mock.method(globalThis, "fetch", fetch);
   const { packer: app } = createApps({ name: "shop", version: "1" }, { packer: null }, { packer: { endpoint: "http://packer.localhost/mcp", fetch } });
   t.after(async () => {
     await app.close();
