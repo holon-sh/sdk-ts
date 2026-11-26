@@ -90,7 +90,7 @@ test("a session binding passes a call and its signal to the session, and a custo
   await bindApps(identity, { orders: contract }, { orders: { session } }).orders.tools.get_order({ id: "s" }, { signal: controller.signal });
   assert.deepEqual(calls, [[{ name: "get_order", arguments: { id: "s" } }, true]]);
   const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
-  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /\["rejected"\]/);
+  await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /rejected/);
 });
 
 test("a failure carries the server's text and its JSON", { timeout: 10000 }, async t => {

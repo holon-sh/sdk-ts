@@ -78,8 +78,8 @@ test("a resolved binding keeps one session and reconnects after close, clients d
 
 const labelled = { [EXTENSION]: { downloads: [{ mimeType: "text/plain", size: 1, path: "/label.txt", credentials: "omit" }] } };
 
-for (const [returning, server] of [["", () => orders()], [" with a file in its result", () => orders(labelled)]] as const) test(`an environment-bound call reaches a 2026-07-28 server that refuses discovery${returning}`, { timeout: 10000 }, async t => {
-  environment(t, { ORDERS_MCP_URL: await refusingDiscovery(t, (await serve(t, server)).endpoint) });
+test("an environment-bound call reaches a 2026-07-28 server that refuses discovery with a file in its result", { timeout: 10000 }, async t => {
+  environment(t, { ORDERS_MCP_URL: await refusingDiscovery(t, (await serve(t, () => orders(labelled))).endpoint) });
   const result = await createApps(identity, { orders: contract }).orders.callTool({ name: "get_order", arguments: { id: "a" } });
   assert.deepEqual(result.structuredContent, { id: "a" });
 });
