@@ -136,7 +136,7 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
             next = { ...retry, requestState };
             continue;
           }
-          if (isCreateTaskResult(extended)) return extended;
+          if (isCreateTaskResult(request, extended)) return extended;
           if (uploaded) throw new Error(`${label}: the outcome is unknown; the tool may have run (${(error as { message?: unknown } | null | undefined)?.message ?? error}).`, { cause: error });
           throw error;
         }
@@ -151,7 +151,7 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
         next = { ...next, inputResponses, requestState: result.requestState };
       }
     });
-    if (isInputRequiredResult(result) || isCreateTaskResult(result)) return result;
+    if (isInputRequiredResult(result) || isCreateTaskResult(request, result)) return result;
     if (!result.isError) tool?.output?.(result.structuredContent);
     // isError tells ToolResult's success variant from its error variant.
     return { ...result, resultType: "complete" } as ToolResult<unknown>;
