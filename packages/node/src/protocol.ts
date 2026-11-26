@@ -28,7 +28,7 @@ interface TaskFields { taskId: string; statusMessage?: string; createdAt: string
 export type Task = TaskFields & (
   | { status: "working" | "cancelled" }
   | { status: "input_required"; inputRequests: InputRequests }
-  | { status: "completed"; result: CallToolResult }
+  | { status: "completed"; result: CallToolResult & Pick<Completed, "downloads"> }
   | { status: "failed"; error: JSONRPCErrorResponse["error"] }
 );
 /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-creation */
