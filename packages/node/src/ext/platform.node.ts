@@ -30,7 +30,7 @@ export async function fetchPeer(input: string | URL | Request, init: RequestInit
   const { subject, actor } = acting.getStore() ?? {};
   const request = holder.getStore();
   const value = subject || (request && !request.ended && request.token);
-  if (value) {
+  if (value && init.credentials !== "omit") {
     const headers = new Headers(init.headers);
     headers.set(subject ? "x-holon-subject" : "x-holon-context", value);
     if (actor !== undefined) headers.set("x-holon-actor", actor);
