@@ -1,5 +1,5 @@
 import { Validator, type SchemaDraft } from "@cfworker/json-schema";
-import { CLIENT_CAPABILITIES_META_KEY, Client, mergeCapabilities, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, ClientCapabilities, JSONRPCMessage, MessageExtraInfo, PriorDiscovery, ServerCapabilities, StandardSchemaV1, Transport as McpTransport, jsonSchemaValidator } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
@@ -38,10 +38,7 @@ const peer: PriorDiscovery = { kind: "modern", discover: { resultType: "complete
 
 type Endpoint = EndpointBinding & { [PRIOR]?: PriorDiscovery };
 
-const clientCapabilities: ClientCapabilities = { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } };
-
-// https://github.com/modelcontextprotocol/typescript-sdk/blob/5ee54ee30ddc00a914a3d981880f87fdce0e6246/packages/core-internal/src/shared/protocol.ts#L763
-export const declaring = (extension: string): Record<string, ClientCapabilities> => ({ [CLIENT_CAPABILITIES_META_KEY]: mergeCapabilities(clientCapabilities, { extensions: { [extension]: {} } }) });
+export const clientCapabilities: ClientCapabilities = { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } };
 
 export function environment(name: string): Endpoint {
   const prefix = `${name.toUpperCase().replaceAll("-", "_")}_MCP_`;
@@ -56,16 +53,11 @@ export function environment(name: string): Endpoint {
 const extensionResultTypes = new Set<unknown>(["upload_required", "task"]);
 const extensionResults = new WeakSet<object>();
 
-export type ExtensionResult = { resultType: string } & Record<string, unknown>;
-
-export function extensionResult(error: unknown): ExtensionResult | undefined {
-  const data = (error as { data?: object } | null | undefined)?.data;
-  return data && extensionResults.has(data) ? data as ExtensionResult : undefined;
+export function extensionResult(error: unknown): Record<string, unknown> | undefined {
+  const data = (error as { data?: Record<string, unknown> } | null | undefined)?.data;
+  return data && extensionResults.has(data) ? data : undefined;
 }
 
-// The MCP client rejects a result type it does not know and drops the result, and has no hook for extension result
-// types yet (typescript-sdk#2782). The transport hands such a result to it as a JSON-RPC error instead, whose data is
-// the result: the client keeps an error's data as received. Every other message passes through unchanged.
 function acceptExtensionResults<T extends McpTransport>(transport: T): T {
   let handler: McpTransport["onmessage"];
   const receive = (message: JSONRPCMessage, extra?: MessageExtraInfo) => {

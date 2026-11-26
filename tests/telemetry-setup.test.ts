@@ -65,7 +65,7 @@ async function peer(t: TestContext) {
 
 test("without an OTLP endpoint, holon-serve exports nothing and still passes the caller's trace to dependencies", { timeout: 15000 }, async t => {
   const { endpoint, received, headers } = await peer(t);
-  const { child, relay } = await app(t, { PEER_MCP_URL: endpoint, OTEL_EXPORTER_OTLP_ENDPOINT: "" });
+  const { relay } = await app(t, { PEER_MCP_URL: endpoint, OTEL_EXPORTER_OTLP_ENDPOINT: "" });
   await relay();
   // No provider records spans, so the dependency continues the caller's own span.
   assert.equal(received[0]?.meta, INCOMING);

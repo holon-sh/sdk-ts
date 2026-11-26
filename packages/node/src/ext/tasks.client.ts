@@ -1,12 +1,11 @@
-// Client side of the MCP Tasks extension:
 // https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md
-import type { Result } from "@modelcontextprotocol/client";
-import { declaring, patient, unchecked, type EndpointLink } from "../link.js";
+import { CLIENT_CAPABILITIES_META_KEY, mergeCapabilities, type Result } from "@modelcontextprotocol/client";
+import { clientCapabilities, patient, unchecked, type EndpointLink } from "../link.js";
 import type { CallOptions, CreateTaskResult, Task } from "../protocol.js";
 import type { RuntimeClient } from "../runtime.js";
 
-// https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#extension-identifier
-const declaration = declaring("io.modelcontextprotocol/tasks");
+// https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#capability-negotiation
+const declaration = { [CLIENT_CAPABILITIES_META_KEY]: mergeCapabilities(clientCapabilities, { extensions: { "io.modelcontextprotocol/tasks": {} } }) };
 
 // https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#polymorphic-results
 export const isCreateTaskResult = (value: unknown): value is CreateTaskResult => (value as { resultType?: unknown } | undefined)?.resultType === "task";

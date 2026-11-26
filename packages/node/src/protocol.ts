@@ -23,16 +23,15 @@ export type CompleteResult<Output> = Completed & { isError?: false; structuredCo
 /** Full tool result: successful typed output, an application error, or an input-required continuation. */
 export type ToolResult<Output> = CompleteResult<Output> | (Completed & { isError: true; structuredContent?: unknown }) | InputRequiredResult;
 
-/** The fields every task carries, in the MCP Tasks extension: https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#tasks */
+/** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#tasks-1 */
 interface TaskFields { taskId: string; statusMessage?: string; createdAt: string; lastUpdatedAt: string; ttlMs: number | null; pollIntervalMs?: number }
-/** A task's state. Its tool result, JSON-RPC error and questions are present only on the status that carries them. */
 export type Task = TaskFields & (
   | { status: "working" | "cancelled" }
   | { status: "input_required"; inputRequests: InputRequests }
   | { status: "completed"; result: CallToolResult }
   | { status: "failed"; error: JSONRPCErrorResponse["error"] }
 );
-/** A server's answer to a call that asked for a task, when it made one in place of the tool's result. */
+/** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-creation */
 export type CreateTaskResult = TaskFields & { resultType: "task"; status: Task["status"] };
 
 function json(text: string | undefined): unknown {
@@ -126,13 +125,13 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
   readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
   /** Return the full MCP result, preserving error results and questions left unanswered. Successful output is contract-validated; the server validates arguments. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
-  /** callTool, asking the server for a task (the MCP Tasks extension). Returns the tool result when the server answers directly, or the task it made. */
+  /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-creation */
   readonly startTask: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown> | CreateTaskResult>;
-  /** Read a task (tasks/get). */
+  /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-polling */
   readonly getTask: (taskId: string, options?: CallOptions) => Promise<Task>;
-  /** Answer a task's questions (tasks/update). */
+  /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-update-requests */
   readonly updateTask: (taskId: string, inputResponses: InputResponses, options?: CallOptions) => Promise<Result>;
-  /** Ask the server to cancel a task (tasks/cancel). */
+  /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-cancellation */
   readonly cancelTask: (taskId: string, options?: CallOptions) => Promise<Result>;
 }
 
