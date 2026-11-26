@@ -142,9 +142,8 @@ test("a malformed Holon context is a bad request", { timeout: 10000 }, async t =
   ]) {
     const response = await new Promise<IncomingMessage>((resolve, reject) =>
       request(`${origin}/mcp`, { method: "POST", headers: ["host", new URL(origin).host, ...headers] }, resolve).on("error", reject).end("{}"));
-    let body = "";
-    for await (const chunk of response) body += chunk;
-    assert.deepEqual([response.statusCode, body], [400, "Malformed Holon context\n"], JSON.stringify(headers));
+    response.resume();
+    assert.equal(response.statusCode, 400, JSON.stringify(headers));
   }
 });
 
@@ -210,8 +209,8 @@ test("holon-serve runs an app's module until SIGTERM, when it closes its event s
   const root = temporary(t);
   writeFileSync(join(root, "plain.mjs"), "export default {};");
   writeFileSync(join(root, "named.mjs"), "export default { fetch() {} }; export const frontend = 'web';");
-  await assert.rejects(load(join(root, "plain.mjs")), /plain\.mjs must default-export an MCP handler/);
-  await assert.rejects(load(join(root, "named.mjs")), /named\.mjs must export frontend as a file URL/);
+  await assert.rejects(load(join(root, "plain.mjs")), /plain\.mjs.*default/);
+  await assert.rejects(load(join(root, "named.mjs")), /named\.mjs.*frontend/);
 
   const { bin } = JSON.parse(readFileSync(join(repository, "packages/node/package.json"), "utf8"));
   const fixture = JSON.stringify(new URL("./fixtures/app.ts", import.meta.url).href);

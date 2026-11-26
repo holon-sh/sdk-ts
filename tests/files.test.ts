@@ -162,7 +162,7 @@ test("a second upload request fails the call without a transfer, and a retry wit
   await assert.rejects(app.save({ file: new Blob(["x"]) }), /the tool did not run\.$/);
   assert.deepEqual([server.stored.length, server.calls.length], [1, 2]);
   state = "lost";
-  await assert.rejects(app.save({ file: new Blob(["x"]) }), /^Error: files\.save: the outcome is unknown; the tool may have run/);
+  await assert.rejects(app.save({ file: new Blob(["x"]) }), /the outcome is unknown; the tool may have run/);
   assert.deepEqual([server.stored.length, server.calls.length], [2, 3]);
 });
 

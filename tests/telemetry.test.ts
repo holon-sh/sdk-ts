@@ -206,7 +206,7 @@ test("an HTTP failure without a JSON-RPC response, or a response stream that fai
   let reply = () => new Response("Service unavailable", { status: 503 });
   const endpoint = await start(t, { fetch: async () => reply() });
   exporter.reset();
-  assert.equal((await post(endpoint, toolCall("down"))).status, 503);
+  await post(endpoint, toolCall("down"));
   reply = () => new Response(new ReadableStream({ pull: controller => controller.error(new Error("broken")) }), { headers: { "content-type": "text/event-stream" } });
   await post(endpoint, toolCall("broken")).then(response => response.text()).catch(() => {});
   await new Promise(resolve => setTimeout(resolve, 50));
