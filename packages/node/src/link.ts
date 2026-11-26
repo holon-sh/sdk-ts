@@ -1,9 +1,8 @@
 import { Validator, type SchemaDraft } from "@cfworker/json-schema";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import type { CacheableRequestOptions, PriorDiscovery, ServerCapabilities, StandardSchemaV1, jsonSchemaValidator } from "@modelcontextprotocol/client";
+import type { CacheableRequestOptions, JSONRPCMessage, MessageExtraInfo, PriorDiscovery, ServerCapabilities, StandardSchemaV1, Transport as McpTransport, jsonSchemaValidator } from "@modelcontextprotocol/client";
 import { fetchPeer } from "#platform";
 import { EXTENSION } from "./ext/files.js";
-import { acceptUploadRequests, isUploadRequest } from "./ext/files.client.js";
 import { appName, context, finish, injectHeaders, isTraced, messageOf, startClient, trace, withTraceMeta } from "./telemetry.js";
 import type { CallOptions } from "./protocol.js";
 import type { Binding, EndpointBinding, Identity, ToolSession } from "./runtime.js";
@@ -47,6 +46,33 @@ export function environment(name: string): Endpoint {
   throw new Error(`Dependency ${name} is unavailable (${prefix}URL). Provide a binding or set the environment variable.`);
 }
 
+// https://github.com/modelcontextprotocol/experimental-ext-file-uploads/blob/main/specification/draft/file-uploads.md
+const extensionResultTypes = new Set<unknown>(["upload_required"]);
+const extensionResults = new WeakSet<object>();
+
+export type ExtensionResult = { resultType: string } & Record<string, unknown>;
+
+export function extensionResult(error: unknown): ExtensionResult | undefined {
+  const data = (error as { data?: object } | null | undefined)?.data;
+  return data && extensionResults.has(data) ? data as ExtensionResult : undefined;
+}
+
+// The MCP client rejects a result type it does not know and drops the result, and has no hook for extension result
+// types yet (typescript-sdk#2782). The transport hands such a result to it as a JSON-RPC error instead, whose data is
+// the result: the client keeps an error's data as received. Every other message passes through unchanged.
+function acceptExtensionResults<T extends McpTransport>(transport: T): T {
+  let handler: McpTransport["onmessage"];
+  const receive = (message: JSONRPCMessage, extra?: MessageExtraInfo) => {
+    if ("result" in message && extensionResultTypes.has(message.result.resultType)) {
+      extensionResults.add(message.result);
+      message = { jsonrpc: "2.0", id: message.id, error: { code: -32603, message: `Unsupported result type '${message.result.resultType}'`, data: message.result } };
+    }
+    handler?.(message, extra);
+  };
+  Object.defineProperty(transport, "onmessage", { configurable: true, get: () => handler && receive, set: (value: McpTransport["onmessage"]) => { handler = value; } });
+  return transport;
+}
+
 type Sent = Parameters<StreamableHTTPClientTransport["send"]>;
 type StreamEnded = (message: Sent[0]) => void;
 
@@ -67,7 +93,7 @@ class Transport extends StreamableHTTPClientTransport {
  * Traces the requests a transport sends: a CLIENT span per request, with the span's trace context in params._meta and,
  * through the transport's fetch, which runs in the span's context, in the HTTP headers. A span ends with its response,
  * its cancellation, or the transport closing. Responses pass through the onmessage already installed, such as
- * acceptUploadRequests', whose upload requests the span records as the results they arrived as.
+ * acceptExtensionResults', whose extension results the span records as the results they arrived as.
  */
 function traced<T extends StreamableHTTPClientTransport>(transport: T, callee: string, caller: string | undefined): T {
   const pending = new Map<string | number, (response?: unknown, failure?: string) => void>();
@@ -98,7 +124,7 @@ function traced<T extends StreamableHTTPClientTransport>(transport: T, callee: s
   type Receive = NonNullable<StreamableHTTPClientTransport["onmessage"]>;
   let handler: Receive | undefined = previous?.get ? undefined : previous?.value;
   const observe = (value: Receive): Receive => message => {
-    if ("id" in message && !("method" in message)) settle(message.id, "error" in message && isUploadRequest(message.error) ? { result: message.error.data } : message);
+    if ("id" in message && !("method" in message)) settle(message.id, "error" in message && extensionResult(message.error) ? { result: message.error.data } : message);
     value(message);
   };
   Object.defineProperty(transport, "onmessage", {
@@ -145,7 +171,7 @@ function connect(identity: Identity, callee: string, resolved: Endpoint, onclose
   // On 2026-07-28 the client sends these capabilities in every request's _meta: https://github.com/modelcontextprotocol/typescript-sdk/blob/fcef852f6cdafea07f36cf6fae69b37c8adf85be/packages/client/src/client/client.ts#L700-L711
   const client = new Client({ name: identity.name, version: identity.version }, { capabilities: { elicitation: { form: {}, url: {} }, extensions: { [EXTENSION]: { upload: {}, download: {} } } }, versionNegotiation: { mode: "auto" }, jsonSchemaValidator: schemas });
   const endpoint = new URL(resolved.endpoint);
-  const transport = traced(acceptUploadRequests(new Transport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
+  const transport = traced(acceptExtensionResults(new Transport(endpoint, { authProvider: resolved.authProvider, fetch: async (input, init) => {
     const headers = new Headers(init?.headers);
     if (String(input) === endpoint.href) connection.authorization = headers.get("authorization") ?? undefined;
     injectHeaders(headers);

@@ -1,8 +1,8 @@
 import { isInputRequiredResult } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { events } from "./ext/events.client.js";
-import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
-import { createLink, environment, patient, schemas, sleep, untilAborted, type Link } from "./link.js";
+import { downloads, prepare, upload } from "./ext/files.client.js";
+import { createLink, environment, extensionResult, patient, schemas, sleep, untilAborted, type Link } from "./link.js";
 import { ToolCallError } from "./protocol.js";
 import type { AuthProvider, CallMetadata, CallOptions, SessionClient, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
@@ -124,9 +124,10 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
         try {
           result = await client.callTool(next, sent);
         } catch (error) {
-          if (connection && isUploadRequest(error)) {
+          const extended = extensionResult(error);
+          if (connection && extended?.resultType === "upload_required") {
             if (uploaded) throw new Error(`${label}: the server asked for a second upload; the tool did not run.`);
-            const requestState = await upload(error.data, files, connection, options.signal, label);
+            const requestState = await upload(extended, files, connection, options.signal, label);
             uploaded = true;
             const { inputResponses, ...retry } = next;
             next = { ...retry, requestState };
