@@ -40,12 +40,12 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   const { endpoint } = await serve(t, orders, req => authorization.add(req.headers.authorization));
   // Each new connection starts by discovering the server.
   let connections = 0;
-  const capabilities = new Set();
+  const capabilities: unknown[] = [];
   const counting: typeof fetch = async (input, init) => {
     if (typeof init?.body === "string") {
       const { method, params } = JSON.parse(init.body);
       if (method === "server/discover") connections += 1;
-      capabilities.add(JSON.stringify(params._meta[CLIENT_CAPABILITIES_META_KEY]));
+      capabilities.push(params._meta[CLIENT_CAPABILITIES_META_KEY]);
     }
     return fetch(input, init);
   };
@@ -53,7 +53,8 @@ test("a resolved binding keeps one session and reconnects after close, clients d
   await resolved.orders.tools.get_order({ id: "a" });
   await resolved.orders.tools.get_order({ id: "b" });
   assert.equal(connections, 1);
-  assert.deepEqual([...capabilities], ['{"elicitation":{"form":{},"url":{}},"extensions":{"io.modelcontextprotocol/files":{"upload":{},"download":{}}}}']);
+  const declared = { elicitation: { form: {}, url: {} }, extensions: { "io.modelcontextprotocol/files": { upload: {}, download: {} } } };
+  assert.deepEqual(capabilities, capabilities.map(() => declared));
   await resolved.orders.close();
   await resolved.orders.tools.get_order({ id: "c" });
   assert.equal(connections, 2);

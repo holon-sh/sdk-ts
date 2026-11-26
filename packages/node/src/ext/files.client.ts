@@ -1,6 +1,6 @@
 // Client side of the MCP files extension (draft):
 // https://github.com/modelcontextprotocol/experimental-ext-file-uploads/blob/main/specification/draft/file-uploads.md
-import type { JSONRPCMessage, MessageExtraInfo, ServerCapabilities, Transport } from "@modelcontextprotocol/client";
+import type { ServerCapabilities } from "@modelcontextprotocol/client";
 import { base64, fetchGlobal, sha256 } from "#platform";
 import { EXTENSION, type Download } from "./files.js";
 
@@ -29,29 +29,6 @@ function refuse(reason: string): never {
 async function settings(connection: FileConnection): Promise<Json | undefined> {
   const advertised = (await connection.capabilities())?.extensions?.[EXTENSION];
   return isObject(advertised) && advertised.revision == null ? advertised : undefined;
-}
-
-const uploadRequests = new WeakSet<object>();
-
-export function isUploadRequest(error: unknown): error is { data: Json } {
-  const data = (error as { data?: unknown } | null | undefined)?.data;
-  return isObject(data) && uploadRequests.has(data);
-}
-
-// The MCP client rejects a result type it does not know and drops the result, and has no hook for extension result
-// types yet (typescript-sdk#2782). The transport hands an upload request to it as a JSON-RPC error instead, whose data is
-// the result: the client keeps an error's data as received. Every other message passes through unchanged.
-export function acceptUploadRequests<T extends Transport>(transport: T): T {
-  let handler: Transport["onmessage"];
-  const receive = (message: JSONRPCMessage, extra?: MessageExtraInfo) => {
-    if ("result" in message && message.result?.resultType === "upload_required") {
-      uploadRequests.add(message.result);
-      message = { jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "Unsupported result type 'upload_required'", data: message.result } };
-    }
-    handler?.(message, extra);
-  };
-  Object.defineProperty(transport, "onmessage", { configurable: true, get: () => handler && receive, set: (value: Transport["onmessage"]) => { handler = value; } });
-  return transport;
 }
 
 function contains(value: unknown): boolean {

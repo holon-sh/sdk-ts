@@ -1,13 +1,14 @@
 import { isInputRequiredResult } from "@modelcontextprotocol/client";
 import type { CacheableRequestOptions, CallToolRequest, CallToolRequestOptions, CallToolResult, InputRequiredResult, InputResponses, ReadResourceRequest, ReadResourceResult, Tool } from "@modelcontextprotocol/client";
 import { events } from "./ext/events.client.js";
-import { downloads, isUploadRequest, prepare, upload } from "./ext/files.client.js";
-import { createLink, environment, patient, schemas, sleep, untilAborted, type Link } from "./link.js";
+import { downloads, prepare, upload } from "./ext/files.client.js";
+import { isCreateTaskResult, tasks } from "./ext/tasks.client.js";
+import { createLink, environment, extensionResult, patient, schemas, sleep, untilAborted, type Link } from "./link.js";
 import { ToolCallError } from "./protocol.js";
-import type { AuthProvider, CallMetadata, CallOptions, SessionClient, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
+import type { AuthProvider, CallMetadata, CallOptions, CreateTaskResult, SessionClient, ToolCallOptions, ToolClient, ToolResult } from "./protocol.js";
 
 export { ToolCallError } from "./protocol.js";
-export type { AuthProvider, CallOptions, CallMetadata, ElicitHandler, EventOccurrence, EventType, SessionClient, SubscribeOptions, Subscription, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
+export type { AuthProvider, CallOptions, CallMetadata, CreateTaskResult, ElicitHandler, EventOccurrence, EventType, SessionClient, SubscribeOptions, Subscription, Task, ToolCallOptions, ToolResult, ToolClient } from "./protocol.js";
 
 /** Connection settings for an MCP endpoint. */
 export interface EndpointBinding {
@@ -86,10 +87,12 @@ export function createApps<B extends Binding = EndpointBinding>(identity: Identi
   const members: Record<string, Contract | null> = { ...(bindings ? {} : Object.fromEntries(Object.keys(identity.requires ?? {}).map(name => [name, null]))), ...contracts };
   for (const [name, contract] of Object.entries(members)) {
     const link = createLink(identity, name, bindings ? { binding: bindings[name] } : { resolve });
+    const calls = tools(link, contract, expect);
     apps[name] = Object.freeze({
-      ...tools(link, contract, expect),
+      ...calls,
       resources: resources(link, contract, expect),
       ...(!link.hosted && {
+        ...tasks(link, calls.callTool),
         listTools: (options?: CallOptions) => link.connected(options, ({ client }) => client.listTools(undefined, patient(options))),
         ext: Object.freeze({ events: events(link, contract, expect) }),
         close: link.close,
@@ -105,7 +108,7 @@ const reserved = new Set(["then", "toJSON", "toString", "valueOf", "toLocaleStri
 function tools(link: Link, contract: Contract | null, expect: Expect): Pick<RuntimeClient, "callTool" | "tools"> {
   const { name } = link;
   const definitions = new Map((contract?.tools ?? []).map(definition => [definition.name, { definition, output: definition.outputSchema && expect(definition.outputSchema, `structured output from ${name}.${definition.name}`) }]));
-  const callTool = async (request: CallMetadata & { name: string; arguments?: Record<string, unknown> }, { elicit, ...options }: ToolCallOptions = {}): Promise<ToolResult<unknown>> => {
+  const call = async (request: CallMetadata & { name: string; arguments?: Record<string, unknown> }, { elicit, ...options }: ToolCallOptions = {}): Promise<ToolResult<unknown> | CreateTaskResult> => {
     const tool = definitions.get(request.name);
     if (!tool && contract) throw new Error(`Unknown tool ${name}.${request.name}.`);
     // A contract's tool is the tool as its server listed it.
@@ -124,14 +127,16 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
         try {
           result = await client.callTool(next, sent);
         } catch (error) {
-          if (connection && isUploadRequest(error)) {
+          const extended = extensionResult(error);
+          if (connection && extended?.resultType === "upload_required") {
             if (uploaded) throw new Error(`${label}: the server asked for a second upload; the tool did not run.`);
-            const requestState = await upload(error.data, files, connection, options.signal, label);
+            const requestState = await upload(extended, files, connection, options.signal, label);
             uploaded = true;
             const { inputResponses, ...retry } = next;
             next = { ...retry, requestState };
             continue;
           }
+          if (isCreateTaskResult(extended)) return extended;
           if (uploaded) throw new Error(`${label}: the outcome is unknown; the tool may have run (${(error as { message?: unknown } | null | undefined)?.message ?? error}).`, { cause: error });
           throw error;
         }
@@ -146,11 +151,12 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
         next = { ...next, inputResponses, requestState: result.requestState };
       }
     });
-    if (isInputRequiredResult(result)) return result;
+    if (isInputRequiredResult(result) || isCreateTaskResult(result)) return result;
     if (!result.isError) tool?.output?.(result.structuredContent);
     // isError tells ToolResult's success variant from its error variant.
     return { ...result, resultType: "complete" } as ToolResult<unknown>;
   };
+  const callTool = call as RuntimeClient["callTool"];
   const tools: Record<string, RuntimeClient["tools"][string]> = Object.create(null);
   for (const [toolName, { output }] of definitions) if (!reserved.has(toolName)) {
     tools[toolName] = async (input, options) => {
@@ -160,7 +166,7 @@ function tools(link: Link, contract: Contract | null, expect: Expect): Pick<Runt
     };
   }
   // Generated clients narrow callTool to their contract's tools and outputs, which validation upholds.
-  return { callTool: callTool as RuntimeClient["callTool"], tools: Object.freeze(tools) };
+  return { callTool, tools: Object.freeze(tools) };
 }
 
 function resources(link: Link, contract: Contract | null, expect: Expect): SessionClient<RuntimeClient>["resources"] {

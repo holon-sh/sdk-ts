@@ -82,12 +82,12 @@ test("a session binding passes a call and its signal to the session, and a custo
   const contract = { tools: [{ name: "get_order", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } }], resources: [{ uri: "orders://summary", outputSchema: { type: "object", properties: { total: { type: "number" } }, required: ["total"] } }] };
   const identity = { name: "checkout", version: "1", requires: { orders: {} } };
   const calls: unknown[] = [];
-  const signal = new AbortController().signal;
+  const controller = new AbortController();
   const session: ToolSession = {
-    callTool: async (request, options) => { calls.push([request, options?.signal === signal]); return { content: [] }; },
+    callTool: async (request, options) => { controller.abort(); calls.push([request, options?.signal?.aborted]); return { content: [] }; },
     readResource: async request => ({ contents: [{ uri: request.uri, text: '{"total":7}' }] }),
   };
-  await bindApps(identity, { orders: contract }, { orders: { session } }).orders.tools.get_order({ id: "s" }, { signal });
+  await bindApps(identity, { orders: contract }, { orders: { session } }).orders.tools.get_order({ id: "s" }, { signal: controller.signal });
   assert.deepEqual(calls, [[{ name: "get_order", arguments: { id: "s" } }, true]]);
   const validator = (schema: object) => { assert.deepEqual(schema, contract.resources[0].outputSchema); return Object.assign(() => false, { errors: ["rejected"] }); };
   await assert.rejects(bindApps(identity, { orders: contract }, { orders: { session } }, { validator }).orders.resources["orders://summary"].read(), /\["rejected"\]/);

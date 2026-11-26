@@ -1,4 +1,4 @@
-import type { AuthProvider as BearerAuthProvider, CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequiredResult, InputResponses, ListToolsResult, OAuthClientProvider, RequestOptions } from "@modelcontextprotocol/client";
+import type { AuthProvider as BearerAuthProvider, CallToolRequest, CallToolResult, ElicitRequestParams, ElicitResult, InputRequests, InputRequiredResult, InputResponses, JSONRPCErrorResponse, ListToolsResult, OAuthClientProvider, RequestOptions, Result } from "@modelcontextprotocol/client";
 import type { Download } from "./ext/files.js";
 
 /** Bearer-token or OAuth provider accepted by the MCP transport. */
@@ -22,6 +22,17 @@ type Completed = Omit<Fields<CallToolResult>, "structuredContent" | "isError"> &
 export type CompleteResult<Output> = Completed & { isError?: false; structuredContent: Output };
 /** Full tool result: successful typed output, an application error, or an input-required continuation. */
 export type ToolResult<Output> = CompleteResult<Output> | (Completed & { isError: true; structuredContent?: unknown }) | InputRequiredResult;
+
+/** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#tasks-1 */
+interface TaskFields { taskId: string; statusMessage?: string; createdAt: string; lastUpdatedAt: string; ttlMs: number | null; pollIntervalMs?: number }
+export type Task = TaskFields & (
+  | { status: "working" | "cancelled" }
+  | { status: "input_required"; inputRequests: InputRequests }
+  | { status: "completed"; result: CallToolResult }
+  | { status: "failed"; error: JSONRPCErrorResponse["error"] }
+);
+/** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-creation */
+export type CreateTaskResult = TaskFields & { resultType: "task"; status: Task["status"] };
 
 function json(text: string | undefined): unknown {
   try { return text === undefined ? undefined : JSON.parse(text); } catch { return undefined; }
@@ -114,6 +125,14 @@ export interface ToolClient<I, O, R, E extends Record<string, { arguments: unkno
   readonly tools: { readonly [K in Exclude<keyof I, "then" | "toJSON" | "toString" | "valueOf" | "toLocaleString">]: (input: I[K], options?: ToolCallOptions) => Promise<K extends keyof O ? O[K] : CompleteResult<unknown>> };
   /** Return the full MCP result, preserving error results and questions left unanswered. Successful output is contract-validated; the server validates arguments. */
   readonly callTool: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown>>;
+  /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-creation */
+  readonly startTask: <K extends keyof I & string>(request: CallMetadata & { name: K; arguments: I[K] }, options?: ToolCallOptions) => Promise<ToolResult<K extends keyof O ? O[K] : unknown> | CreateTaskResult>;
+  /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-polling */
+  readonly getTask: (taskId: string, options?: CallOptions) => Promise<Task>;
+  /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-update-requests */
+  readonly updateTask: (taskId: string, inputResponses: InputResponses, options?: CallOptions) => Promise<Result>;
+  /** https://github.com/modelcontextprotocol/ext-tasks/blob/main/specification/2026-07-28/tasks.md#task-cancellation */
+  readonly cancelTask: (taskId: string, options?: CallOptions) => Promise<Result>;
 }
 
 /** What the client C can do through a session something else owns, such as an MCP Apps host relaying for a view: call its tools and read its resources. */
